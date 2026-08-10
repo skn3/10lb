@@ -1,0 +1,825 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>The 10lb Challenge</title>
+  <meta name="theme-color" content="#0f766e" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="10lb" />
+  <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'%3E%3Crect width='180' height='180' rx='32' fill='%230f766e'/%3E%3Ctext x='90' y='112' font-size='72' text-anchor='middle' fill='white'%3E10%3C/text%3E%3C/svg%3E" />
+  <style>
+    :root { color-scheme: light; --bg:#f6f8fb; --card:#fff; --text:#0f172a; --muted:#64748b; --brand:#0f766e; --danger:#b91c1c; --ok:#15803d; --warn:#d97706; }
+    * { box-sizing:border-box; }
+    body { margin:0; font-family: Inter,system-ui,-apple-system,sans-serif; background:var(--bg); color:var(--text); }
+    header { position:sticky; top:0; z-index:2; background:#0f766e; color:#fff; padding:14px 16px; }
+    h1 { margin:0; font-size:1.05rem; }
+    nav { display:flex; gap:8px; padding:10px; flex-wrap:wrap; background:#ecfeff; border-bottom:1px solid #bae6fd; }
+    nav button { border:1px solid #cbd5e1; background:#fff; border-radius:999px; padding:8px 12px; font-weight:600; }
+    nav button.active { background:var(--brand); border-color:var(--brand); color:#fff; }
+    main { padding:12px; max-width:960px; margin:0 auto; }
+    .card { background:var(--card); border:1px solid #e2e8f0; border-radius:12px; padding:12px; margin-bottom:12px; box-shadow:0 1px 2px rgba(15,23,42,.04); }
+    .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+    .between { justify-content:space-between; }
+    input, select, button, textarea { font:inherit; }
+    input, select { width:100%; border:1px solid #cbd5e1; border-radius:10px; padding:8px; }
+    label { font-size:.9rem; color:#334155; font-weight:600; display:block; margin:8px 0 4px; }
+    .btn { border:0; background:var(--brand); color:#fff; padding:9px 12px; border-radius:10px; font-weight:700; }
+    .btn.secondary { background:#334155; }
+    .btn.danger { background:var(--danger); }
+    .muted { color:var(--muted); }
+    .error { color:var(--danger); font-weight:600; }
+    .ok { color:var(--ok); font-weight:600; }
+    .grid { display:grid; grid-template-columns:1fr; gap:10px; }
+    @media(min-width:760px){ .grid.two{grid-template-columns:1fr 1fr;} .grid.three{grid-template-columns:repeat(3,1fr);} }
+    .list { display:flex; flex-direction:column; gap:8px; }
+    .list-item { border:1px solid #e2e8f0; border-radius:10px; padding:10px; background:#fff; }
+    .list-item.active { border-color:#22c55e; background:#f0fdf4; }
+    .table { width:100%; border-collapse:collapse; font-size:.92rem; }
+    .table th,.table td { border-bottom:1px solid #e2e8f0; padding:8px 6px; text-align:left; }
+    .holiday { color:#94a3b8; }
+    .forfeit { color:#94a3b8; text-decoration:line-through; }
+    .tag { background:#f1f5f9; color:#334155; padding:2px 8px; border-radius:999px; font-size:.75rem; font-weight:700; }
+    .arrow-loss { color:#16a34a; }
+    .arrow-gain { color:#dc2626; }
+    .hidden { display:none !important; }
+    .small { font-size:.85rem; }
+    .week-nav button { border:1px solid #cbd5e1; background:#fff; border-radius:8px; padding:4px 8px; }
+    .pill { padding:3px 8px; border-radius:999px; font-size:.75rem; font-weight:700; }
+    .pill.warn { background:#fef3c7; color:#92400e; }
+    .pill.ok { background:#dcfce7; color:#166534; }
+  </style>
+</head>
+<body>
+  <header><h1>The 10lb Challenge</h1></header>
+  <nav id="nav"></nav>
+  <main id="app"></main>
+
+<script>
+const Config = { STORAGE_MODE: 'offline', DB_NAME: 'tenlb-challenge', DB_VERSION: 1 };
+
+const Utils = {
+  id: () => (crypto && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`),
+  money: (n) => `£${Number(n || 0).toFixed(2)}`,
+  round2: (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100,
+  pct: (n) => `${Number(n || 0).toFixed(2)}%`,
+  esc: (s) => String(s ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;'),
+  escAttr: (s) => String(s ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replace(/\"/g, '&quot;').replace(/'/g, '&#39;'),
+  safeNum: (v, d = 0) => {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : d;
+  },
+  date: (d) => d ? new Date(d).toLocaleDateString('en-GB') : '—',
+  weekdayName: (i) => ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][Number(i) || 0],
+  clone: (v) => JSON.parse(JSON.stringify(v))
+};
+
+const OfflineAdapter = (() => {
+  let db;
+  const open = () => new Promise((resolve, reject) => {
+    if (db) return resolve(db);
+    const req = indexedDB.open(Config.DB_NAME, Config.DB_VERSION);
+    req.onupgradeneeded = () => {
+      const x = req.result;
+      if (!x.objectStoreNames.contains('rounds')) x.createObjectStore('rounds', { keyPath: 'id' });
+      if (!x.objectStoreNames.contains('users')) x.createObjectStore('users', { keyPath: 'id' });
+      if (!x.objectStoreNames.contains('submissions')) {
+        const s = x.createObjectStore('submissions', { keyPath: 'id' });
+        s.createIndex('roundId', 'roundId', { unique: false });
+      }
+      if (!x.objectStoreNames.contains('weeklySnapshots')) x.createObjectStore('weeklySnapshots', { keyPath: 'id' });
+      if (!x.objectStoreNames.contains('settings')) x.createObjectStore('settings', { keyPath: 'key' });
+    };
+    req.onsuccess = () => { db = req.result; resolve(db); };
+    req.onerror = () => reject(req.error);
+  });
+
+  const run = async (stores, mode, fn) => {
+    const conn = await open();
+    return new Promise((resolve, reject) => {
+      const tx = conn.transaction(stores, mode);
+      const obj = Object.fromEntries(stores.map((s) => [s, tx.objectStore(s)]));
+      let out;
+      tx.oncomplete = () => resolve(out);
+      tx.onerror = () => reject(tx.error);
+      Promise.resolve(fn(obj, tx)).then((result) => { out = result; }).catch(reject);
+    });
+  };
+
+  const getAll = (store) => run([store], 'readonly', ({ [store]: s }) => new Promise((res, rej) => {
+    const req = s.getAll();
+    req.onsuccess = () => res(req.result || []);
+    req.onerror = () => rej(req.error);
+  }));
+
+  const put = (store, value) => run([store], 'readwrite', ({ [store]: s }) => new Promise((res, rej) => {
+    const req = s.put(value);
+    req.onsuccess = () => res(value);
+    req.onerror = () => rej(req.error);
+  }));
+
+  const get = (store, key) => run([store], 'readonly', ({ [store]: s }) => new Promise((res, rej) => {
+    const req = s.get(key);
+    req.onsuccess = () => res(req.result || null);
+    req.onerror = () => rej(req.error);
+  }));
+
+  return {
+    async init() {
+      await open();
+      const settings = await get('settings', 'app');
+      if (!settings) await put('settings', { key: 'app', seededAt: new Date().toISOString() });
+    },
+    listRounds: () => getAll('rounds'),
+    listUsers: () => getAll('users'),
+    listSubmissions: () => getAll('submissions'),
+    getRound: (id) => get('rounds', id),
+    getWeeklySnapshot: (roundId, weekNumber) => get('weeklySnapshots', `${roundId}:${weekNumber}`),
+    async upsertUsersByName(names) {
+      const cleaned = [...new Set(names.map((n) => n.trim()).filter(Boolean))];
+      if (!cleaned.length) return [];
+      return run(['users'], 'readwrite', ({ users }) => new Promise((resolve, reject) => {
+        const req = users.getAll();
+        req.onsuccess = () => {
+          const all = req.result || [];
+          const map = new Map(all.map((u) => [u.name.toLowerCase(), u]));
+          const out = [];
+          cleaned.forEach((name) => {
+            const key = name.toLowerCase();
+            let user = map.get(key);
+            if (!user) {
+              user = { id: Utils.id(), name, createdAt: new Date().toISOString() };
+              users.put(user);
+              map.set(key, user);
+            }
+            out.push(user);
+          });
+          resolve(out);
+        };
+        req.onerror = () => reject(req.error);
+      }));
+    },
+    async createRound(roundInput) {
+      return run(['rounds', 'users'], 'readwrite', ({ rounds, users }) => new Promise((resolve, reject) => {
+        const allReq = users.getAll();
+        allReq.onsuccess = () => {
+          const existing = allReq.result || [];
+          const map = new Map(existing.map((u) => [u.name.toLowerCase(), u]));
+          const participantIds = [];
+          roundInput.userNames.forEach((name) => {
+            const key = name.toLowerCase();
+            let user = map.get(key);
+            if (!user) {
+              user = { id: Utils.id(), name, createdAt: new Date().toISOString() };
+              users.put(user);
+              map.set(key, user);
+            }
+            participantIds.push(user.id);
+          });
+          const round = {
+            id: Utils.id(),
+            title: roundInput.title,
+            weeksCount: Utils.safeNum(roundInput.weeksCount),
+            holidaysAllowed: Utils.safeNum(roundInput.holidaysAllowed),
+            entryFee: Utils.safeNum(roundInput.entryFee),
+            startDate: roundInput.startDate,
+            weighDay: Utils.safeNum(roundInput.weighDay),
+            participantIds,
+            payoutMode: roundInput.payoutMode,
+            prizeSplits: roundInput.prizeSplits,
+            status: 'active',
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          };
+          rounds.put(round);
+          resolve(round);
+        };
+        allReq.onerror = () => reject(allReq.error);
+      }));
+    },
+    updateRound: async (round) => put('rounds', { ...round, updatedAt: new Date().toISOString() }),
+    deleteRound: async (id) => {
+      const [allSubs, allSnapshots] = await Promise.all([getAll('submissions'), getAll('weeklySnapshots')]);
+      return run(['rounds', 'submissions', 'weeklySnapshots'], 'readwrite', ({ rounds, submissions, weeklySnapshots }) => {
+        rounds.delete(id);
+        allSubs.filter((s) => s.roundId === id).forEach((s) => submissions.delete(s.id));
+        allSnapshots.filter((s) => s.roundId === id).forEach((s) => weeklySnapshots.delete(s.id));
+      });
+    },
+    async recordSubmissionAndSnapshot(submission, snapshot) {
+      return run(['submissions', 'weeklySnapshots'], 'readwrite', ({ submissions, weeklySnapshots }) => {
+        submissions.put(submission);
+        weeklySnapshots.put(snapshot);
+      });
+    }
+  };
+})();
+
+const FirebaseAdapter = {
+  init: async () => { throw new Error('Firebase adapter is not configured yet.'); }
+};
+
+const Data = {
+  adapter: null,
+  async init() {
+    this.adapter = Config.STORAGE_MODE === 'offline' ? OfflineAdapter : FirebaseAdapter;
+    await this.adapter.init();
+  }
+};
+
+const Domain = {
+  suggestTitle(lastRound) {
+    const y = new Date().getFullYear();
+    if (!lastRound?.title) return `${y} - round 1`;
+    const m = lastRound.title.match(/(\d{4})\s*-\s*round\s*(\d+)/i);
+    if (!m) return `${y} - round 1`;
+    const year = Number(m[1]);
+    const round = Number(m[2]);
+    return `${y} - round ${year === y ? round + 1 : 1}`;
+  },
+  activeRound(rounds) { return rounds.find((r) => r.status === 'active') || null; },
+  userMap(users) { return new Map(users.map((u) => [u.id, u])); },
+  roundUsers(round, users) {
+    const map = this.userMap(users);
+    return round.participantIds.map((id) => map.get(id)).filter(Boolean);
+  },
+  submissionsByRound(submissions, roundId) { return submissions.filter((s) => s.roundId === roundId); },
+  submissionFor(subs, week, userId) { return subs.find((s) => s.weekNumber === week && s.userId === userId) || null; },
+  latestWeight(subs, userId, weekLimit) {
+    return subs.filter((s) => s.userId === userId && s.type === 'weight' && s.weekNumber <= weekLimit)
+      .sort((a, b) => b.weekNumber - a.weekNumber)[0] || null;
+  },
+  firstWeight(subs, userId) {
+    return subs.filter((s) => s.userId === userId && s.type === 'weight' && s.weekNumber === 1)[0] || null;
+  },
+  isForfeit(subs, userId, week) {
+    return subs.some((s) => s.userId === userId && s.type === 'forfeit' && s.weekNumber <= week);
+  },
+  holidaysUsed(subs, userId, week = Infinity) {
+    return subs.filter((s) => s.userId === userId && s.type === 'holiday' && s.weekNumber <= week).length;
+  },
+  calcCurrentWeek(round, users, subs) {
+    const participants = this.roundUsers(round, users);
+    if (!participants.length) return 1;
+    const maxWeek = Math.max(1, ...subs.map((s) => s.weekNumber));
+    const weekComplete = (w) => this.isWeekComplete(round, users, subs, w);
+    let week = 1;
+    for (let w = 1; w <= round.weeksCount; w += 1) {
+      week = w;
+      if (!weekComplete(w)) return w;
+    }
+    return Math.min(round.weeksCount, maxWeek);
+  },
+  isWeekComplete(round, users, subs, week) {
+    return this.roundUsers(round, users).every((u) => {
+      if (this.isForfeit(subs, u.id, week)) return true;
+      return !!this.submissionFor(subs, week, u.id);
+    });
+  },
+  weekView(round, users, subs, week) {
+    const participants = this.roundUsers(round, users);
+    const ranked = [];
+    const holiday = [];
+    const forfeit = [];
+    const pending = [];
+    const startWeights = [];
+
+    participants.forEach((u) => {
+      const start = this.firstWeight(subs, u.id);
+      if (start) startWeights.push({ user: u, weight: start.weight });
+
+      if (this.isForfeit(subs, u.id, week)) {
+        forfeit.push({ user: u });
+        return;
+      }
+
+      const currentSubmission = this.submissionFor(subs, week, u.id);
+      if (!currentSubmission) {
+        pending.push({ user: u });
+        return;
+      }
+      if (currentSubmission.type === 'holiday') {
+        holiday.push({ user: u, holidaysUsed: this.holidaysUsed(subs, u.id, week) });
+        return;
+      }
+      if (currentSubmission.type !== 'weight' || !start) {
+        pending.push({ user: u });
+        return;
+      }
+
+      const prevWeightSubmission = this.latestWeight(subs, u.id, week - 1);
+      const startWeight = Utils.safeNum(start.weight);
+      const currentWeight = Utils.safeNum(currentSubmission.weight);
+      const previousWeight = prevWeightSubmission ? Utils.safeNum(prevWeightSubmission.weight) : startWeight;
+      const totalLoss = Utils.round2(startWeight - currentWeight);
+      const weeklyLoss = Utils.round2(previousWeight - currentWeight);
+      const percentLoss = startWeight > 0 ? Utils.round2((totalLoss / startWeight) * 100) : 0;
+      ranked.push({ user: u, startWeight, currentWeight, totalLoss, weeklyLoss, percentLoss });
+    });
+
+    ranked.sort((a, b) => b.percentLoss - a.percentLoss);
+    return { ranked, holiday, forfeit, pending, startWeights };
+  },
+  payoutRankIndices(round) {
+    return (round.prizeSplits || []).map((v, i) => ({ v: Utils.safeNum(v), i })).filter((x) => x.v > 0).map((x) => x.i);
+  },
+  prizeTotal(round) { return Utils.round2(round.entryFee * round.participantIds.length); }
+};
+
+const App = {
+  state: {
+    route: 'overview',
+    message: '',
+    error: '',
+    rounds: [],
+    users: [],
+    submissions: [],
+    selectedRoundId: null,
+    weekCursor: {},
+    createDraft: null
+  },
+
+  async init() {
+    this.attachNav();
+    await Data.init();
+    await this.refresh();
+    this.setupPwa();
+    this.render();
+  },
+
+  setupPwa() {
+    const manifest = {
+      name: 'The 10lb Challenge',
+      short_name: '10lb',
+      start_url: './',
+      display: 'standalone',
+      background_color: '#f6f8fb',
+      theme_color: '#0f766e',
+      icons: [{ src: 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 180 180%22%3E%3Crect width=%22180%22 height=%22180%22 rx=%2232%22 fill=%22%230f766e%22/%3E%3Ctext x=%2290%22 y=%22112%22 font-size=%2272%22 text-anchor=%22middle%22 fill=%22white%22%3E10%3C/text%3E%3C/svg%3E', sizes: '180x180', type: 'image/svg+xml' }]
+    };
+    const blob = new Blob([JSON.stringify(manifest)], { type: 'application/manifest+json' });
+    const link = document.createElement('link');
+    link.rel = 'manifest';
+    link.href = URL.createObjectURL(blob);
+    document.head.appendChild(link);
+
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('./sw.js').catch(() => {});
+    }
+  },
+
+  attachNav() {
+    const nav = document.getElementById('nav');
+    nav.innerHTML = [
+      ['overview', 'Current Round'],
+      ['rounds', 'Rounds'],
+      ['create', 'Create'],
+      ['submit', 'Submit']
+    ].map(([key, label]) => `<button data-route="${key}">${label}</button>`).join('');
+    nav.addEventListener('click', (e) => {
+      const b = e.target.closest('button[data-route]');
+      if (!b) return;
+      this.state.route = b.dataset.route;
+      this.state.error = '';
+      this.state.message = '';
+      this.render();
+    });
+  },
+
+  async refresh() {
+    this.state.rounds = await Data.adapter.listRounds();
+    this.state.users = await Data.adapter.listUsers();
+    this.state.submissions = await Data.adapter.listSubmissions();
+    const active = Domain.activeRound(this.state.rounds);
+    if (!this.state.selectedRoundId) this.state.selectedRoundId = active?.id || this.state.rounds[0]?.id || null;
+  },
+
+  setMessage(msg = '', err = '') { this.state.message = msg; this.state.error = err; },
+
+  currentRound() {
+    if (this.state.selectedRoundId) {
+      const exact = this.state.rounds.find((r) => r.id === this.state.selectedRoundId);
+      if (exact) return exact;
+    }
+    return Domain.activeRound(this.state.rounds) || this.state.rounds[0] || null;
+  },
+
+  render() {
+    document.querySelectorAll('#nav button').forEach((b) => b.classList.toggle('active', b.dataset.route === this.state.route));
+    const app = document.getElementById('app');
+    const flash = `${this.state.error ? `<p class="error">${this.state.error}</p>` : ''}${this.state.message ? `<p class="ok">${this.state.message}</p>` : ''}`;
+    if (this.state.route === 'overview') app.innerHTML = flash + this.renderOverview();
+    if (this.state.route === 'rounds') app.innerHTML = flash + this.renderRoundList();
+    if (this.state.route === 'create') app.innerHTML = flash + this.renderCreate();
+    if (this.state.route === 'edit') app.innerHTML = flash + this.renderEdit();
+    if (this.state.route === 'delete') app.innerHTML = flash + this.renderDelete();
+    if (this.state.route === 'submit') app.innerHTML = flash + this.renderSubmit();
+    this.bindScreenEvents();
+  },
+
+  renderOverview() {
+    const round = this.currentRound();
+    if (!round) return `<div class="card"><h2>No challenges active</h2><p class="muted">Start a new round to begin.</p><button class="btn" data-go="create">Start New Round</button></div>`;
+    const subs = Domain.submissionsByRound(this.state.submissions, round.id);
+    const currentWeek = Domain.calcCurrentWeek(round, this.state.users, subs);
+    const selectedWeek = this.state.weekCursor[round.id] || Math.min(currentWeek, round.weeksCount);
+    const view = Domain.weekView(round, this.state.users, subs, selectedWeek);
+    const prizeRanks = Domain.payoutRankIndices(round);
+    const isFinalComplete = Domain.isWeekComplete(round, this.state.users, subs, round.weeksCount);
+    const prizeEmoji = ['🏆','🥈','🥉','🎖️','🎗️','⭐','✨'];
+
+    return `<div class="card">
+      <div class="row between">
+        <h2 style="margin:0">${Utils.esc(round.title)}</h2>
+        <span class="tag">${round.status}</span>
+      </div>
+      <div class="row small muted">
+        <span>${round.participantIds.length} participants</span><span>•</span>
+        <span>${round.weeksCount} weeks</span><span>•</span>
+        <span>Weigh day: ${Utils.weekdayName(round.weighDay)}</span>
+      </div>
+      <div class="row between week-nav" style="margin-top:8px">
+        <button data-week-nav="prev">◀</button>
+        <strong>Week ${selectedWeek} of ${round.weeksCount}</strong>
+        <button data-week-nav="next">▶</button>
+      </div>
+      <div class="small muted" style="margin-top:6px">Current progress week: ${currentWeek} / ${round.weeksCount}</div>
+      ${selectedWeek === 1 ? `<div class="card" style="margin-top:10px"><strong>Start weights</strong>${view.startWeights.length ? `<ul>${view.startWeights.map((x)=>`<li>${Utils.esc(x.user.name)}: ${x.weight}kg</li>`).join('')}</ul>` : '<p class="muted">No start weights submitted yet.</p>'}</div>` : ''}
+      ${selectedWeek >= 2 ? `<div class="card" style="margin-top:10px"><strong>Leaderboard</strong>
+      <table class="table"><thead><tr><th>Rank</th><th>User</th><th>% Lost</th><th>This Week</th><th>Total</th></tr></thead><tbody>
+      ${view.ranked.map((r, i) => {
+        const rank = i + 1;
+        const prize = prizeRanks.includes(i) ? ` ${prizeEmoji[i] || '🏅'}` : '';
+        const delta = r.weeklyLoss > 0 ? `<span class="arrow-loss">⬇ ${r.weeklyLoss}kg</span>` : (r.weeklyLoss < 0 ? `<span class="arrow-gain">⬆ ${Math.abs(r.weeklyLoss)}kg</span>` : '—');
+        return `<tr><td>${rank}${prize}</td><td>${Utils.esc(r.user.name)}</td><td>${Utils.pct(r.percentLoss)}</td><td>${delta}</td><td>${r.totalLoss}kg</td></tr>`;
+      }).join('') || '<tr><td colspan="5" class="muted">No leaderboard data yet.</td></tr>'}
+      </tbody></table>
+      ${view.holiday.length ? `<h4>Holiday</h4><ul>${view.holiday.map((x)=>`<li class="holiday">${Utils.esc(x.user.name)} (used ${x.holidaysUsed}/${round.holidaysAllowed})</li>`).join('')}</ul>`:''}
+      ${view.forfeit.length ? `<h4>Forfeit</h4><ul>${view.forfeit.map((x)=>`<li class="forfeit">${Utils.esc(x.user.name)}</li>`).join('')}</ul>`:''}
+      ${view.pending.length ? `<h4>Pending</h4><ul>${view.pending.map((x)=>`<li>${Utils.esc(x.user.name)}</li>`).join('')}</ul>`:''}
+      </div>` : ''}
+      ${selectedWeek === round.weeksCount && isFinalComplete ? `<div class="card"><strong>Final winners</strong><ol>${view.ranked.slice(0, prizeRanks.length).map((r, i)=>`<li>${Utils.esc(r.user.name)} — ${Utils.money(round.prizeSplits[i] || 0)}</li>`).join('')}</ol></div>` : ''}
+      ${round.status === 'active' ? `<div class="row"><button class="btn secondary" data-go="edit">Edit Round</button><button class="btn danger" data-go="delete">Delete Round</button></div>` : ''}
+    </div>`;
+  },
+
+  renderRoundList() {
+    const active = Domain.activeRound(this.state.rounds);
+    return `<div class="card"><div class="row between"><h2 style="margin:0">Challenge Rounds</h2>${!active ? '<button class="btn" data-go="create">Start New Round</button>' : ''}</div>
+      <div class="list" style="margin-top:10px">${this.state.rounds.length ? this.state.rounds.map((r) => {
+        const subs = Domain.submissionsByRound(this.state.submissions, r.id);
+        const progress = Domain.calcCurrentWeek(r, this.state.users, subs);
+        const prize = Utils.money(Domain.prizeTotal(r));
+        return `<button class="list-item ${r.status === 'active' ? 'active' : ''}" data-open-round="${r.id}">
+          <div class="row between"><strong>${Utils.esc(r.title)}</strong>${r.status === 'active' ? '<span class="pill ok">ACTIVE</span>' : ''}</div>
+          <div class="small muted">${r.participantIds.length} participants • Week ${progress}/${r.weeksCount}</div>
+          <div class="small muted">${Utils.date(r.startDate)} → ${Utils.date(new Date(new Date(r.startDate).getTime() + ((r.weeksCount - 1) * 7 * 86400000)).toISOString())}</div>
+          <div class="small">Prize pool: ${prize}</div>
+        </button>`;
+      }).join('') : '<p class="muted">No rounds found.</p>'}</div></div>`;
+  },
+
+  createDefaults() {
+    const lastRound = [...this.state.rounds].sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt))[0];
+    const allNames = [...new Set(this.state.users.map((u)=>u.name))];
+    return {
+      title: Domain.suggestTitle(lastRound),
+      weeksCount: lastRound?.weeksCount || 10,
+      holidaysAllowed: lastRound?.holidaysAllowed || 2,
+      entryFee: lastRound?.entryFee || 10,
+      startDate: new Date().toISOString().slice(0,10),
+      weighDay: String(lastRound?.weighDay ?? 1),
+      selectedNames: lastRound ? Domain.roundUsers(lastRound, this.state.users).map((u)=>u.name) : allNames,
+      allNames,
+      newName: '',
+      payoutMode: lastRound?.payoutMode || 'preset3',
+      customMemory: (lastRound?.prizeSplits || [30,20,10]).map(String),
+      presetCurrent: (lastRound?.prizeSplits || [30,20,10]).map(String)
+    };
+  },
+
+  renderCreate() {
+    const active = Domain.activeRound(this.state.rounds);
+    if (active) {
+      return `<div class="card"><p class="error">A challenge is already active.</p><button class="btn secondary" data-go="rounds">Go to round list</button></div>`;
+    }
+    if (!this.state.createDraft) this.state.createDraft = this.createDefaults();
+    const d = this.state.createDraft;
+    const count = d.selectedNames.length;
+    const totalPrize = Utils.round2(Utils.safeNum(d.entryFee) * count);
+    const rows = (d.payoutMode === 'custom' ? d.customMemory : d.presetCurrent);
+    const sum = Utils.round2(rows.reduce((a,b)=>a+Utils.safeNum(b),0));
+    const over = sum > totalPrize;
+
+    return `<div class="card"><h2 style="margin-top:0">Create Challenge Round</h2>
+      <form id="create-form" class="grid two">
+        <div><label>Round title</label><input name="title" value="${Utils.escAttr(d.title)}" required /></div>
+        <div><label>Number of weeks</label><input type="number" min="1" max="52" name="weeksCount" value="${d.weeksCount}" required /></div>
+        <div><label>Number of holidays</label><input type="number" min="0" max="12" name="holidaysAllowed" value="${d.holidaysAllowed}" required /></div>
+        <div><label>Entry fee (£)</label><input type="number" step="0.01" min="0" name="entryFee" value="${d.entryFee}" required /></div>
+        <div><label>Start date</label><input type="date" name="startDate" value="${d.startDate}" required /></div>
+        <div><label>Weigh day</label><select name="weighDay">${['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'].map((x,i)=>`<option value="${i}" ${String(i)===String(d.weighDay)?'selected':''}>${x}</option>`).join('')}</select></div>
+
+        <div class="card" style="grid-column:1/-1"><div class="row between"><strong>Users (${count})</strong><div class="row"><button type="button" data-user-toggle="all" class="btn secondary small">Toggle all</button></div></div>
+          <div class="grid three" style="margin-top:8px">${d.allNames.map((n)=>`<label class="row"><input type="checkbox" data-user-name="${Utils.escAttr(n)}" ${d.selectedNames.includes(n)?'checked':''} style="width:auto"/> ${Utils.esc(n)}</label>`).join('') || '<p class="muted">No previous users yet.</p>'}</div>
+          <div class="row" style="margin-top:8px"><input id="new-user-name" placeholder="Add new user full name" value="${Utils.escAttr(d.newName || '')}"/><button type="button" class="btn" data-add-user="1">Add</button></div>
+        </div>
+
+        <div class="card" style="grid-column:1/-1">
+          <div class="row between"><strong>Prize payout calculator</strong><span class="tag">Pool ${Utils.money(totalPrize)}</span></div>
+          <label>Mode</label><select name="payoutMode" id="payout-mode">
+            <option value="preset3" ${d.payoutMode==='preset3'?'selected':''}>Pay top 3</option>
+            <option value="preset5" ${d.payoutMode==='preset5'?'selected':''}>Pay top 5</option>
+            <option value="preset7" ${d.payoutMode==='preset7'?'selected':''}>Pay top 7</option>
+            <option value="custom" ${d.payoutMode==='custom'?'selected':''}>Custom</option>
+          </select>
+          <div id="payout-rows" class="grid three" style="margin-top:8px">
+          ${rows.map((v,i)=>`<div><label>Rank ${i+1}</label><div class="row"><button type="button" class="btn secondary" data-pay-adjust="-1" data-pay-index="${i}">-</button><input type="number" step="0.01" data-pay-index="${i}" value="${Utils.safeNum(v)}"/><button type="button" class="btn secondary" data-pay-adjust="1" data-pay-index="${i}">+</button></div></div>`).join('')}
+          </div>
+          <p class="small ${over ? 'error' : 'muted'}">Entered total: ${Utils.money(sum)} ${over ? '(cannot exceed pool)' : ''}</p>
+        </div>
+
+        <div style="grid-column:1/-1" class="row">
+          <button class="btn" type="submit">Create Round</button>
+          <button class="btn secondary" type="button" data-go="rounds">Cancel</button>
+        </div>
+      </form></div>`;
+  },
+
+  renderEdit() {
+    const round = this.currentRound();
+    if (!round) return `<div class="card"><p class="muted">No round selected.</p></div>`;
+    const totalPrize = Utils.round2(round.entryFee * round.participantIds.length);
+    const sum = Utils.round2((round.prizeSplits || []).reduce((a,b)=>a+Utils.safeNum(b),0));
+    return `<div class="card"><h2 style="margin-top:0">Edit Challenge Round</h2>
+      <form id="edit-form" class="grid two">
+        <div><label>Title</label><input name="title" required value="${Utils.escAttr(round.title)}" /></div>
+        <div><label>Prize total</label><input disabled value="${Utils.money(totalPrize)}" /></div>
+        <div class="card" style="grid-column:1/-1"><strong>Prize splits</strong>
+          <div class="grid three" style="margin-top:8px">${(round.prizeSplits || []).map((v,i)=>`<div><label>Rank ${i+1}</label><input type="number" step="0.01" name="split-${i}" value="${Utils.safeNum(v)}"/></div>`).join('')}</div>
+          <p class="small ${sum > totalPrize ? 'error' : 'muted'}">Entered: ${Utils.money(sum)}</p>
+        </div>
+        <div class="row" style="grid-column:1/-1"><button class="btn" type="submit">Save</button><button type="button" class="btn secondary" data-go="overview">Cancel</button></div>
+      </form></div>`;
+  },
+
+  renderDelete() {
+    const round = this.currentRound();
+    if (!round) return `<div class="card"><p class="muted">No round selected.</p></div>`;
+    return `<div class="card"><h2>Delete Challenge Round</h2><p class="error">This cannot be undone.</p>
+      <form id="delete-form">
+        <label class="row"><input type="checkbox" id="confirm-delete" style="width:auto"/> I confirm delete <strong>${Utils.esc(round.title)}</strong></label>
+        <div class="row" style="margin-top:10px"><button class="btn danger" type="submit">Delete round</button><button type="button" class="btn secondary" data-go="overview">Cancel</button></div>
+      </form></div>`;
+  },
+
+  renderSubmit() {
+    const round = Domain.activeRound(this.state.rounds);
+    if (!round) return `<div class="card"><p class="error">Weekly submissions are only available when a challenge is active.</p></div>`;
+    const subs = Domain.submissionsByRound(this.state.submissions, round.id);
+    const week = Domain.calcCurrentWeek(round, this.state.users, subs);
+    const users = Domain.roundUsers(round, this.state.users).filter((u) => !Domain.isForfeit(subs, u.id, week));
+    const available = users.filter((u) => !Domain.submissionFor(subs, week, u.id));
+
+    return `<div class="card"><h2 style="margin-top:0">User Weekly Submission</h2>
+      <p class="small muted">Active round: ${Utils.esc(round.title)} • Week ${week}</p>
+      <form id="submit-form" class="grid two">
+        <div><label>User</label><select name="userId" required><option value="">Select user</option>${available.map((u)=>`<option value="${u.id}">${Utils.esc(u.name)}</option>`).join('')}</select></div>
+        <div><label>Action</label><select name="action" required><option value="weight">Upload weight</option><option value="holiday">Holiday</option><option value="forfeit">Forfeit</option></select></div>
+        <div id="weight-fields" style="grid-column:1/-1" class="grid two">
+          <div><label>Scale photo</label><input name="photo" type="file" accept="image/*" /></div>
+          <div><label>Weight (kg)</label><input name="weight" type="number" step="0.01" min="1" /></div>
+        </div>
+        <div id="holiday-note" class="small muted" style="grid-column:1/-1"></div>
+        <div id="forfeit-confirm-wrap" class="hidden" style="grid-column:1/-1"><label class="row"><input type="checkbox" id="forfeit-confirm" style="width:auto"/> Confirm user forfeit</label></div>
+        <div style="grid-column:1/-1" class="row"><button class="btn" type="submit">Submit</button></div>
+      </form></div>`;
+  },
+
+  bindScreenEvents() {
+    document.querySelectorAll('[data-go]').forEach((el) => el.onclick = () => { this.state.route = el.dataset.go; this.render(); });
+
+    const roundBtns = document.querySelectorAll('[data-open-round]');
+    roundBtns.forEach((b) => b.onclick = () => { this.state.selectedRoundId = b.dataset.openRound; this.state.route = 'overview'; this.render(); });
+
+    const weekNav = document.querySelectorAll('[data-week-nav]');
+    weekNav.forEach((b) => b.onclick = () => {
+      const round = this.currentRound();
+      if (!round) return;
+      const curr = this.state.weekCursor[round.id] ?? Math.min(
+        Domain.calcCurrentWeek(round, this.state.users, Domain.submissionsByRound(this.state.submissions, round.id)),
+        round.weeksCount
+      );
+      const next = b.dataset.weekNav === 'prev' ? Math.max(1, curr - 1) : Math.min(round.weeksCount, curr + 1);
+      this.state.weekCursor[round.id] = next;
+      this.render();
+    });
+
+    const createForm = document.getElementById('create-form');
+    if (createForm) {
+      createForm.oninput = (e) => {
+        const d = this.state.createDraft;
+        if (!d) return;
+        if (['title','weeksCount','holidaysAllowed','entryFee','startDate','weighDay'].includes(e.target.name)) d[e.target.name] = e.target.value;
+        if (e.target.name === 'payoutMode') {
+          d.payoutMode = e.target.value;
+          const size = d.payoutMode === 'preset3' ? 3 : d.payoutMode === 'preset5' ? 5 : d.payoutMode === 'preset7' ? 7 : d.customMemory.length || 3;
+          if (d.payoutMode !== 'custom') {
+            const pool = Utils.round2(Utils.safeNum(d.entryFee) * d.selectedNames.length);
+            const even = size ? Utils.round2(pool / size) : 0;
+            d.presetCurrent = Array.from({ length:size }, (_,i) => i === size - 1 ? String(Utils.round2(pool - (even * (size - 1)))) : String(even));
+          }
+          this.render();
+        }
+        if (e.target.dataset.payIndex !== undefined) {
+          const idx = Number(e.target.dataset.payIndex);
+          const arr = d.payoutMode === 'custom' ? d.customMemory : d.presetCurrent;
+          arr[idx] = e.target.value;
+        }
+      };
+
+      createForm.querySelectorAll('[data-user-name]').forEach((c) => c.onchange = () => {
+        const d = this.state.createDraft;
+        const name = c.dataset.userName;
+        if (c.checked) d.selectedNames = [...new Set([...d.selectedNames, name])];
+        else d.selectedNames = d.selectedNames.filter((x)=>x!==name);
+        this.render();
+      });
+
+      createForm.querySelector('[data-user-toggle="all"]').onclick = () => {
+        const d = this.state.createDraft;
+        d.selectedNames = d.selectedNames.length === d.allNames.length ? [] : [...d.allNames];
+        this.render();
+      };
+
+      createForm.querySelector('[data-add-user="1"]').onclick = () => {
+        const d = this.state.createDraft;
+        const val = document.getElementById('new-user-name').value.trim();
+        if (!val) return;
+        if (!d.allNames.includes(val)) d.allNames.push(val);
+        if (!d.selectedNames.includes(val)) d.selectedNames.push(val);
+        d.newName = '';
+        this.render();
+      };
+
+      createForm.querySelectorAll('[data-pay-adjust]').forEach((b) => b.onclick = () => {
+        const d = this.state.createDraft;
+        const i = Number(b.dataset.payIndex);
+        const inc = Number(b.dataset.payAdjust);
+        const arr = d.payoutMode === 'custom' ? d.customMemory : d.presetCurrent;
+        arr[i] = String(Math.max(0, Utils.round2(Utils.safeNum(arr[i]) + inc)));
+        this.render();
+      });
+
+      createForm.onsubmit = async (e) => {
+        e.preventDefault();
+        const d = this.state.createDraft;
+        const payout = (d.payoutMode === 'custom' ? d.customMemory : d.presetCurrent).map((v)=>Utils.round2(Utils.safeNum(v)));
+        const totalPrize = Utils.round2(Utils.safeNum(d.entryFee) * d.selectedNames.length);
+        const sum = Utils.round2(payout.reduce((a,b)=>a+b,0));
+        if (!d.selectedNames.length) return this.fail('Select at least one participant.');
+        if (sum > totalPrize) return this.fail('Prize splits cannot exceed prize pool.');
+        if (Domain.activeRound(this.state.rounds)) return this.fail('Only one active round is allowed.');
+        await Data.adapter.createRound({
+          title: d.title.trim(),
+          weeksCount: Utils.safeNum(d.weeksCount),
+          holidaysAllowed: Utils.safeNum(d.holidaysAllowed),
+          entryFee: Utils.safeNum(d.entryFee),
+          startDate: d.startDate,
+          weighDay: Utils.safeNum(d.weighDay),
+          userNames: d.selectedNames,
+          payoutMode: d.payoutMode,
+          prizeSplits: payout
+        });
+        this.state.createDraft = null;
+        await this.refresh();
+        this.setMessage('Challenge round created.');
+        this.state.route = 'overview';
+        this.render();
+      };
+    }
+
+    const editForm = document.getElementById('edit-form');
+    if (editForm) {
+      editForm.onsubmit = async (e) => {
+        e.preventDefault();
+        const round = this.currentRound();
+        if (!round) return;
+        const title = editForm.title.value.trim();
+        const prizeSplits = (round.prizeSplits || []).map((_, i) => Utils.round2(Utils.safeNum(editForm[`split-${i}`].value)));
+        const totalPrize = Utils.round2(round.entryFee * round.participantIds.length);
+        const sum = Utils.round2(prizeSplits.reduce((a,b)=>a+b,0));
+        if (sum > totalPrize) return this.fail('Prize splits cannot exceed total prize pool.');
+        await Data.adapter.updateRound({ ...round, title, prizeSplits });
+        await this.refresh();
+        this.setMessage('Round updated.');
+        this.state.route = 'overview';
+        this.render();
+      };
+    }
+
+    const del = document.getElementById('delete-form');
+    if (del) {
+      del.onsubmit = async (e) => {
+        e.preventDefault();
+        const ok = document.getElementById('confirm-delete').checked;
+        if (!ok) return this.fail('Confirm deletion to continue.');
+        const round = this.currentRound();
+        if (!round) return;
+        await Data.adapter.deleteRound(round.id);
+        this.state.selectedRoundId = null;
+        await this.refresh();
+        this.setMessage('Round deleted.');
+        this.state.route = 'rounds';
+        this.render();
+      };
+    }
+
+    const submitForm = document.getElementById('submit-form');
+    if (submitForm) {
+      const updateSubmitUI = () => {
+        const round = Domain.activeRound(this.state.rounds);
+        if (!round) return;
+        const userId = submitForm.userId.value;
+        const action = submitForm.action.value;
+        const subs = Domain.submissionsByRound(this.state.submissions, round.id);
+        const week = Domain.calcCurrentWeek(round, this.state.users, subs);
+        const holidayNote = document.getElementById('holiday-note');
+        const weightFields = document.getElementById('weight-fields');
+        const forfeitWrap = document.getElementById('forfeit-confirm-wrap');
+        weightFields.classList.toggle('hidden', action !== 'weight');
+        forfeitWrap.classList.toggle('hidden', action !== 'forfeit');
+        if (action === 'holiday' && userId) {
+          const used = Domain.holidaysUsed(subs, userId, week);
+          holidayNote.textContent = `Holidays used: ${used} / ${round.holidaysAllowed}`;
+          holidayNote.className = used >= round.holidaysAllowed ? 'small error' : 'small muted';
+        } else holidayNote.textContent = '';
+      };
+      submitForm.onchange = updateSubmitUI;
+      updateSubmitUI();
+
+      submitForm.onsubmit = async (e) => {
+        e.preventDefault();
+        const round = Domain.activeRound(this.state.rounds);
+        if (!round) return this.fail('No active challenge.');
+        const subs = Domain.submissionsByRound(this.state.submissions, round.id);
+        const week = Domain.calcCurrentWeek(round, this.state.users, subs);
+        const userId = submitForm.userId.value;
+        const action = submitForm.action.value;
+        if (!userId) return this.fail('Select a user.');
+        if (Domain.isForfeit(subs, userId, week)) return this.fail('User has already forfeited.');
+        if (Domain.submissionFor(subs, week, userId)) return this.fail('User already submitted this week.');
+
+        let weight = null;
+        let photoName = null;
+        if (action === 'weight') {
+          weight = Utils.round2(Utils.safeNum(submitForm.weight.value));
+          if (!weight || weight <= 0) return this.fail('Enter a valid weight.');
+          photoName = submitForm.photo.files?.[0]?.name || null;
+        }
+        if (action === 'holiday') {
+          const used = Domain.holidaysUsed(subs, userId, week);
+          if (used >= round.holidaysAllowed) return this.fail('No holidays remaining for this user.');
+        }
+        if (action === 'forfeit') {
+          if (!document.getElementById('forfeit-confirm').checked) return this.fail('Confirm forfeit first.');
+        }
+
+        const submission = {
+          id: Utils.id(), roundId: round.id, weekNumber: week, userId,
+          type: action, weight, photoName,
+          createdAt: new Date().toISOString()
+        };
+
+        const nextSubs = [...subs, submission];
+        const snapshotData = Domain.weekView(round, this.state.users, nextSubs, week);
+        const snapshot = {
+          id: `${round.id}:${week}`,
+          roundId: round.id,
+          weekNumber: week,
+          generatedAt: new Date().toISOString(),
+          data: snapshotData
+        };
+
+        await Data.adapter.recordSubmissionAndSnapshot(submission, snapshot);
+        const finalComplete = Domain.isWeekComplete(round, this.state.users, nextSubs, round.weeksCount);
+        if (finalComplete && round.status === 'active') await Data.adapter.updateRound({ ...round, status: 'completed' });
+
+        await this.refresh();
+        this.setMessage('Submission saved.');
+        this.render();
+      };
+    }
+  },
+
+  fail(msg) { this.setMessage('', msg); this.render(); }
+};
+
+App.init().catch((e) => {
+  const app = document.getElementById('app');
+  app.innerHTML = `<div class="card"><p class="error">Failed to initialize app.</p><pre>${String(e.message || e)}</pre></div>`;
+});
+</script>
+</body>
+</html>
