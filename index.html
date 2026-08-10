@@ -64,6 +64,8 @@ const Utils = {
   money: (n) => `£${Number(n || 0).toFixed(2)}`,
   round2: (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100,
   pct: (n) => `${Number(n || 0).toFixed(2)}%`,
+  esc: (s) => String(s ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;'),
+  escAttr: (s) => String(s ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replace(/\"/g, '&quot;').replace(/'/g, '&#39;'),
   safeNum: (v, d = 0) => {
     const n = Number(v);
     return Number.isFinite(n) ? n : d;
@@ -197,19 +199,14 @@ const OfflineAdapter = (() => {
       }));
     },
     updateRound: async (round) => put('rounds', { ...round, updatedAt: new Date().toISOString() }),
-    deleteRound: async (id) => run(['rounds', 'submissions', 'weeklySnapshots'], 'readwrite', async ({ rounds, submissions, weeklySnapshots }) => {
-      rounds.delete(id);
-      (await new Promise((res, rej) => {
-        const req = submissions.getAll();
-        req.onsuccess = () => res(req.result || []);
-        req.onerror = () => rej(req.error);
-      })).filter((s) => s.roundId === id).forEach((s) => submissions.delete(s.id));
-      (await new Promise((res, rej) => {
-        const req = weeklySnapshots.getAll();
-        req.onsuccess = () => res(req.result || []);
-        req.onerror = () => rej(req.error);
-      })).filter((s) => s.roundId === id).forEach((s) => weeklySnapshots.delete(s.id));
-    }),
+    deleteRound: async (id) => {
+      const [allSubs, allSnapshots] = await Promise.all([getAll('submissions'), getAll('weeklySnapshots')]);
+      return run(['rounds', 'submissions', 'weeklySnapshots'], 'readwrite', ({ rounds, submissions, weeklySnapshots }) => {
+        rounds.delete(id);
+        allSubs.filter((s) => s.roundId === id).forEach((s) => submissions.delete(s.id));
+        allSnapshots.filter((s) => s.roundId === id).forEach((s) => weeklySnapshots.delete(s.id));
+      });
+    },
     async recordSubmissionAndSnapshot(submission, snapshot) {
       return run(['submissions', 'weeklySnapshots'], 'readwrite', ({ submissions, weeklySnapshots }) => {
         submissions.put(submission);
@@ -239,7 +236,7 @@ const Domain = {
     if (!m) return `${y} - round 1`;
     const year = Number(m[1]);
     const round = Number(m[2]);
-    return `${year === y ? y : y} - round ${year === y ? round + 1 : 1}`;
+    return `${y} - round ${year === y ? round + 1 : 1}`;
   },
   activeRound(rounds) { return rounds.find((r) => r.status === 'active') || null; },
   userMap(users) { return new Map(users.map((u) => [u.id, u])); },
@@ -434,7 +431,7 @@ const App = {
 
     return `<div class="card">
       <div class="row between">
-        <h2 style="margin:0">${round.title}</h2>
+        <h2 style="margin:0">${Utils.esc(round.title)}</h2>
         <span class="tag">${round.status}</span>
       </div>
       <div class="row small muted">
@@ -448,21 +445,21 @@ const App = {
         <button data-week-nav="next">▶</button>
       </div>
       <div class="small muted" style="margin-top:6px">Current progress week: ${currentWeek} / ${round.weeksCount}</div>
-      ${selectedWeek === 1 ? `<div class="card" style="margin-top:10px"><strong>Start weights</strong>${view.startWeights.length ? `<ul>${view.startWeights.map((x)=>`<li>${x.user.name}: ${x.weight}kg</li>`).join('')}</ul>` : '<p class="muted">No start weights submitted yet.</p>'}</div>` : ''}
+      ${selectedWeek === 1 ? `<div class="card" style="margin-top:10px"><strong>Start weights</strong>${view.startWeights.length ? `<ul>${view.startWeights.map((x)=>`<li>${Utils.esc(x.user.name)}: ${x.weight}kg</li>`).join('')}</ul>` : '<p class="muted">No start weights submitted yet.</p>'}</div>` : ''}
       ${selectedWeek >= 2 ? `<div class="card" style="margin-top:10px"><strong>Leaderboard</strong>
       <table class="table"><thead><tr><th>Rank</th><th>User</th><th>% Lost</th><th>This Week</th><th>Total</th></tr></thead><tbody>
       ${view.ranked.map((r, i) => {
         const rank = i + 1;
         const prize = prizeRanks.includes(i) ? ` ${prizeEmoji[i] || '🏅'}` : '';
         const delta = r.weeklyLoss > 0 ? `<span class="arrow-loss">⬇ ${r.weeklyLoss}kg</span>` : (r.weeklyLoss < 0 ? `<span class="arrow-gain">⬆ ${Math.abs(r.weeklyLoss)}kg</span>` : '—');
-        return `<tr><td>${rank}${prize}</td><td>${r.user.name}</td><td>${Utils.pct(r.percentLoss)}</td><td>${delta}</td><td>${r.totalLoss}kg</td></tr>`;
+        return `<tr><td>${rank}${prize}</td><td>${Utils.esc(r.user.name)}</td><td>${Utils.pct(r.percentLoss)}</td><td>${delta}</td><td>${r.totalLoss}kg</td></tr>`;
       }).join('') || '<tr><td colspan="5" class="muted">No leaderboard data yet.</td></tr>'}
       </tbody></table>
-      ${view.holiday.length ? `<h4>Holiday</h4><ul>${view.holiday.map((x)=>`<li class="holiday">${x.user.name} (used ${x.holidaysUsed}/${round.holidaysAllowed})</li>`).join('')}</ul>`:''}
-      ${view.forfeit.length ? `<h4>Forfeit</h4><ul>${view.forfeit.map((x)=>`<li class="forfeit">${x.user.name}</li>`).join('')}</ul>`:''}
-      ${view.pending.length ? `<h4>Pending</h4><ul>${view.pending.map((x)=>`<li>${x.user.name}</li>`).join('')}</ul>`:''}
+      ${view.holiday.length ? `<h4>Holiday</h4><ul>${view.holiday.map((x)=>`<li class="holiday">${Utils.esc(x.user.name)} (used ${x.holidaysUsed}/${round.holidaysAllowed})</li>`).join('')}</ul>`:''}
+      ${view.forfeit.length ? `<h4>Forfeit</h4><ul>${view.forfeit.map((x)=>`<li class="forfeit">${Utils.esc(x.user.name)}</li>`).join('')}</ul>`:''}
+      ${view.pending.length ? `<h4>Pending</h4><ul>${view.pending.map((x)=>`<li>${Utils.esc(x.user.name)}</li>`).join('')}</ul>`:''}
       </div>` : ''}
-      ${selectedWeek === round.weeksCount && isFinalComplete ? `<div class="card"><strong>Final winners</strong><ol>${view.ranked.slice(0, prizeRanks.length).map((r, i)=>`<li>${r.user.name} — ${Utils.money(round.prizeSplits[i] || 0)}</li>`).join('')}</ol></div>` : ''}
+      ${selectedWeek === round.weeksCount && isFinalComplete ? `<div class="card"><strong>Final winners</strong><ol>${view.ranked.slice(0, prizeRanks.length).map((r, i)=>`<li>${Utils.esc(r.user.name)} — ${Utils.money(round.prizeSplits[i] || 0)}</li>`).join('')}</ol></div>` : ''}
       ${round.status === 'active' ? `<div class="row"><button class="btn secondary" data-go="edit">Edit Round</button><button class="btn danger" data-go="delete">Delete Round</button></div>` : ''}
     </div>`;
   },
@@ -475,7 +472,7 @@ const App = {
         const progress = Domain.calcCurrentWeek(r, this.state.users, subs);
         const prize = Utils.money(Domain.prizeTotal(r));
         return `<button class="list-item ${r.status === 'active' ? 'active' : ''}" data-open-round="${r.id}">
-          <div class="row between"><strong>${r.title}</strong>${r.status === 'active' ? '<span class="pill ok">ACTIVE</span>' : ''}</div>
+          <div class="row between"><strong>${Utils.esc(r.title)}</strong>${r.status === 'active' ? '<span class="pill ok">ACTIVE</span>' : ''}</div>
           <div class="small muted">${r.participantIds.length} participants • Week ${progress}/${r.weeksCount}</div>
           <div class="small muted">${Utils.date(r.startDate)} → ${Utils.date(new Date(new Date(r.startDate).getTime() + ((r.weeksCount - 1) * 7 * 86400000)).toISOString())}</div>
           <div class="small">Prize pool: ${prize}</div>
@@ -517,7 +514,7 @@ const App = {
 
     return `<div class="card"><h2 style="margin-top:0">Create Challenge Round</h2>
       <form id="create-form" class="grid two">
-        <div><label>Round title</label><input name="title" value="${d.title}" required /></div>
+        <div><label>Round title</label><input name="title" value="${Utils.escAttr(d.title)}" required /></div>
         <div><label>Number of weeks</label><input type="number" min="1" max="52" name="weeksCount" value="${d.weeksCount}" required /></div>
         <div><label>Number of holidays</label><input type="number" min="0" max="12" name="holidaysAllowed" value="${d.holidaysAllowed}" required /></div>
         <div><label>Entry fee (£)</label><input type="number" step="0.01" min="0" name="entryFee" value="${d.entryFee}" required /></div>
@@ -525,8 +522,8 @@ const App = {
         <div><label>Weigh day</label><select name="weighDay">${['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'].map((x,i)=>`<option value="${i}" ${String(i)===String(d.weighDay)?'selected':''}>${x}</option>`).join('')}</select></div>
 
         <div class="card" style="grid-column:1/-1"><div class="row between"><strong>Users (${count})</strong><div class="row"><button type="button" data-user-toggle="all" class="btn secondary small">Toggle all</button></div></div>
-          <div class="grid three" style="margin-top:8px">${d.allNames.map((n)=>`<label class="row"><input type="checkbox" data-user-name="${n}" ${d.selectedNames.includes(n)?'checked':''} style="width:auto"/> ${n}</label>`).join('') || '<p class="muted">No previous users yet.</p>'}</div>
-          <div class="row" style="margin-top:8px"><input id="new-user-name" placeholder="Add new user full name" value="${d.newName || ''}"/><button type="button" class="btn" data-add-user="1">Add</button></div>
+          <div class="grid three" style="margin-top:8px">${d.allNames.map((n)=>`<label class="row"><input type="checkbox" data-user-name="${Utils.escAttr(n)}" ${d.selectedNames.includes(n)?'checked':''} style="width:auto"/> ${Utils.esc(n)}</label>`).join('') || '<p class="muted">No previous users yet.</p>'}</div>
+          <div class="row" style="margin-top:8px"><input id="new-user-name" placeholder="Add new user full name" value="${Utils.escAttr(d.newName || '')}"/><button type="button" class="btn" data-add-user="1">Add</button></div>
         </div>
 
         <div class="card" style="grid-column:1/-1">
@@ -557,7 +554,7 @@ const App = {
     const sum = Utils.round2((round.prizeSplits || []).reduce((a,b)=>a+Utils.safeNum(b),0));
     return `<div class="card"><h2 style="margin-top:0">Edit Challenge Round</h2>
       <form id="edit-form" class="grid two">
-        <div><label>Title</label><input name="title" required value="${round.title}" /></div>
+        <div><label>Title</label><input name="title" required value="${Utils.escAttr(round.title)}" /></div>
         <div><label>Prize total</label><input disabled value="${Utils.money(totalPrize)}" /></div>
         <div class="card" style="grid-column:1/-1"><strong>Prize splits</strong>
           <div class="grid three" style="margin-top:8px">${(round.prizeSplits || []).map((v,i)=>`<div><label>Rank ${i+1}</label><input type="number" step="0.01" name="split-${i}" value="${Utils.safeNum(v)}"/></div>`).join('')}</div>
@@ -572,7 +569,7 @@ const App = {
     if (!round) return `<div class="card"><p class="muted">No round selected.</p></div>`;
     return `<div class="card"><h2>Delete Challenge Round</h2><p class="error">This cannot be undone.</p>
       <form id="delete-form">
-        <label class="row"><input type="checkbox" id="confirm-delete" style="width:auto"/> I confirm delete <strong>${round.title}</strong></label>
+        <label class="row"><input type="checkbox" id="confirm-delete" style="width:auto"/> I confirm delete <strong>${Utils.esc(round.title)}</strong></label>
         <div class="row" style="margin-top:10px"><button class="btn danger" type="submit">Delete round</button><button type="button" class="btn secondary" data-go="overview">Cancel</button></div>
       </form></div>`;
   },
@@ -586,9 +583,9 @@ const App = {
     const available = users.filter((u) => !Domain.submissionFor(subs, week, u.id));
 
     return `<div class="card"><h2 style="margin-top:0">User Weekly Submission</h2>
-      <p class="small muted">Active round: ${round.title} • Week ${week}</p>
+      <p class="small muted">Active round: ${Utils.esc(round.title)} • Week ${week}</p>
       <form id="submit-form" class="grid two">
-        <div><label>User</label><select name="userId" required><option value="">Select user</option>${available.map((u)=>`<option value="${u.id}">${u.name}</option>`).join('')}</select></div>
+        <div><label>User</label><select name="userId" required><option value="">Select user</option>${available.map((u)=>`<option value="${u.id}">${Utils.esc(u.name)}</option>`).join('')}</select></div>
         <div><label>Action</label><select name="action" required><option value="weight">Upload weight</option><option value="holiday">Holiday</option><option value="forfeit">Forfeit</option></select></div>
         <div id="weight-fields" style="grid-column:1/-1" class="grid two">
           <div><label>Scale photo</label><input name="photo" type="file" accept="image/*" /></div>
@@ -610,7 +607,10 @@ const App = {
     weekNav.forEach((b) => b.onclick = () => {
       const round = this.currentRound();
       if (!round) return;
-      const curr = this.state.weekCursor[round.id] || 1;
+      const curr = this.state.weekCursor[round.id] ?? Math.min(
+        Domain.calcCurrentWeek(round, this.state.users, Domain.submissionsByRound(this.state.submissions, round.id)),
+        round.weeksCount
+      );
       const next = b.dataset.weekNav === 'prev' ? Math.max(1, curr - 1) : Math.min(round.weeksCount, curr + 1);
       this.state.weekCursor[round.id] = next;
       this.render();
