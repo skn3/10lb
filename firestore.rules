@@ -1,0 +1,127 @@
+// =============================================================================
+// Firestore Security Rules — 10lb Challenge
+// =============================================================================
+//
+// DATA STRUCTURE
+// ==============
+// /challenges/{challengeId}/users/{userId}
+// /challenges/{challengeId}/rounds/{roundId}
+// /challenges/{challengeId}/submissions/{submissionId}
+//
+// AUTHENTICATION
+// ==============
+// The app uses Firebase Anonymous Auth to get a verifiable UID.
+// Each browser session signs in anonymously; the resulting UID is mapped to a
+// local user ID in the client-side application.
+//
+// Because the app uses its own PBKDF2-based login system, there is no
+// email/password Firebase Auth. Anonymous Auth is used ONLY to give Firestore
+// Security Rules a verifiable request.auth.uid — it does NOT replace the
+// application's login/session system.
+//
+// ADMIN IDENTIFICATION
+// ====================
+// Admin status is determined by the presence of the user's local userId in the
+// /challenges/{challengeId}/admins/{userId} collection. Admins are written to
+// Firestore by the master admin during initial setup.
+// This means admin Firestore access requires an entry in that collection.
+//
+// SECURITY MODEL
+// ==============
+// - Ordinary users can create and update their OWN submissions.
+// - Ordinary users can read all submissions (for the leaderboard to work).
+// - Ordinary users can read users and rounds (for display purposes).
+// - Admins can create/update/delete rounds, users (without password), and all submissions.
+// - Password hashes are NEVER written to Firestore — they stay in IndexedDB only.
+// - Unauthenticated access is denied.
+//
+// NOTE ON CLIENT-SIDE vs SERVER-SIDE SECURITY
+// ============================================
+// These rules enforce access control on the Firestore side. Client-side
+// JavaScript checks (isAdmin(), etc.) control the UI only. Do not rely solely
+// on client-side checks for security.
+//
+// =============================================================================
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper: check if the requesting auth UID is an admin for this challenge
+    function isAdmin(challengeId) {
+      return exists(/databases/$(database)/documents/challenges/$(challengeId)/admins/$(request.auth.uid));
+    }
+
+    // Helper: check if the document's userId field matches the requester's recorded uid
+    // The app stores a map of localUserId → firebaseUid in the admins collection.
+    // For submissions, the userId field holds the local user ID — we allow if admin.
+    function isOwner(resource) {
+      return resource.data.firebaseUid == request.auth.uid;
+    }
+
+    match /challenges/{challengeId} {
+
+      // -----------------------------------------------------------------------
+      // Admins collection — written once during setup, read for rule checks
+      // -----------------------------------------------------------------------
+      match /admins/{uid} {
+        allow read: if request.auth != null;
+        allow write: if request.auth != null && isAdmin(challengeId);
+      }
+
+      // -----------------------------------------------------------------------
+      // Users — profile data only, NO password hashes
+      // -----------------------------------------------------------------------
+      match /users/{userId} {
+        // Anyone authenticated can read user profiles (needed for leaderboard)
+        allow read: if request.auth != null;
+
+        // Create: only admins can create users
+        allow create: if request.auth != null && isAdmin(challengeId)
+          // Reject any document containing a 'password' field (safety net)
+          && !('password' in request.resource.data);
+
+        // Update: admins can update any user; a user can update their own
+        //         profile if the firebaseUid matches
+        allow update: if request.auth != null
+          && !('password' in request.resource.data)
+          && (isAdmin(challengeId) || isOwner(resource));
+
+        // Delete: admins only
+        allow delete: if request.auth != null && isAdmin(challengeId);
+      }
+
+      // -----------------------------------------------------------------------
+      // Rounds — admin-controlled
+      // -----------------------------------------------------------------------
+      match /rounds/{roundId} {
+        allow read: if request.auth != null;
+        allow create, update, delete: if request.auth != null && isAdmin(challengeId);
+      }
+
+      // -----------------------------------------------------------------------
+      // Submissions — users can write their own, all can read
+      // -----------------------------------------------------------------------
+      match /submissions/{submissionId} {
+        allow read: if request.auth != null;
+
+        // Users may create/update their own submissions.
+        // Admins may create/update any submission.
+        allow create: if request.auth != null
+          && (isAdmin(challengeId) || request.resource.data.firebaseUid == request.auth.uid);
+
+        allow update: if request.auth != null
+          && (isAdmin(challengeId) || (resource.data.firebaseUid == request.auth.uid));
+
+        // Only admins can delete submissions
+        allow delete: if request.auth != null && isAdmin(challengeId);
+      }
+
+    } // end /challenges/{challengeId}
+
+    // Deny everything else
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

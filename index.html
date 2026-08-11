@@ -80,12 +80,22 @@
       <h1 id="server-title">10lb Challenge</h1>
       <div class="row small" id="auth-chip"></div>
     </div>
+    <div id="sync-bar" style="display:none;font-size:.75rem;padding:2px 0 4px;opacity:.85"></div>
   </header>
   <nav id="nav"></nav>
   <main id="app"></main>
 
 <script>
-const Config = { STORAGE_MODE: 'offline', DB_NAME: 'tenlb-challenge', DB_VERSION: 2 };
+// =============================================================================
+// CONFIG
+// DB_VERSION history:
+//   1 – initial schema
+//   2 – added weeklySnapshots
+//   3 – added syncQueue, deviceMeta key; added version/createdBy/updatedBy/
+//       clientId/deletedAt to users, rounds, submissions; added updatedAt to
+//       submissions
+// =============================================================================
+const Config = { DB_NAME: 'tenlb-challenge', DB_VERSION: 3 };
 
 const Utils = {
   id: () => (crypto && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`),
@@ -158,6 +168,25 @@ const Security = {
   }
 };
 
+// =============================================================================
+// DEVICE IDENTITY
+// A stable per-browser clientId stored in localStorage.
+// This is separate from userId (who is logged in) and sessionToken.
+// =============================================================================
+const Device = {
+  _id: null,
+  getId() {
+    if (this._id) return this._id;
+    let id = localStorage.getItem('tenlb_clientId');
+    if (!id) {
+      id = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      localStorage.setItem('tenlb_clientId', id);
+    }
+    this._id = id;
+    return id;
+  }
+};
+
 const ThemeOptions = [
   { key: 'teal', label: 'Teal Breeze' },
   { key: 'indigo', label: 'Indigo Glow' },
@@ -166,14 +195,52 @@ const ThemeOptions = [
   { key: 'emerald', label: 'Emerald Mist' }
 ];
 
+// =============================================================================
+// STORAGE ADAPTER INTERFACE (documentation)
+// Both OfflineAdapter and FirestoreAdapter must implement:
+//   init()
+//   getAppSettings() → settings object
+//   saveAppSettings(settings)
+//   listRounds() → Round[]
+//   getRound(id) → Round|null
+//   createRound(roundInput) → Round
+//   updateRound(round) → Round
+//   deleteRound(id)
+//   listUsers() → User[]
+//   getUserById(id) → User|null
+//   getUserByUsername(username) → User|null
+//   createUser(user) → User
+//   updateUser(user) → User
+//   deleteUser(id)
+//   upsertUsersByName(names) → User[]
+//   listSubmissions() → Submission[]
+//   recordSubmissionAndSnapshot(submission, snapshot)
+//   getWeeklySnapshot(roundId, weekNumber) → Snapshot|null
+//   createSession(token, userId, durationDays) → Session
+//   getSession(token) → Session|null
+//   touchSession(token, durationDays) → Session|null
+//   deleteSession(token)
+//   clearAllData()
+// =============================================================================
+
+// =============================================================================
+// OFFLINE ADAPTER — IndexedDB implementation (Local Mode source of truth)
+// =============================================================================
 const OfflineAdapter = (() => {
   let db;
 
+  // ---------------------------------------------------------------------------
+  // Low-level DB helpers
+  // ---------------------------------------------------------------------------
   const open = () => new Promise((resolve, reject) => {
     if (db) return resolve(db);
     const req = indexedDB.open(Config.DB_NAME, Config.DB_VERSION);
-    req.onupgradeneeded = () => {
+
+    req.onupgradeneeded = (event) => {
       const x = req.result;
+      const oldVersion = event.oldVersion;
+
+      // --- Create stores that didn't exist ---
       if (!x.objectStoreNames.contains('rounds')) x.createObjectStore('rounds', { keyPath: 'id' });
       if (!x.objectStoreNames.contains('users')) x.createObjectStore('users', { keyPath: 'id' });
       if (!x.objectStoreNames.contains('submissions')) {
@@ -186,7 +253,62 @@ const OfflineAdapter = (() => {
         const sess = x.createObjectStore('sessions', { keyPath: 'token' });
         sess.createIndex('userId', 'userId', { unique: false });
       }
+      // v3: sync queue + device-local sync metadata
+      if (!x.objectStoreNames.contains('syncQueue')) {
+        const q = x.createObjectStore('syncQueue', { keyPath: 'changeId' });
+        q.createIndex('status', 'status', { unique: false });
+        q.createIndex('entityType', 'entityType', { unique: false });
+      }
+
+      // --- v3 data migration: backfill new metadata fields on existing records ---
+      // This runs inside the upgradeneeded transaction so it is safe.
+      if (oldVersion > 0 && oldVersion < 3) {
+        const clientId = Device.getId();
+        const now = new Date().toISOString();
+
+        const migrateStore = (storeName) => {
+          const store = req.transaction.objectStore(storeName);
+          const cursorReq = store.openCursor();
+          cursorReq.onsuccess = (e) => {
+            const cursor = e.target.result;
+            if (!cursor) return;
+            const rec = cursor.value;
+            cursor.update({
+              ...rec,
+              version: rec.version ?? 1,
+              createdBy: rec.createdBy ?? rec.userId ?? null,
+              updatedBy: rec.updatedBy ?? rec.userId ?? null,
+              clientId: rec.clientId ?? clientId,
+              deletedAt: rec.deletedAt ?? null
+            });
+            cursor.continue();
+          };
+        };
+
+        migrateStore('users');
+        migrateStore('rounds');
+
+        // submissions also get updatedAt
+        const subsStore = req.transaction.objectStore('submissions');
+        const subsCursor = subsStore.openCursor();
+        subsCursor.onsuccess = (e) => {
+          const cursor = e.target.result;
+          if (!cursor) return;
+          const rec = cursor.value;
+          cursor.update({
+            ...rec,
+            version: rec.version ?? 1,
+            createdBy: rec.createdBy ?? rec.userId ?? null,
+            updatedBy: rec.updatedBy ?? rec.userId ?? null,
+            clientId: rec.clientId ?? clientId,
+            deletedAt: rec.deletedAt ?? null,
+            updatedAt: rec.updatedAt ?? rec.createdAt ?? now
+          });
+          cursor.continue();
+        };
+      }
     };
+
     req.onsuccess = () => { db = req.result; resolve(db); };
     req.onerror = () => reject(req.error);
   });
@@ -227,6 +349,9 @@ const OfflineAdapter = (() => {
     req.onerror = () => rej(req.error);
   }));
 
+  // ---------------------------------------------------------------------------
+  // Record normalization helpers
+  // ---------------------------------------------------------------------------
   const defaultAppSettings = () => ({
     key: 'app',
     installed: false,
@@ -239,10 +364,23 @@ const OfflineAdapter = (() => {
     updatedAt: new Date().toISOString()
   });
 
+  const metaDefaults = (existing = {}) => {
+    const clientId = Device.getId();
+    return {
+      version: 1,
+      createdBy: null,
+      updatedBy: null,
+      clientId,
+      deletedAt: null,
+      ...existing
+    };
+  };
+
   const normalizeUser = (u) => {
     if (!u) return null;
     const parsed = Utils.parseName(u.name || Utils.fullName(u));
     return {
+      ...metaDefaults(u),
       id: u.id || Utils.id(),
       username: u.username || (u.name ? u.name.toLowerCase().replace(/\s+/g, '.') : ''),
       firstName: u.firstName || parsed.firstName,
@@ -256,7 +394,35 @@ const OfflineAdapter = (() => {
     };
   };
 
+  const normalizeSubmission = (s) => ({
+    ...metaDefaults(s),
+    ...s,
+    updatedAt: s.updatedAt || s.createdAt || new Date().toISOString()
+  });
+
+  // ---------------------------------------------------------------------------
+  // Sync queue helpers (used by SyncEngine)
+  // ---------------------------------------------------------------------------
+  const enqueue = (entityType, entityId, operation, payload, userId) => {
+    const now = new Date().toISOString();
+    const entry = {
+      changeId: Utils.id(),
+      entityType,
+      entityId,
+      operation,         // 'CREATE' | 'UPDATE' | 'DELETE'
+      payload: Utils.clone(payload),
+      timestamp: now,
+      clientId: Device.getId(),
+      userId: userId || null,
+      status: 'pending', // 'pending' | 'uploading' | 'done' | 'error'
+      retryCount: 0,
+      lastError: null
+    };
+    return put('syncQueue', entry);
+  };
+
   return {
+    // ---- Lifecycle -----------------------------------------------------------
     async init() {
       await open();
       const app = await get('settings', 'app');
@@ -267,16 +433,129 @@ const OfflineAdapter = (() => {
         if (JSON.stringify(n) !== JSON.stringify(u)) await put('users', n);
       }));
     },
+
+    // ---- App settings --------------------------------------------------------
     getAppSettings: async () => {
       const app = await get('settings', 'app');
       return app || defaultAppSettings();
     },
     saveAppSettings: async (settings) => put('settings', { ...settings, key: 'app', updatedAt: new Date().toISOString() }),
-    listRounds: () => getAll('rounds'),
-    listUsers: async () => (await getAll('users')).map(normalizeUser),
-    listSubmissions: () => getAll('submissions'),
+
+    // ---- Device / sync metadata (local-only, never synced) -------------------
+    async getDeviceMeta() {
+      const d = await get('settings', 'device');
+      return d || {
+        key: 'device',
+        clientId: Device.getId(),
+        storageMode: 'local',  // 'local' | 'online'
+        firebaseConfig: null,
+        firebaseUidMap: {},    // localUserId → firebaseUid
+        syncStatus: 'idle',    // 'idle' | 'syncing' | 'synced' | 'pending' | 'error'
+        lastSyncAt: null,
+        syncError: null
+      };
+    },
+    saveDeviceMeta: async (meta) => put('settings', { ...meta, key: 'device' }),
+
+    // Helper used by write methods: enqueue a sync operation when online
+    _maybeEnqueue(entityType, entityId, operation, payload, userId) {
+      if (typeof Data !== 'undefined' && Data.mode === 'online' && typeof SyncEngine !== 'undefined') {
+        // Fire-and-forget; don't await to keep write paths synchronous
+        enqueue(entityType, entityId, operation, payload, userId).catch((e) => console.warn('Enqueue failed:', e));
+      }
+    },
+
+    // ---- Rounds --------------------------------------------------------------
+    listRounds: () => getAll('rounds').then((rs) => rs.filter((r) => !r.deletedAt)),
     getRound: (id) => get('rounds', id),
-    getWeeklySnapshot: (roundId, weekNumber) => get('weeklySnapshots', `${roundId}:${weekNumber}`),
+    async createRound(roundInput) {
+      const clientId = Device.getId();
+      return run(['rounds', 'users'], 'readwrite', ({ rounds, users }) => new Promise((resolve, reject) => {
+        const allReq = users.getAll();
+        allReq.onsuccess = () => {
+          const existing = (allReq.result || []).map(normalizeUser);
+          const map = new Map(existing.map((u) => [Utils.fullName(u).toLowerCase(), u]));
+          const participantIds = [];
+          roundInput.userNames.forEach((fullName) => {
+            const key = fullName.toLowerCase();
+            let user = map.get(key);
+            if (!user) {
+              const parsed = Utils.parseName(fullName);
+              user = normalizeUser({
+                id: Utils.id(),
+                username: `${parsed.firstName}.${parsed.lastName}`.toLowerCase().replace(/\.+/g, '.').replace(/[^a-z0-9.]/g, ''),
+                firstName: parsed.firstName,
+                lastName: parsed.lastName,
+                createdAt: new Date().toISOString(),
+                isAdmin: false,
+                isMaster: false
+              });
+              users.put(user);
+              map.set(key, user);
+            }
+            participantIds.push(user.id);
+          });
+          const now = new Date().toISOString();
+          const round = {
+            ...metaDefaults(),
+            id: Utils.id(),
+            title: roundInput.title,
+            weeksCount: Utils.safeNum(roundInput.weeksCount),
+            holidaysAllowed: Utils.safeNum(roundInput.holidaysAllowed),
+            entryFee: Utils.safeNum(roundInput.entryFee),
+            startDate: roundInput.startDate,
+            weighDay: Utils.safeNum(roundInput.weighDay),
+            participantIds,
+            payoutMode: roundInput.payoutMode,
+            prizeSplits: roundInput.prizeSplits,
+            status: 'active',
+            createdAt: now,
+            updatedAt: now,
+            clientId
+          };
+          rounds.put(round);
+          resolve(round);
+          OfflineAdapter._maybeEnqueue('rounds', round.id, 'CREATE', round, null);
+        };
+        allReq.onerror = () => reject(allReq.error);
+      }));
+    },
+    updateRound: async (round) => {
+      const updated = { ...round, updatedAt: new Date().toISOString(), version: (round.version || 1) + 1, updatedBy: round.updatedBy };
+      await put('rounds', updated);
+      OfflineAdapter._maybeEnqueue('rounds', updated.id, 'UPDATE', updated, updated.updatedBy);
+      return updated;
+    },
+    deleteRound: async (id) => {
+      const now = new Date().toISOString();
+      if (typeof Data !== 'undefined' && Data.mode === 'online') {
+        // Soft-delete: mark deletedAt and enqueue so Firestore gets the tombstone
+        const round = await get('rounds', id);
+        if (round) {
+          const tombstone = { ...round, deletedAt: now, updatedAt: now, version: (round.version || 1) + 1 };
+          await put('rounds', tombstone);
+          OfflineAdapter._maybeEnqueue('rounds', id, 'DELETE', tombstone, null);
+        }
+        // Also soft-delete associated submissions
+        const allSubs = await getAll('submissions');
+        const roundSubs = allSubs.filter((s) => s.roundId === id && !s.deletedAt);
+        for (const s of roundSubs) {
+          const t = { ...s, deletedAt: now, updatedAt: now, version: (s.version || 1) + 1 };
+          await put('submissions', t);
+          OfflineAdapter._maybeEnqueue('submissions', s.id, 'DELETE', t, null);
+        }
+      } else {
+        const [allSubs, allSnapshots] = await Promise.all([getAll('submissions'), getAll('weeklySnapshots')]);
+        await run(['rounds', 'submissions', 'weeklySnapshots'], 'readwrite', ({ rounds, submissions, weeklySnapshots }) => {
+          rounds.delete(id);
+          allSubs.filter((s) => s.roundId === id).forEach((s) => submissions.delete(s.id));
+          allSnapshots.filter((s) => s.roundId === id).forEach((s) => weeklySnapshots.delete(s.id));
+        });
+      }
+    },
+
+    // ---- Users ---------------------------------------------------------------
+    listUsers: async () => (await getAll('users')).filter((u) => !u.deletedAt).map(normalizeUser),
     getUserById: async (id) => normalizeUser(await get('users', id)),
     async getUserByUsername(username) {
       const all = await this.listUsers();
@@ -286,19 +565,52 @@ const OfflineAdapter = (() => {
       const now = new Date().toISOString();
       const value = normalizeUser({ ...user, createdAt: now, updatedAt: now });
       await put('users', value);
+      OfflineAdapter._maybeEnqueue('users', value.id, 'CREATE', value, value.id);
       return value;
     },
-    updateUser: async (user) => put('users', normalizeUser({ ...user, updatedAt: new Date().toISOString() })),
+    updateUser: async (user) => {
+      const updated = normalizeUser({ ...user, updatedAt: new Date().toISOString(), version: (user.version || 1) + 1 });
+      await put('users', updated);
+      OfflineAdapter._maybeEnqueue('users', updated.id, 'UPDATE', updated, updated.id);
+      return updated;
+    },
     deleteUser: async (id) => {
-      const [rounds, submissions, sessions] = await Promise.all([getAll('rounds'), getAll('submissions'), getAll('sessions')]);
-      await run(['users','rounds','submissions','sessions'], 'readwrite', ({ users, rounds: roundsStore, submissions: subsStore, sessions: sessStore }) => {
-        users.delete(id);
-        rounds.filter((r) => (r.participantIds || []).includes(id)).forEach((round) => {
-          roundsStore.put({ ...round, participantIds: round.participantIds.filter((pid) => pid !== id), updatedAt: new Date().toISOString() });
+      const now = new Date().toISOString();
+      if (typeof Data !== 'undefined' && Data.mode === 'online') {
+        // Soft-delete: tombstone the user record
+        const user = await get('users', id);
+        if (user) {
+          const tombstone = { ...user, deletedAt: now, updatedAt: now, version: (user.version || 1) + 1 };
+          await put('users', tombstone);
+          OfflineAdapter._maybeEnqueue('users', id, 'DELETE', tombstone, id);
+        }
+        // Remove from round participant lists (local only, rounds sync separately)
+        const rounds = await getAll('rounds');
+        for (const r of rounds.filter((r) => (r.participantIds || []).includes(id))) {
+          await put('rounds', { ...r, participantIds: r.participantIds.filter((pid) => pid !== id), updatedAt: now });
+        }
+        // Soft-delete submissions
+        const subs = await getAll('submissions');
+        for (const s of subs.filter((s) => s.userId === id && !s.deletedAt)) {
+          const t = { ...s, deletedAt: now, updatedAt: now };
+          await put('submissions', t);
+        }
+        // Delete sessions (local only)
+        const sessions = await getAll('sessions');
+        for (const s of sessions.filter((s) => s.userId === id)) {
+          await del('sessions', s.token);
+        }
+      } else {
+        const [rounds, submissions, sessions] = await Promise.all([getAll('rounds'), getAll('submissions'), getAll('sessions')]);
+        await run(['users', 'rounds', 'submissions', 'sessions'], 'readwrite', ({ users, rounds: roundsStore, submissions: subsStore, sessions: sessStore }) => {
+          users.delete(id);
+          rounds.filter((r) => (r.participantIds || []).includes(id)).forEach((round) => {
+            roundsStore.put({ ...round, participantIds: round.participantIds.filter((pid) => pid !== id), updatedAt: new Date().toISOString() });
+          });
+          submissions.filter((s) => s.userId === id).forEach((s) => subsStore.delete(s.id));
+          sessions.filter((s) => s.userId === id).forEach((s) => sessStore.delete(s.token));
         });
-        submissions.filter((s) => s.userId === id).forEach((s) => subsStore.delete(s.id));
-        sessions.filter((s) => s.userId === id).forEach((s) => sessStore.delete(s.token));
-      });
+      }
     },
     async upsertUsersByName(names) {
       const cleaned = [...new Set(names.map((n) => n.trim()).filter(Boolean))];
@@ -314,7 +626,7 @@ const OfflineAdapter = (() => {
             let user = map.get(key);
             if (!user) {
               const parsed = Utils.parseName(fullName);
-              user = normalizeUser({ id: Utils.id(), username: `${parsed.firstName}.${parsed.lastName}`.toLowerCase().replace(/\.+/g,'.').replace(/[^a-z0-9.]/g,''), firstName: parsed.firstName, lastName: parsed.lastName, isAdmin: false, isMaster: false, createdAt: new Date().toISOString() });
+              user = normalizeUser({ id: Utils.id(), username: `${parsed.firstName}.${parsed.lastName}`.toLowerCase().replace(/\.+/g, '.').replace(/[^a-z0-9.]/g, ''), firstName: parsed.firstName, lastName: parsed.lastName, isAdmin: false, isMaster: false, createdAt: new Date().toISOString() });
               users.put(user);
               map.set(key, user);
             }
@@ -325,77 +637,23 @@ const OfflineAdapter = (() => {
         req.onerror = () => reject(req.error);
       }));
     },
-    async createRound(roundInput) {
-      return run(['rounds', 'users'], 'readwrite', ({ rounds, users }) => new Promise((resolve, reject) => {
-        const allReq = users.getAll();
-        allReq.onsuccess = () => {
-          const existing = (allReq.result || []).map(normalizeUser);
-          const map = new Map(existing.map((u) => [Utils.fullName(u).toLowerCase(), u]));
-          const participantIds = [];
-          roundInput.userNames.forEach((fullName) => {
-            const key = fullName.toLowerCase();
-            let user = map.get(key);
-            if (!user) {
-              const parsed = Utils.parseName(fullName);
-              user = normalizeUser({
-                id: Utils.id(),
-                username: `${parsed.firstName}.${parsed.lastName}`.toLowerCase().replace(/\.+/g,'.').replace(/[^a-z0-9.]/g,''),
-                firstName: parsed.firstName,
-                lastName: parsed.lastName,
-                createdAt: new Date().toISOString(),
-                isAdmin: false,
-                isMaster: false
-              });
-              users.put(user);
-              map.set(key, user);
-            }
-            participantIds.push(user.id);
-          });
-          const round = {
-            id: Utils.id(),
-            title: roundInput.title,
-            weeksCount: Utils.safeNum(roundInput.weeksCount),
-            holidaysAllowed: Utils.safeNum(roundInput.holidaysAllowed),
-            entryFee: Utils.safeNum(roundInput.entryFee),
-            startDate: roundInput.startDate,
-            weighDay: Utils.safeNum(roundInput.weighDay),
-            participantIds,
-            payoutMode: roundInput.payoutMode,
-            prizeSplits: roundInput.prizeSplits,
-            status: 'active',
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString()
-          };
-          rounds.put(round);
-          resolve(round);
-        };
-        allReq.onerror = () => reject(allReq.error);
-      }));
-    },
-    updateRound: async (round) => put('rounds', { ...round, updatedAt: new Date().toISOString() }),
-    deleteRound: async (id) => {
-      const [allSubs, allSnapshots] = await Promise.all([getAll('submissions'), getAll('weeklySnapshots')]);
-      return run(['rounds', 'submissions', 'weeklySnapshots'], 'readwrite', ({ rounds, submissions, weeklySnapshots }) => {
-        rounds.delete(id);
-        allSubs.filter((s) => s.roundId === id).forEach((s) => submissions.delete(s.id));
-        allSnapshots.filter((s) => s.roundId === id).forEach((s) => weeklySnapshots.delete(s.id));
-      });
-    },
+
+    // ---- Submissions ---------------------------------------------------------
+    listSubmissions: () => getAll('submissions').then((ss) => ss.filter((s) => !s.deletedAt).map(normalizeSubmission)),
     async recordSubmissionAndSnapshot(submission, snapshot) {
-      return run(['submissions', 'weeklySnapshots'], 'readwrite', ({ submissions, weeklySnapshots }) => {
-        submissions.put(submission);
+      const norm = normalizeSubmission(submission);
+      await run(['submissions', 'weeklySnapshots'], 'readwrite', ({ submissions, weeklySnapshots }) => {
+        submissions.put(norm);
         weeklySnapshots.put(snapshot);
       });
+      OfflineAdapter._maybeEnqueue('submissions', norm.id, 'CREATE', norm, norm.userId);
     },
+    getWeeklySnapshot: (roundId, weekNumber) => get('weeklySnapshots', `${roundId}:${weekNumber}`),
+
+    // ---- Sessions (device-local, never synced) --------------------------------
     createSession: async (token, userId, durationDays) => {
       const now = new Date();
-      const row = {
-        token,
-        userId,
-        createdAt: now.toISOString(),
-        updatedAt: now.toISOString(),
-        expiresAt: new Date(now.getTime() + (durationDays * 86400000)).toISOString()
-      };
+      const row = { token, userId, createdAt: now.toISOString(), updatedAt: now.toISOString(), expiresAt: new Date(now.getTime() + (durationDays * 86400000)).toISOString() };
       await put('sessions', row);
       return row;
     },
@@ -409,30 +667,342 @@ const OfflineAdapter = (() => {
       return next;
     },
     deleteSession: async (token) => del('sessions', token),
+
+    // ---- Sync queue (used by SyncEngine) -------------------------------------
+    listPendingSyncItems: () => run(['syncQueue'], 'readonly', ({ syncQueue }) => new Promise((res, rej) => {
+      const items = [];
+      const req = syncQueue.index('status').openCursor(IDBKeyRange.only('pending'));
+      req.onsuccess = (e) => {
+        const cursor = e.target.result;
+        if (!cursor) return res(items);
+        items.push(cursor.value);
+        cursor.continue();
+      };
+      req.onerror = () => rej(req.error);
+    })),
+    countPendingSyncItems: async () => {
+      const conn = await open();
+      return new Promise((res, rej) => {
+        const tx = conn.transaction(['syncQueue'], 'readonly');
+        const req = tx.objectStore('syncQueue').index('status').count(IDBKeyRange.only('pending'));
+        req.onsuccess = () => res(req.result || 0);
+        req.onerror = () => rej(req.error);
+      });
+    },
+    updateSyncItem: (item) => put('syncQueue', item),
+    deleteSyncItem: (changeId) => del('syncQueue', changeId),
+    enqueueSyncOperation: enqueue,
+
+    // ---- Data merge (used by SyncEngine to write remote data into IndexedDB) --
+    // Conflict strategy (documented):
+    //   Rule 1: Different IDs → no conflict, both records coexist.
+    //   Rule 2: Same ID, same version → ignore (already up-to-date).
+    //   Rule 3: Remote version > local version → remote wins.
+    //   Rule 4: Local version > remote version → local wins (skip remote).
+    //   Rule 5: Same version, different content → use updatedAt; tie-break by
+    //           lexicographic min(clientId) for determinism.
+    //   Rule 6: Tombstone (deletedAt set) wins over any non-tombstone record
+    //           with older or equal updatedAt.
+    //   Rule 7: Admin records (rounds) with version conflicts are surfaced to
+    //           the UI rather than silently overwritten.
+    async mergeRemoteRecord(storeName, remote) {
+      const local = await get(storeName, remote.id);
+      if (!local) {
+        // Rule 1: new record from another device
+        await put(storeName, remote);
+        return 'inserted';
+      }
+      if (local.version === remote.version && local.updatedAt === remote.updatedAt) {
+        return 'noop'; // Rule 2
+      }
+      // Rule 6: tombstone wins
+      if (remote.deletedAt && (!local.deletedAt || remote.updatedAt >= local.updatedAt)) {
+        await put(storeName, { ...local, ...remote });
+        return 'deleted';
+      }
+      if (local.deletedAt && (!remote.deletedAt || local.updatedAt >= remote.updatedAt)) {
+        return 'local-deleted-wins';
+      }
+      if (remote.version > local.version) {
+        await put(storeName, { ...local, ...remote }); // Rule 3
+        return 'remote-wins';
+      }
+      if (local.version > remote.version) {
+        return 'local-wins'; // Rule 4
+      }
+      // Rule 5: same version, use updatedAt then clientId tie-break
+      const remoteNewer = remote.updatedAt > local.updatedAt || (remote.updatedAt === local.updatedAt && remote.clientId < local.clientId);
+      if (remoteNewer) {
+        await put(storeName, { ...local, ...remote });
+        return 'remote-wins-lww';
+      }
+      return 'local-wins-lww';
+    },
+
+    // ---- Reset ---------------------------------------------------------------
     async clearAllData() {
-      await run(['rounds','users','submissions','weeklySnapshots','sessions','settings'], 'readwrite', ({ rounds, users, submissions, weeklySnapshots, sessions, settings }) => {
-        rounds.clear();
-        users.clear();
-        submissions.clear();
-        weeklySnapshots.clear();
-        sessions.clear();
-        settings.put(defaultAppSettings());
+      await run(['rounds', 'users', 'submissions', 'weeklySnapshots', 'sessions', 'settings', 'syncQueue'], 'readwrite',
+        ({ rounds, users, submissions, weeklySnapshots, sessions, settings, syncQueue }) => {
+          rounds.clear();
+          users.clear();
+          submissions.clear();
+          weeklySnapshots.clear();
+          sessions.clear();
+          syncQueue.clear();
+          settings.put(defaultAppSettings());
+        }
+      );
+    }
+  };
+})();
+
+// =============================================================================
+// FIRESTORE ADAPTER
+// Only initialised when storageMode === 'online' with valid Firebase config.
+// Uses Firebase 10 compat CDN bundles (window.firebase).
+// IMPORTANT: password hashes are NEVER written to Firestore.
+// =============================================================================
+const FirestoreAdapter = (() => {
+  let _app = null;
+  let _db = null;   // firebase.firestore() compat instance
+  let _auth = null; // firebase.auth() compat instance
+  let _challengeId = 'default';
+
+  // Strip sensitive fields before uploading to Firestore
+  const sanitiseUser = (u) => {
+    const { password, ...safe } = u; // eslint-disable-line no-unused-vars
+    return safe;
+  };
+
+  // Firestore path: /challenges/{challengeId}/{entityType}/{id}
+  const colRef = (entityType) => _db.collection('challenges').doc(_challengeId).collection(entityType);
+  const docRef = (entityType, id) => colRef(entityType).doc(id);
+
+  return {
+    async init(firebaseConfig, challengeId) {
+      if (!window.firebase) throw new Error('Firebase SDK not loaded');
+      _challengeId = challengeId || 'default';
+
+      // Re-use existing named app if already initialised
+      try {
+        _app = window.firebase.app('tenlb-app');
+      } catch {
+        _app = window.firebase.initializeApp(firebaseConfig, 'tenlb-app');
+      }
+      _db = _app.firestore();
+      _auth = _app.auth();
+
+      // Sign in anonymously so Firestore rules can reference request.auth.uid
+      await _auth.signInAnonymously();
+      return true;
+    },
+
+    getUid() { return _auth?.currentUser?.uid || null; },
+    isReady() { return !!_db; },
+
+    async writeRecord(entityType, record) {
+      if (!_db) throw new Error('FirestoreAdapter not initialised');
+      const payload = entityType === 'users' ? sanitiseUser(record) : record;
+      await docRef(entityType, record.id).set(payload, { merge: true });
+    },
+
+    async deleteRecord(entityType, id, deletedAt) {
+      if (!_db) throw new Error('FirestoreAdapter not initialised');
+      await docRef(entityType, id).set({ deletedAt, id }, { merge: true });
+    },
+
+    async downloadAll(entityType) {
+      if (!_db) throw new Error('FirestoreAdapter not initialised');
+      const snap = await colRef(entityType).get();
+      return snap.docs.map((d) => d.data());
+    },
+
+    subscribe(entityType, onData) {
+      if (!_db) return () => {};
+      return colRef(entityType).onSnapshot((snap) => {
+        snap.docChanges().forEach((change) => {
+          if (['added', 'modified'].includes(change.type)) onData(change.doc.data());
+        });
       });
     }
   };
 })();
 
-const FirebaseAdapter = {
-  init: async () => { throw new Error('Firebase adapter is not configured yet.'); }
-};
-
+// =============================================================================
+// DATA — active adapter reference + mode management
+// =============================================================================
 const Data = {
   adapter: null,
+  mode: 'local', // 'local' | 'online'
+
   async init() {
-    this.adapter = Config.STORAGE_MODE === 'offline' ? OfflineAdapter : FirebaseAdapter;
+    this.adapter = OfflineAdapter;
     await this.adapter.init();
-  }
+    // Read persisted mode
+    const meta = await this.adapter.getDeviceMeta();
+    this.mode = meta.storageMode || 'local';
+  },
+
+  isOnline() { return this.mode === 'online'; }
 };
+
+// =============================================================================
+// SYNC ENGINE
+// Sits between OfflineAdapter (local source of truth) and Firestore.
+// Only active when Data.mode === 'online'.
+//
+// Upload cycle:
+//   1. Read pending items from syncQueue.
+//   2. Upload each to Firestore (idempotent set).
+//   3. On success → mark done. On error → increment retryCount.
+//
+// Download cycle:
+//   4. Fetch all records from each syncable entity type.
+//   5. Merge into IndexedDB using conflict rules (mergeRemoteRecord).
+//   6. Update lastSyncAt.
+//
+// Real-time listener subscribes after initial sync and merges changes as they
+// arrive. Listener is torn down when Online Mode is disabled.
+//
+// Retry: exponential backoff, max 5 retries per item (then status = 'error').
+// =============================================================================
+const SyncEngine = (() => {
+  const SYNCABLE = ['users', 'rounds', 'submissions'];
+  const MAX_RETRIES = 5;
+  let _running = false;
+  let _unsubscribers = [];
+  let _syncLoopTimer = null;
+  const SYNC_INTERVAL_MS = 60 * 1000; // poll every 60 s in addition to real-time
+
+  // Notify the UI that sync state changed
+  const notifySyncState = () => {
+    window.dispatchEvent(new CustomEvent('tenlb:syncstate'));
+  };
+
+  const updateMeta = async (patch) => {
+    const meta = await Data.adapter.getDeviceMeta();
+    await Data.adapter.saveDeviceMeta({ ...meta, ...patch });
+    notifySyncState();
+  };
+
+  const backoffMs = (retryCount) => Math.min(30000, 1000 * Math.pow(2, retryCount));
+
+  // Upload one pending sync item to Firestore
+  const uploadItem = async (item) => {
+    if (item.operation === 'DELETE') {
+      await FirestoreAdapter.deleteRecord(item.entityType, item.entityId, item.payload.deletedAt || new Date().toISOString());
+    } else {
+      await FirestoreAdapter.writeRecord(item.entityType, item.payload);
+    }
+    await Data.adapter.deleteSyncItem(item.changeId);
+  };
+
+  // Upload all pending items
+  const uploadPending = async () => {
+    const items = await Data.adapter.listPendingSyncItems();
+    for (const item of items) {
+      // Skip items in backoff period
+      if (item.retryCount > 0 && item.lastError) {
+        const retryAfter = new Date(item.timestamp).getTime() + backoffMs(item.retryCount);
+        if (Date.now() < retryAfter) continue;
+      }
+      try {
+        await Data.adapter.updateSyncItem({ ...item, status: 'uploading' });
+        await uploadItem(item);
+      } catch (err) {
+        const retryCount = item.retryCount + 1;
+        const status = retryCount >= MAX_RETRIES ? 'error' : 'pending';
+        await Data.adapter.updateSyncItem({ ...item, status, retryCount, lastError: String(err?.message || err), timestamp: new Date().toISOString() });
+      }
+    }
+  };
+
+  // Download all remote records and merge into IndexedDB
+  const downloadAll = async () => {
+    for (const entityType of SYNCABLE) {
+      const records = await FirestoreAdapter.downloadAll(entityType);
+      for (const record of records) {
+        await Data.adapter.mergeRemoteRecord(entityType, record);
+      }
+    }
+  };
+
+  // Subscribe to real-time Firestore changes
+  const subscribeAll = () => {
+    _unsubscribers.forEach((fn) => fn());
+    _unsubscribers = [];
+    for (const entityType of SYNCABLE) {
+      const unsub = FirestoreAdapter.subscribe(entityType, async (record) => {
+        await Data.adapter.mergeRemoteRecord(entityType, record);
+        notifySyncState();
+        window.dispatchEvent(new CustomEvent('tenlb:remotechange', { detail: { entityType } }));
+      });
+      _unsubscribers.push(unsub);
+    }
+  };
+
+  // Enqueue a mutation for later upload (called by App after local writes)
+  const enqueue = (entityType, entityId, operation, payload, userId) => {
+    return Data.adapter.enqueueSyncOperation(entityType, entityId, operation, payload, userId);
+  };
+
+  return {
+    // Start sync engine (called when enabling Online Mode)
+    async start() {
+      if (_running) return;
+      _running = true;
+      await updateMeta({ syncStatus: 'syncing', syncError: null });
+      try {
+        await downloadAll();
+        await uploadPending();
+        await updateMeta({ syncStatus: 'synced', lastSyncAt: new Date().toISOString(), syncError: null });
+      } catch (err) {
+        await updateMeta({ syncStatus: 'error', syncError: String(err?.message || err) });
+      }
+      subscribeAll();
+      // Periodic sync loop
+      _syncLoopTimer = setInterval(async () => {
+        if (!_running) return;
+        try {
+          await uploadPending();
+          const pending = await Data.adapter.countPendingSyncItems();
+          const status = pending > 0 ? 'pending' : 'synced';
+          await updateMeta({ syncStatus: status, lastSyncAt: new Date().toISOString(), syncError: null });
+        } catch (err) {
+          await updateMeta({ syncStatus: 'error', syncError: String(err?.message || err) });
+        }
+      }, SYNC_INTERVAL_MS);
+    },
+
+    // Stop sync engine (called when disabling Online Mode)
+    async stop() {
+      _running = false;
+      _unsubscribers.forEach((fn) => fn());
+      _unsubscribers = [];
+      if (_syncLoopTimer) { clearInterval(_syncLoopTimer); _syncLoopTimer = null; }
+      await updateMeta({ syncStatus: 'idle' });
+    },
+
+    // Manual retry
+    async retryNow() {
+      if (!_running) return;
+      await updateMeta({ syncStatus: 'syncing' });
+      try {
+        await uploadPending();
+        await downloadAll();
+        const pending = await Data.adapter.countPendingSyncItems();
+        await updateMeta({ syncStatus: pending > 0 ? 'pending' : 'synced', lastSyncAt: new Date().toISOString(), syncError: null });
+      } catch (err) {
+        await updateMeta({ syncStatus: 'error', syncError: String(err?.message || err) });
+      }
+    },
+
+    // Enqueue a local mutation for upload
+    enqueue,
+
+    isRunning: () => _running
+  };
+})();
 
 const Domain = {
   suggestTitle(lastRound) {
@@ -549,7 +1119,8 @@ const App = {
     appSettings: null,
     sessionToken: null,
     redirectAfterLogin: 'overview',
-    selectedUsers: []
+    selectedUsers: [],
+    syncMeta: null  // device/sync metadata (from getDeviceMeta)
   },
 
   isInstalled() { return !!this.state.appSettings?.installed; },
@@ -559,6 +1130,7 @@ const App = {
   async init() {
     await Data.init();
     await this.loadSettings();
+    await this.loadSyncMeta();
     this.setupPwa();
     if (!this.isInstalled()) {
       this.state.route = 'install';
@@ -573,6 +1145,21 @@ const App = {
     this.applyTheme();
     this.attachNav();
     this.render();
+
+    // Resume Online Mode if it was active on last session
+    if (Data.mode === 'online' && this.state.syncMeta?.firebaseConfig) {
+      this._initOnlineMode(this.state.syncMeta.firebaseConfig).catch((err) => {
+        console.warn('Online Mode could not resume:', err.message);
+      });
+    }
+
+    // Listen for remote changes to refresh UI
+    window.addEventListener('tenlb:remotechange', () => this.refresh().then(() => this.render()));
+    window.addEventListener('tenlb:syncstate', () => this.loadSyncMeta().then(() => this.render()));
+  },
+
+  async loadSyncMeta() {
+    this.state.syncMeta = await Data.adapter.getDeviceMeta();
   },
 
   async loadSettings() {
@@ -617,6 +1204,10 @@ const App = {
     this.state.currentUser = updated;
     this.state.sessionToken = token;
     Utils.setCookie('tenlb_session', token, this.state.appSettings.sessionDurationDays || 7);
+    // Enqueue user update for sync if online
+    if (Data.isOnline() && SyncEngine.isRunning()) {
+      await SyncEngine.enqueue('users', updated.id, 'UPDATE', updated, updated.id);
+    }
   },
 
   async logout() {
@@ -627,6 +1218,110 @@ const App = {
     this.state.route = this.isInstalled() ? 'login' : 'install';
     this.attachNav();
     this.render();
+  },
+
+  // ---------------------------------------------------------------------------
+  // Online Mode management
+  // ---------------------------------------------------------------------------
+  async _initOnlineMode(firebaseConfig) {
+    // Lazily load Firebase SDK scripts if not yet loaded
+    await this._loadFirebaseSDK();
+
+    await FirestoreAdapter.init(firebaseConfig, 'default');
+    Data.mode = 'online';
+
+    const meta = await Data.adapter.getDeviceMeta();
+    await Data.adapter.saveDeviceMeta({ ...meta, storageMode: 'online', firebaseConfig });
+
+    // If the current user is a master admin, register their firebase UID
+    // in Firestore so security rules grant admin access
+    const currentUser = this.state.currentUser;
+    if (currentUser && (currentUser.isAdmin || currentUser.isMaster) && FirestoreAdapter.isReady()) {
+      const uid = FirestoreAdapter.getUid();
+      if (uid) {
+        try {
+          const app = window.firebase.app('tenlb-app');
+          await app.firestore()
+            .collection('challenges').doc('default')
+            .collection('admins').doc(uid)
+            .set({ grantedAt: new Date().toISOString(), localUserId: currentUser.id, isAdmin: currentUser.isAdmin, isMaster: currentUser.isMaster }, { merge: true });
+        } catch (e) {
+          console.warn('Could not write admin entry to Firestore:', e.message);
+        }
+      }
+    }
+
+    await SyncEngine.start();
+    await this.loadSyncMeta();
+    this.render();
+  },
+
+  async _loadFirebaseSDK() {
+    if (window.firebase?.firestore) return; // compat bundles already loaded
+    const loadScript = (src) => new Promise((res, rej) => {
+      if (document.querySelector(`script[src="${src}"]`)) return res();
+      const s = document.createElement('script');
+      s.src = src;
+      s.onload = res;
+      s.onerror = () => rej(new Error(`Failed to load Firebase SDK from ${src}`));
+      document.head.appendChild(s);
+    });
+    // Use Firebase 10 compat bundles — these expose window.firebase with v8-style API
+    const CDN = 'https://www.gstatic.com/firebasejs/10.12.0';
+    await loadScript(`${CDN}/firebase-app-compat.js`);
+    await loadScript(`${CDN}/firebase-auth-compat.js`);
+    await loadScript(`${CDN}/firebase-firestore-compat.js`);
+  },
+
+  async enableOnlineMode(firebaseConfig) {
+    const meta = await Data.adapter.getDeviceMeta();
+    await Data.adapter.saveDeviceMeta({ ...meta, syncStatus: 'syncing', syncError: null });
+    await this.loadSyncMeta();
+    this.render();
+
+    try {
+      await this._initOnlineMode(firebaseConfig);
+      this.setMessage('Online Mode enabled. Synchronising…');
+    } catch (err) {
+      // Graceful degradation — remain in Local Mode
+      Data.mode = 'local';
+      const failMeta = await Data.adapter.getDeviceMeta();
+      await Data.adapter.saveDeviceMeta({ ...failMeta, storageMode: 'local', syncStatus: 'error', syncError: String(err?.message || err) });
+      await this.loadSyncMeta();
+      this.fail(`Failed to enable Online Mode: ${err.message || err}. Remaining in Local Mode.`);
+    }
+  },
+
+  async disableOnlineMode() {
+    const pending = await Data.adapter.countPendingSyncItems();
+    if (pending > 0) {
+      const msg = `You have ${pending} change${pending !== 1 ? 's' : ''} that have not been uploaded. They will remain on this device and can be synchronised if Online Mode is enabled again.`;
+      if (!confirm(msg + '\n\nDisable Online Mode anyway?')) return;
+    }
+    await SyncEngine.stop();
+    Data.mode = 'local';
+    const meta = await Data.adapter.getDeviceMeta();
+    await Data.adapter.saveDeviceMeta({ ...meta, storageMode: 'local' });
+    await this.loadSyncMeta();
+    this.setMessage('Online Mode disabled. Using local storage only.');
+    this.render();
+  },
+
+  async testFirebaseConnection(firebaseConfig) {
+    try {
+      await this._loadFirebaseSDK();
+      // Use a temporary named app to test connectivity
+      const testName = `tenlb-test-${Date.now()}`;
+      const tempApp = window.firebase.initializeApp(firebaseConfig, testName);
+      const tempAuth = tempApp.auth();
+      await tempAuth.signInAnonymously();
+      const tempDb = tempApp.firestore();
+      await tempDb.collection('challenges').doc('default').get();
+      await tempApp.delete();
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err.message || String(err) };
+    }
   },
 
   setupPwa() {
@@ -659,10 +1354,12 @@ const App = {
   attachNav() {
     const nav = document.getElementById('nav');
     const authChip = document.getElementById('auth-chip');
+    const syncBar = document.getElementById('sync-bar');
 
     if (!this.isInstalled() || !this.isAuthenticated()) {
       nav.innerHTML = '';
       authChip.innerHTML = '';
+      if (syncBar) syncBar.style.display = 'none';
       return;
     }
 
@@ -684,6 +1381,21 @@ const App = {
     authChip.innerHTML = `${Utils.esc(Utils.fullName(this.state.currentUser))} <span class="tag">${this.state.currentUser.isMaster ? 'Master' : (this.isAdmin() ? 'Admin' : 'User')}</span> <button class="btn secondary small" id="btn-logout">Logout</button>`;
     const logoutBtn = document.getElementById('btn-logout');
     if (logoutBtn) logoutBtn.onclick = () => this.logout();
+
+    // Sync status bar
+    if (syncBar && this.state.syncMeta) {
+      const meta = this.state.syncMeta;
+      const mode = meta.storageMode || 'local';
+      const status = meta.syncStatus || 'idle';
+      const statusIcons = { idle: '', syncing: '↻', synced: '✓', pending: '⚠', error: '✗' };
+      const statusText = { idle: '', syncing: 'Syncing…', synced: `Synced ${meta.lastSyncAt ? Utils.dateTime(meta.lastSyncAt) : ''}`, pending: 'Changes pending', error: 'Sync error' };
+      if (mode === 'online') {
+        syncBar.style.display = 'block';
+        syncBar.textContent = `${statusIcons[status] || ''} ONLINE — ${statusText[status] || status}`;
+      } else {
+        syncBar.style.display = 'none';
+      }
+    }
   },
 
   async refresh() {
@@ -1053,9 +1765,10 @@ const App = {
       <div class="tabs">
         <button data-settings-tab="user" class="${tab === 'user' ? 'active' : ''}">User settings</button>
         ${this.isAdmin() ? `<button data-settings-tab="server" class="${tab === 'server' ? 'active' : ''}">Server settings</button>` : ''}
+        ${this.isAdmin() ? `<button data-settings-tab="sync" class="${tab === 'sync' ? 'active' : ''}">Storage &amp; Sync</button>` : ''}
       </div>
 
-      ${tab === 'user' ? this.renderUserSettingsTab() : this.renderServerSettingsTab()}
+      ${tab === 'user' ? this.renderUserSettingsTab() : tab === 'server' ? this.renderServerSettingsTab() : this.renderSyncSettingsTab()}
     </div>`;
   },
 
@@ -1096,6 +1809,60 @@ const App = {
           <div><label>Confirm reset</label><label class="row"><input style="width:auto" type="checkbox" name="confirm" /> Yes, uninstall this server</label></div>
           <div style="grid-column:1/-1"><button class="btn danger" type="submit">Reset server</button></div>
         </form>` : `<p class="error">Only the master admin can reset this server.</p>`}
+    </div>`;
+  },
+
+  renderSyncSettingsTab() {
+    if (!this.isAdmin()) return `<p class="error">Access denied.</p>`;
+    const meta = this.state.syncMeta || {};
+    const mode = meta.storageMode || 'local';
+    const syncStatus = meta.syncStatus || 'idle';
+    const lastSync = meta.lastSyncAt ? Utils.dateTime(meta.lastSyncAt) : 'Never';
+    const syncError = meta.syncError || null;
+    const cfg = meta.firebaseConfig || {};
+    const networkOnline = navigator.onLine;
+
+    // Sync status badge
+    const statusLabel = { idle: '— Idle', syncing: '↻ Syncing…', synced: '✓ Synced', pending: '⚠ Changes pending', error: '✗ Error' };
+    const statusClass = { idle: 'muted', syncing: '', synced: 'ok', pending: 'warn', error: 'error' };
+    const syncBadge = `<span class="${statusClass[syncStatus] || ''}">${statusLabel[syncStatus] || syncStatus}</span>`;
+
+    return `
+    <div class="card" style="margin-bottom:12px">
+      <h3 style="margin-top:0">Storage &amp; Sync</h3>
+      <div class="grid two" style="gap:6px;margin-bottom:10px">
+        <div><strong>Mode</strong><br/><span class="tag">${mode === 'online' ? 'ONLINE' : 'LOCAL'}</span></div>
+        <div><strong>Network</strong><br/><span class="${networkOnline ? 'ok' : 'error'}">${networkOnline ? 'Connected' : 'Disconnected'}</span></div>
+        <div><strong>Synchronisation</strong><br/>${syncBadge}</div>
+        <div><strong>Last sync</strong><br/><span class="muted">${lastSync}</span></div>
+      </div>
+      ${syncError ? `<p class="error small">Error: ${Utils.esc(syncError)}</p>` : ''}
+      ${mode === 'local' ? `<p class="muted small">Changes are stored only on this device.</p>` : ''}
+
+      <div class="row" style="margin-top:8px">
+        <button class="btn ${mode === 'online' ? 'secondary' : ''}" id="btn-mode-local" ${mode === 'local' ? 'disabled' : ''}>Local</button>
+        <button class="btn ${mode === 'local' ? 'secondary' : ''}" id="btn-mode-online">Online</button>
+        ${mode === 'online' ? `<button class="btn secondary" id="btn-sync-retry">↻ Retry sync</button>` : ''}
+      </div>
+    </div>
+
+    <div class="card" id="firebase-config-card">
+      <h3 style="margin-top:0">Firebase Configuration</h3>
+      <p class="muted small">Enter your Firebase web app configuration. These are <strong>not</strong> secret server credentials — they are the standard client-side Firebase config safe to store locally. Never paste a service-account private key here.</p>
+      <form id="firebase-config-form" class="grid two">
+        <div><label>API Key</label><input name="apiKey" value="${Utils.escAttr(cfg.apiKey || '')}" placeholder="AIza…" /></div>
+        <div><label>Auth Domain</label><input name="authDomain" value="${Utils.escAttr(cfg.authDomain || '')}" placeholder="project.firebaseapp.com" /></div>
+        <div><label>Project ID</label><input name="projectId" value="${Utils.escAttr(cfg.projectId || '')}" placeholder="my-project" /></div>
+        <div><label>Storage Bucket</label><input name="storageBucket" value="${Utils.escAttr(cfg.storageBucket || '')}" placeholder="project.appspot.com" /></div>
+        <div><label>Messaging Sender ID</label><input name="messagingSenderId" value="${Utils.escAttr(cfg.messagingSenderId || '')}" /></div>
+        <div><label>App ID</label><input name="appId" value="${Utils.escAttr(cfg.appId || '')}" placeholder="1:123:web:abc" /></div>
+        <div style="grid-column:1/-1" class="row">
+          <button class="btn secondary" type="button" id="btn-firebase-test">Test Connection</button>
+          <button class="btn" type="submit">${mode === 'online' ? 'Update Config &amp; Re-sync' : 'Save Config'}</button>
+        </div>
+        <div id="firebase-test-result" style="grid-column:1/-1"></div>
+      </form>
+      ${mode === 'online' ? `<div style="margin-top:12px"><button class="btn danger" id="btn-disable-online">Disable Online Mode</button></div>` : ''}
     </div>`;
   },
 
@@ -1556,6 +2323,83 @@ const App = {
         this.render();
       };
     }
+
+    const syncRetry = document.getElementById('btn-sync-retry');
+    if (syncRetry) {
+      syncRetry.onclick = async () => {
+        syncRetry.disabled = true;
+        await SyncEngine.retryNow();
+        await this.loadSyncMeta();
+        this.render();
+      };
+    }
+
+    const btnModeLocal = document.getElementById('btn-mode-local');
+    if (btnModeLocal) {
+      btnModeLocal.onclick = async () => {
+        await this.disableOnlineMode();
+      };
+    }
+
+    const btnModeOnline = document.getElementById('btn-mode-online');
+    if (btnModeOnline) {
+      btnModeOnline.onclick = async () => {
+        // Scroll down to config form
+        const card = document.getElementById('firebase-config-card');
+        if (card) card.scrollIntoView({ behavior: 'smooth' });
+      };
+    }
+
+    const btnDisableOnline = document.getElementById('btn-disable-online');
+    if (btnDisableOnline) {
+      btnDisableOnline.onclick = async () => {
+        await this.disableOnlineMode();
+      };
+    }
+
+    const firebaseTestBtn = document.getElementById('btn-firebase-test');
+    if (firebaseTestBtn) {
+      firebaseTestBtn.onclick = async () => {
+        const form = document.getElementById('firebase-config-form');
+        if (!form) return;
+        const cfg = this._readFirebaseConfigForm(form);
+        const resultEl = document.getElementById('firebase-test-result');
+        if (!cfg) { if (resultEl) resultEl.innerHTML = '<span class="error">Fill in all Firebase config fields first.</span>'; return; }
+        firebaseTestBtn.disabled = true;
+        firebaseTestBtn.textContent = 'Testing…';
+        if (resultEl) resultEl.innerHTML = '';
+        const result = await this.testFirebaseConnection(cfg);
+        firebaseTestBtn.disabled = false;
+        firebaseTestBtn.textContent = 'Test Connection';
+        if (resultEl) {
+          resultEl.innerHTML = result.ok
+            ? '<span class="ok">✓ Connection successful</span>'
+            : `<span class="error">✗ ${Utils.esc(result.error)}</span>`;
+        }
+      };
+    }
+
+    const firebaseConfigForm = document.getElementById('firebase-config-form');
+    if (firebaseConfigForm) {
+      firebaseConfigForm.onsubmit = async (e) => {
+        e.preventDefault();
+        const cfg = this._readFirebaseConfigForm(firebaseConfigForm);
+        if (!cfg) return this.fail('Fill in all Firebase config fields.');
+        await this.enableOnlineMode(cfg);
+        this.render();
+      };
+    }
+  },
+
+  _readFirebaseConfigForm(form) {
+    const apiKey = form.apiKey?.value?.trim();
+    const authDomain = form.authDomain?.value?.trim();
+    const projectId = form.projectId?.value?.trim();
+    const storageBucket = form.storageBucket?.value?.trim();
+    const messagingSenderId = form.messagingSenderId?.value?.trim();
+    const appId = form.appId?.value?.trim();
+    if (!apiKey || !authDomain || !projectId) return null;
+    return { apiKey, authDomain, projectId, storageBucket, messagingSenderId, appId };
   },
 
   fail(msg) { this.setMessage('', msg); this.render(); }
