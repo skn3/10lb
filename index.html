@@ -1391,8 +1391,8 @@ const App = {
   },
 
   canAccess(route) {
-    // join is the registration screen — accessible when not installed or always for unauthenticated
-    if (route === 'join') return true;
+    // join is the registration screen — accessible when not authenticated
+    if (route === 'join') return !this.isAuthenticated();
     if (!this.isInstalled()) return route === 'install';
     if (['install', 'login'].includes(route)) return true;
     if (!this.isAuthenticated()) return false;
@@ -2131,7 +2131,7 @@ const App = {
     if (btnDeleteAllInvites) btnDeleteAllInvites.onclick = async () => {
       if (!confirm('Delete all pending invites? This cannot be undone.')) return;
       const pending = this.state.invites.filter((i) => !i.usedAt);
-      for (const inv of pending) await Data.adapter.deleteInvite(inv.id);
+      await Promise.all(pending.map((inv) => Data.adapter.deleteInvite(inv.id)));
       await this.refresh();
       this.setMessage('All pending invites deleted.');
       this.render();
@@ -2616,25 +2616,8 @@ const App = {
         if (!ok) return this.fail('Invalid master password.');
         await Data.adapter.clearAllData();
         Utils.clearCookie('tenlb_session');
-        this.state = {
-          ...this.state,
-          route: 'join',
-          message: 'Server reset complete.',
-          error: '',
-          rounds: [],
-          users: [],
-          submissions: [],
-          invites: [],
-          currentUser: null,
-          sessionToken: null,
-          createDraft: null,
-          selectedUsers: [],
-          inviteDetail: null,
-          pendingInviteCode: ''
-        };
-        await this.loadSettings();
-        this.attachNav();
-        this.render();
+        // Redirect to ?setup=1 so the admin can re-run the install wizard
+        window.location.href = window.location.pathname + '?setup=1';
       };
     }
 
