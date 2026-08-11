@@ -3,41 +3,54 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>The 10lb Challenge</title>
+  <title>10lb Challenge</title>
   <meta name="theme-color" content="#0f766e" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="10lb" />
-  <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'%3E%3Crect width='180' height='180' rx='32' fill='%230f766e'/%3E%3Ctext x='90' y='112' font-size='72' text-anchor='middle' fill='white'%3E10%3C/text%3E%3C/svg%3E" />
   <style>
-    :root { color-scheme: light; --bg:#f6f8fb; --card:#fff; --text:#0f172a; --muted:#64748b; --brand:#0f766e; --danger:#b91c1c; --ok:#15803d; --warn:#d97706; }
+    :root {
+      color-scheme: light;
+      --bg:#f6f8fb;
+      --card:#fff;
+      --text:#0f172a;
+      --muted:#64748b;
+      --brand:#0f766e;
+      --danger:#b91c1c;
+      --ok:#15803d;
+      --border:#e2e8f0;
+      --nav-bg:#ecfeff;
+      --nav-border:#bae6fd;
+    }
     * { box-sizing:border-box; }
     body { margin:0; font-family: Inter,system-ui,-apple-system,sans-serif; background:var(--bg); color:var(--text); }
-    header { position:sticky; top:0; z-index:2; background:#0f766e; color:#fff; padding:14px 16px; }
+    header { position:sticky; top:0; z-index:3; background:var(--brand); color:#fff; padding:14px 16px; }
+    .header-row { display:flex; justify-content:space-between; align-items:center; gap:8px; }
     h1 { margin:0; font-size:1.05rem; }
-    nav { display:flex; gap:8px; padding:10px; flex-wrap:wrap; background:#ecfeff; border-bottom:1px solid #bae6fd; }
+    nav { display:flex; gap:8px; padding:10px; flex-wrap:wrap; background:var(--nav-bg); border-bottom:1px solid var(--nav-border); }
     nav button { border:1px solid #cbd5e1; background:#fff; border-radius:999px; padding:8px 12px; font-weight:600; }
     nav button.active { background:var(--brand); border-color:var(--brand); color:#fff; }
-    main { padding:12px; max-width:960px; margin:0 auto; }
-    .card { background:var(--card); border:1px solid #e2e8f0; border-radius:12px; padding:12px; margin-bottom:12px; box-shadow:0 1px 2px rgba(15,23,42,.04); }
+    main { padding:12px; max-width:1100px; margin:0 auto; }
+    .card { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:12px; margin-bottom:12px; box-shadow:0 1px 2px rgba(15,23,42,.04); }
     .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
     .between { justify-content:space-between; }
     input, select, button, textarea { font:inherit; }
-    input, select { width:100%; border:1px solid #cbd5e1; border-radius:10px; padding:8px; }
+    input, select, textarea { width:100%; border:1px solid #cbd5e1; border-radius:10px; padding:8px; background:#fff; color:var(--text); }
     label { font-size:.9rem; color:#334155; font-weight:600; display:block; margin:8px 0 4px; }
-    .btn { border:0; background:var(--brand); color:#fff; padding:9px 12px; border-radius:10px; font-weight:700; }
+    .btn { border:0; background:var(--brand); color:#fff; padding:9px 12px; border-radius:10px; font-weight:700; cursor:pointer; }
     .btn.secondary { background:#334155; }
     .btn.danger { background:var(--danger); }
+    .btn.warn { background:#d97706; }
     .muted { color:var(--muted); }
     .error { color:var(--danger); font-weight:600; }
     .ok { color:var(--ok); font-weight:600; }
     .grid { display:grid; grid-template-columns:1fr; gap:10px; }
     @media(min-width:760px){ .grid.two{grid-template-columns:1fr 1fr;} .grid.three{grid-template-columns:repeat(3,1fr);} }
     .list { display:flex; flex-direction:column; gap:8px; }
-    .list-item { border:1px solid #e2e8f0; border-radius:10px; padding:10px; background:#fff; }
+    .list-item { border:1px solid var(--border); border-radius:10px; padding:10px; background:#fff; }
     .list-item.active { border-color:#22c55e; background:#f0fdf4; }
     .table { width:100%; border-collapse:collapse; font-size:.92rem; }
-    .table th,.table td { border-bottom:1px solid #e2e8f0; padding:8px 6px; text-align:left; }
+    .table th,.table td { border-bottom:1px solid var(--border); padding:8px 6px; text-align:left; }
     .holiday { color:#94a3b8; }
     .forfeit { color:#94a3b8; text-decoration:line-through; }
     .tag { background:#f1f5f9; color:#334155; padding:2px 8px; border-radius:999px; font-size:.75rem; font-weight:700; }
@@ -49,19 +62,33 @@
     .pill { padding:3px 8px; border-radius:999px; font-size:.75rem; font-weight:700; }
     .pill.warn { background:#fef3c7; color:#92400e; }
     .pill.ok { background:#dcfce7; color:#166534; }
+    .tabs { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px; }
+    .tabs button { border:1px solid var(--border); background:#fff; border-radius:999px; padding:6px 10px; font-weight:600; }
+    .tabs button.active { background:var(--brand); color:#fff; border-color:var(--brand); }
+    .right { margin-left:auto; }
+
+    body[data-theme="teal"] { --brand:#0f766e; --bg:#f6f8fb; --card:#ffffff; --text:#0f172a; --muted:#64748b; --border:#e2e8f0; --nav-bg:#ecfeff; --nav-border:#bae6fd; }
+    body[data-theme="indigo"] { --brand:#4338ca; --bg:#eef2ff; --card:#ffffff; --text:#1e1b4b; --muted:#6366f1; --border:#c7d2fe; --nav-bg:#e0e7ff; --nav-border:#a5b4fc; }
+    body[data-theme="rose"] { --brand:#be123c; --bg:#fff1f2; --card:#ffffff; --text:#500724; --muted:#9f1239; --border:#fecdd3; --nav-bg:#ffe4e6; --nav-border:#fda4af; }
+    body[data-theme="slate"] { --brand:#334155; --bg:#f8fafc; --card:#ffffff; --text:#0f172a; --muted:#475569; --border:#cbd5e1; --nav-bg:#f1f5f9; --nav-border:#cbd5e1; }
+    body[data-theme="emerald"] { --brand:#047857; --bg:#ecfdf5; --card:#ffffff; --text:#064e3b; --muted:#047857; --border:#a7f3d0; --nav-bg:#d1fae5; --nav-border:#6ee7b7; }
   </style>
 </head>
-<body>
-  <header><h1>The 10lb Challenge</h1></header>
+<body data-theme="teal">
+  <header>
+    <div class="header-row">
+      <h1 id="server-title">10lb Challenge</h1>
+      <div class="row small" id="auth-chip"></div>
+    </div>
+  </header>
   <nav id="nav"></nav>
   <main id="app"></main>
 
 <script>
-const Config = { STORAGE_MODE: 'offline', DB_NAME: 'tenlb-challenge', DB_VERSION: 1 };
+const Config = { STORAGE_MODE: 'offline', DB_NAME: 'tenlb-challenge', DB_VERSION: 2 };
 
 const Utils = {
   id: () => (crypto && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`),
-  money: (n) => `£${Number(n || 0).toFixed(2)}`,
   round2: (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100,
   pct: (n) => `${Number(n || 0).toFixed(2)}%`,
   esc: (s) => String(s ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;'),
@@ -71,12 +98,77 @@ const Utils = {
     return Number.isFinite(n) ? n : d;
   },
   date: (d) => d ? new Date(d).toLocaleDateString('en-GB') : '—',
+  dateTime: (d) => d ? new Date(d).toLocaleString('en-GB') : '—',
   weekdayName: (i) => ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][Number(i) || 0],
-  clone: (v) => JSON.parse(JSON.stringify(v))
+  clone: (v) => JSON.parse(JSON.stringify(v)),
+  fullName: (user) => [user?.firstName || '', user?.lastName || ''].join(' ').trim() || user?.name || user?.username || 'Unknown user',
+  parseName: (fullName) => {
+    const parts = String(fullName || '').trim().split(/\s+/).filter(Boolean);
+    if (!parts.length) return { firstName: '', lastName: '' };
+    if (parts.length === 1) return { firstName: parts[0], lastName: '' };
+    return { firstName: parts[0], lastName: parts.slice(1).join(' ') };
+  },
+  validPassword: (password) => /^(?=.*[A-Za-z])(?=.*\d)(?=.*[^A-Za-z\d]).{8,}$/.test(password || ''),
+  money: (n, currency = '£') => `${currency}${Number(n || 0).toFixed(2)}`,
+  weight: (n, fmt = 'lb') => `${Number(n || 0)}${fmt}`,
+  setCookie(name, value, days) {
+    const expires = new Date(Date.now() + (days * 86400000)).toUTCString();
+    document.cookie = `${encodeURIComponent(name)}=${encodeURIComponent(value)}; expires=${expires}; path=/; SameSite=Lax`;
+  },
+  getCookie(name) {
+    const key = `${encodeURIComponent(name)}=`;
+    const row = document.cookie.split(';').map((x) => x.trim()).find((x) => x.startsWith(key));
+    return row ? decodeURIComponent(row.slice(key.length)) : null;
+  },
+  clearCookie(name) {
+    document.cookie = `${encodeURIComponent(name)}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/; SameSite=Lax`;
+  }
 };
+
+const Security = {
+  encoder: new TextEncoder(),
+  toB64(bytes) {
+    let binary = '';
+    bytes.forEach((b) => { binary += String.fromCharCode(b); });
+    return btoa(binary);
+  },
+  fromB64(base64) {
+    const raw = atob(base64);
+    return Uint8Array.from(raw, (x) => x.charCodeAt(0));
+  },
+  async hashPassword(password, saltBytes, iterations = 150000) {
+    const key = await crypto.subtle.importKey('raw', this.encoder.encode(password), 'PBKDF2', false, ['deriveBits']);
+    const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt: saltBytes, iterations, hash: 'SHA-256' }, key, 256);
+    return this.toB64(new Uint8Array(bits));
+  },
+  async createPasswordRecord(password) {
+    const saltBytes = crypto.getRandomValues(new Uint8Array(16));
+    const iterations = 150000;
+    const hash = await this.hashPassword(password, saltBytes, iterations);
+    return { algorithm: 'PBKDF2-SHA256', iterations, salt: this.toB64(saltBytes), hash };
+  },
+  async verifyPassword(password, record) {
+    if (!record?.salt || !record?.hash || !record?.iterations) return false;
+    const hash = await this.hashPassword(password, this.fromB64(record.salt), record.iterations);
+    return hash === record.hash;
+  },
+  sessionToken() {
+    const bytes = crypto.getRandomValues(new Uint8Array(32));
+    return this.toB64(bytes).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+};
+
+const ThemeOptions = [
+  { key: 'teal', label: 'Teal Breeze' },
+  { key: 'indigo', label: 'Indigo Glow' },
+  { key: 'rose', label: 'Rose Quartz' },
+  { key: 'slate', label: 'Slate Steel' },
+  { key: 'emerald', label: 'Emerald Mist' }
+];
 
 const OfflineAdapter = (() => {
   let db;
+
   const open = () => new Promise((resolve, reject) => {
     if (db) return resolve(db);
     const req = indexedDB.open(Config.DB_NAME, Config.DB_VERSION);
@@ -90,6 +182,10 @@ const OfflineAdapter = (() => {
       }
       if (!x.objectStoreNames.contains('weeklySnapshots')) x.createObjectStore('weeklySnapshots', { keyPath: 'id' });
       if (!x.objectStoreNames.contains('settings')) x.createObjectStore('settings', { keyPath: 'key' });
+      if (!x.objectStoreNames.contains('sessions')) {
+        const sess = x.createObjectStore('sessions', { keyPath: 'token' });
+        sess.createIndex('userId', 'userId', { unique: false });
+      }
     };
     req.onsuccess = () => { db = req.result; resolve(db); };
     req.onerror = () => reject(req.error);
@@ -119,42 +215,111 @@ const OfflineAdapter = (() => {
     req.onerror = () => rej(req.error);
   }));
 
+  const del = (store, key) => run([store], 'readwrite', ({ [store]: s }) => new Promise((res, rej) => {
+    const req = s.delete(key);
+    req.onsuccess = () => res(true);
+    req.onerror = () => rej(req.error);
+  }));
+
   const get = (store, key) => run([store], 'readonly', ({ [store]: s }) => new Promise((res, rej) => {
     const req = s.get(key);
     req.onsuccess = () => res(req.result || null);
     req.onerror = () => rej(req.error);
   }));
 
+  const defaultAppSettings = () => ({
+    key: 'app',
+    installed: false,
+    serverName: '10lb Challenge',
+    weightFormat: 'lb',
+    currency: '£',
+    theme: 'teal',
+    sessionDurationDays: 7,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  });
+
+  const normalizeUser = (u) => {
+    if (!u) return null;
+    const parsed = Utils.parseName(u.name || Utils.fullName(u));
+    return {
+      id: u.id || Utils.id(),
+      username: u.username || (u.name ? u.name.toLowerCase().replace(/\s+/g, '.') : ''),
+      firstName: u.firstName || parsed.firstName,
+      lastName: u.lastName || parsed.lastName,
+      password: u.password || null,
+      isAdmin: !!u.isAdmin,
+      isMaster: !!u.isMaster,
+      createdAt: u.createdAt || new Date().toISOString(),
+      updatedAt: u.updatedAt || new Date().toISOString(),
+      lastLoginAt: u.lastLoginAt || null
+    };
+  };
+
   return {
     async init() {
       await open();
-      const settings = await get('settings', 'app');
-      if (!settings) await put('settings', { key: 'app', seededAt: new Date().toISOString() });
+      const app = await get('settings', 'app');
+      if (!app) await put('settings', defaultAppSettings());
+      const users = await getAll('users');
+      await Promise.all(users.map(async (u) => {
+        const n = normalizeUser(u);
+        if (JSON.stringify(n) !== JSON.stringify(u)) await put('users', n);
+      }));
     },
+    getAppSettings: async () => {
+      const app = await get('settings', 'app');
+      return app || defaultAppSettings();
+    },
+    saveAppSettings: async (settings) => put('settings', { ...settings, key: 'app', updatedAt: new Date().toISOString() }),
     listRounds: () => getAll('rounds'),
-    listUsers: () => getAll('users'),
+    listUsers: async () => (await getAll('users')).map(normalizeUser),
     listSubmissions: () => getAll('submissions'),
     getRound: (id) => get('rounds', id),
     getWeeklySnapshot: (roundId, weekNumber) => get('weeklySnapshots', `${roundId}:${weekNumber}`),
+    getUserById: async (id) => normalizeUser(await get('users', id)),
+    async getUserByUsername(username) {
+      const all = await this.listUsers();
+      return all.find((u) => u.username.toLowerCase() === String(username || '').trim().toLowerCase()) || null;
+    },
+    createUser: async (user) => {
+      const now = new Date().toISOString();
+      const value = normalizeUser({ ...user, createdAt: now, updatedAt: now });
+      await put('users', value);
+      return value;
+    },
+    updateUser: async (user) => put('users', normalizeUser({ ...user, updatedAt: new Date().toISOString() })),
+    deleteUser: async (id) => {
+      const [rounds, submissions, sessions] = await Promise.all([getAll('rounds'), getAll('submissions'), getAll('sessions')]);
+      await run(['users','rounds','submissions','sessions'], 'readwrite', ({ users, rounds: roundsStore, submissions: subsStore, sessions: sessStore }) => {
+        users.delete(id);
+        rounds.filter((r) => (r.participantIds || []).includes(id)).forEach((round) => {
+          roundsStore.put({ ...round, participantIds: round.participantIds.filter((pid) => pid !== id), updatedAt: new Date().toISOString() });
+        });
+        submissions.filter((s) => s.userId === id).forEach((s) => subsStore.delete(s.id));
+        sessions.filter((s) => s.userId === id).forEach((s) => sessStore.delete(s.token));
+      });
+    },
     async upsertUsersByName(names) {
       const cleaned = [...new Set(names.map((n) => n.trim()).filter(Boolean))];
       if (!cleaned.length) return [];
       return run(['users'], 'readwrite', ({ users }) => new Promise((resolve, reject) => {
         const req = users.getAll();
-        req.onsuccess = () => {
+        req.onsuccess = async () => {
           const all = req.result || [];
-          const map = new Map(all.map((u) => [u.name.toLowerCase(), u]));
+          const map = new Map(all.map((u) => [Utils.fullName(normalizeUser(u)).toLowerCase(), normalizeUser(u)]));
           const out = [];
-          cleaned.forEach((name) => {
-            const key = name.toLowerCase();
+          for (const fullName of cleaned) {
+            const key = fullName.toLowerCase();
             let user = map.get(key);
             if (!user) {
-              user = { id: Utils.id(), name, createdAt: new Date().toISOString() };
+              const parsed = Utils.parseName(fullName);
+              user = normalizeUser({ id: Utils.id(), username: `${parsed.firstName}.${parsed.lastName}`.toLowerCase().replace(/\.+/g,'.').replace(/[^a-z0-9.]/g,''), firstName: parsed.firstName, lastName: parsed.lastName, isAdmin: false, isMaster: false, createdAt: new Date().toISOString() });
               users.put(user);
               map.set(key, user);
             }
             out.push(user);
-          });
+          }
           resolve(out);
         };
         req.onerror = () => reject(req.error);
@@ -164,14 +329,23 @@ const OfflineAdapter = (() => {
       return run(['rounds', 'users'], 'readwrite', ({ rounds, users }) => new Promise((resolve, reject) => {
         const allReq = users.getAll();
         allReq.onsuccess = () => {
-          const existing = allReq.result || [];
-          const map = new Map(existing.map((u) => [u.name.toLowerCase(), u]));
+          const existing = (allReq.result || []).map(normalizeUser);
+          const map = new Map(existing.map((u) => [Utils.fullName(u).toLowerCase(), u]));
           const participantIds = [];
-          roundInput.userNames.forEach((name) => {
-            const key = name.toLowerCase();
+          roundInput.userNames.forEach((fullName) => {
+            const key = fullName.toLowerCase();
             let user = map.get(key);
             if (!user) {
-              user = { id: Utils.id(), name, createdAt: new Date().toISOString() };
+              const parsed = Utils.parseName(fullName);
+              user = normalizeUser({
+                id: Utils.id(),
+                username: `${parsed.firstName}.${parsed.lastName}`.toLowerCase().replace(/\.+/g,'.').replace(/[^a-z0-9.]/g,''),
+                firstName: parsed.firstName,
+                lastName: parsed.lastName,
+                createdAt: new Date().toISOString(),
+                isAdmin: false,
+                isMaster: false
+              });
               users.put(user);
               map.set(key, user);
             }
@@ -211,6 +385,38 @@ const OfflineAdapter = (() => {
       return run(['submissions', 'weeklySnapshots'], 'readwrite', ({ submissions, weeklySnapshots }) => {
         submissions.put(submission);
         weeklySnapshots.put(snapshot);
+      });
+    },
+    createSession: async (token, userId, durationDays) => {
+      const now = new Date();
+      const row = {
+        token,
+        userId,
+        createdAt: now.toISOString(),
+        updatedAt: now.toISOString(),
+        expiresAt: new Date(now.getTime() + (durationDays * 86400000)).toISOString()
+      };
+      await put('sessions', row);
+      return row;
+    },
+    getSession: async (token) => get('sessions', token),
+    touchSession: async (token, durationDays) => {
+      const s = await get('sessions', token);
+      if (!s) return null;
+      const now = new Date();
+      const next = { ...s, updatedAt: now.toISOString(), expiresAt: new Date(now.getTime() + (durationDays * 86400000)).toISOString() };
+      await put('sessions', next);
+      return next;
+    },
+    deleteSession: async (token) => del('sessions', token),
+    async clearAllData() {
+      await run(['rounds','users','submissions','weeklySnapshots','sessions','settings'], 'readwrite', ({ rounds, users, submissions, weeklySnapshots, sessions, settings }) => {
+        rounds.clear();
+        users.clear();
+        submissions.clear();
+        weeklySnapshots.clear();
+        sessions.clear();
+        settings.put(defaultAppSettings());
       });
     }
   };
@@ -337,20 +543,95 @@ const App = {
     submissions: [],
     selectedRoundId: null,
     weekCursor: {},
-    createDraft: null
+    createDraft: null,
+    settingsTab: 'user',
+    currentUser: null,
+    appSettings: null,
+    sessionToken: null,
+    redirectAfterLogin: 'overview',
+    selectedUsers: []
   },
 
+  isInstalled() { return !!this.state.appSettings?.installed; },
+  isAuthenticated() { return !!this.state.currentUser; },
+  isAdmin(user = this.state.currentUser) { return !!(user && (user.isAdmin || user.isMaster)); },
+
   async init() {
-    this.attachNav();
     await Data.init();
-    await this.refresh();
+    await this.loadSettings();
     this.setupPwa();
+    if (!this.isInstalled()) {
+      this.state.route = 'install';
+      this.attachNav();
+      this.render();
+      return;
+    }
+
+    await this.restoreSessionFromCookie();
+    if (!this.isAuthenticated()) this.state.route = 'login';
+    await this.refresh();
+    this.applyTheme();
+    this.attachNav();
+    this.render();
+  },
+
+  async loadSettings() {
+    this.state.appSettings = await Data.adapter.getAppSettings();
+    document.getElementById('server-title').textContent = this.state.appSettings.serverName || '10lb Challenge';
+  },
+
+  applyTheme() {
+    document.body.setAttribute('data-theme', this.state.appSettings?.theme || 'teal');
+  },
+
+  async restoreSessionFromCookie() {
+    const token = Utils.getCookie('tenlb_session');
+    if (!token) return;
+    const session = await Data.adapter.getSession(token);
+    if (!session) {
+      Utils.clearCookie('tenlb_session');
+      return;
+    }
+    if (new Date(session.expiresAt).getTime() < Date.now()) {
+      await Data.adapter.deleteSession(token);
+      Utils.clearCookie('tenlb_session');
+      return;
+    }
+    const user = await Data.adapter.getUserById(session.userId);
+    if (!user) {
+      await Data.adapter.deleteSession(token);
+      Utils.clearCookie('tenlb_session');
+      return;
+    }
+    this.state.currentUser = user;
+    this.state.sessionToken = token;
+    await Data.adapter.touchSession(token, this.state.appSettings.sessionDurationDays || 7);
+    Utils.setCookie('tenlb_session', token, this.state.appSettings.sessionDurationDays || 7);
+  },
+
+  async loginAs(user) {
+    const token = Security.sessionToken();
+    await Data.adapter.createSession(token, user.id, this.state.appSettings.sessionDurationDays || 7);
+    const updated = { ...user, lastLoginAt: new Date().toISOString() };
+    await Data.adapter.updateUser(updated);
+    this.state.currentUser = updated;
+    this.state.sessionToken = token;
+    Utils.setCookie('tenlb_session', token, this.state.appSettings.sessionDurationDays || 7);
+  },
+
+  async logout() {
+    if (this.state.sessionToken) await Data.adapter.deleteSession(this.state.sessionToken);
+    Utils.clearCookie('tenlb_session');
+    this.state.currentUser = null;
+    this.state.sessionToken = null;
+    this.state.route = this.isInstalled() ? 'login' : 'install';
+    this.attachNav();
     this.render();
   },
 
   setupPwa() {
     const manifest = {
-      name: 'The 10lb Challenge',
+      name: '10lb Challenge',
       short_name: '10lb',
       start_url: './',
       display: 'standalone',
@@ -364,27 +645,45 @@ const App = {
     link.href = URL.createObjectURL(blob);
     document.head.appendChild(link);
 
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('./sw.js').catch(() => {});
-    }
+    if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(() => {});
+  },
+
+  canAccess(route) {
+    if (!this.isInstalled()) return route === 'install';
+    if (['install', 'login'].includes(route)) return true;
+    if (!this.isAuthenticated()) return false;
+    if (['overview', 'rounds', 'submit', 'settings'].includes(route)) return true;
+    return this.isAdmin();
   },
 
   attachNav() {
     const nav = document.getElementById('nav');
-    nav.innerHTML = [
+    const authChip = document.getElementById('auth-chip');
+
+    if (!this.isInstalled() || !this.isAuthenticated()) {
+      nav.innerHTML = '';
+      authChip.innerHTML = '';
+      return;
+    }
+
+    const items = [
       ['overview', 'Current Round'],
       ['rounds', 'Rounds'],
-      ['create', 'Create'],
       ['submit', 'Submit']
-    ].map(([key, label]) => `<button data-route="${key}">${label}</button>`).join('');
-    nav.addEventListener('click', (e) => {
+    ];
+    if (this.isAdmin()) items.push(['create', 'Create'], ['users', 'Users']);
+    items.push(['settings', 'Settings']);
+
+    nav.innerHTML = items.map(([key, label]) => `<button data-route="${key}">${label}</button>`).join('');
+    nav.onclick = (e) => {
       const b = e.target.closest('button[data-route]');
       if (!b) return;
-      this.state.route = b.dataset.route;
-      this.state.error = '';
-      this.state.message = '';
-      this.render();
-    });
+      this.navigate(b.dataset.route);
+    };
+
+    authChip.innerHTML = `${Utils.esc(Utils.fullName(this.state.currentUser))} <span class="tag">${this.state.currentUser.isMaster ? 'Master' : (this.isAdmin() ? 'Admin' : 'User')}</span> <button class="btn secondary small" id="btn-logout">Logout</button>`;
+    const logoutBtn = document.getElementById('btn-logout');
+    if (logoutBtn) logoutBtn.onclick = () => this.logout();
   },
 
   async refresh() {
@@ -393,9 +692,32 @@ const App = {
     this.state.submissions = await Data.adapter.listSubmissions();
     const active = Domain.activeRound(this.state.rounds);
     if (!this.state.selectedRoundId) this.state.selectedRoundId = active?.id || this.state.rounds[0]?.id || null;
+    if (this.state.currentUser) {
+      this.state.currentUser = this.state.users.find((u) => u.id === this.state.currentUser.id) || this.state.currentUser;
+    }
   },
 
   setMessage(msg = '', err = '') { this.state.message = msg; this.state.error = err; },
+
+  async navigate(route) {
+    this.state.error = '';
+    this.state.message = '';
+
+    if (!this.canAccess(route)) {
+      if (!this.isAuthenticated()) {
+        this.state.redirectAfterLogin = route;
+        this.state.route = 'login';
+      } else {
+        this.state.route = 'denied';
+      }
+      this.render();
+      return;
+    }
+
+    if (route === 'login' && this.isAuthenticated()) route = 'overview';
+    this.state.route = route;
+    this.render();
+  },
 
   currentRound() {
     if (this.state.selectedRoundId) {
@@ -406,21 +728,78 @@ const App = {
   },
 
   render() {
-    document.querySelectorAll('#nav button').forEach((b) => b.classList.toggle('active', b.dataset.route === this.state.route));
+    this.attachNav();
+    this.applyTheme();
+    document.getElementById('server-title').textContent = this.state.appSettings?.serverName || '10lb Challenge';
+
     const app = document.getElementById('app');
     const flash = `${this.state.error ? `<p class="error">${this.state.error}</p>` : ''}${this.state.message ? `<p class="ok">${this.state.message}</p>` : ''}`;
+
+    if (!this.isInstalled()) {
+      app.innerHTML = flash + this.renderInstall();
+      this.bindScreenEvents();
+      return;
+    }
+
+    if (!this.isAuthenticated()) {
+      app.innerHTML = flash + this.renderLogin();
+      this.bindScreenEvents();
+      return;
+    }
+
+    if (this.state.route === 'denied') app.innerHTML = flash + this.renderDenied();
     if (this.state.route === 'overview') app.innerHTML = flash + this.renderOverview();
     if (this.state.route === 'rounds') app.innerHTML = flash + this.renderRoundList();
     if (this.state.route === 'create') app.innerHTML = flash + this.renderCreate();
     if (this.state.route === 'edit') app.innerHTML = flash + this.renderEdit();
     if (this.state.route === 'delete') app.innerHTML = flash + this.renderDelete();
     if (this.state.route === 'submit') app.innerHTML = flash + this.renderSubmit();
+    if (this.state.route === 'users') app.innerHTML = flash + this.renderUsers();
+    if (this.state.route === 'settings') app.innerHTML = flash + this.renderSettings();
+
     this.bindScreenEvents();
+  },
+
+  renderDenied() {
+    return `<div class="card"><h2>Access denied</h2><p class="error">You do not have permission to view this page.</p><button class="btn secondary" data-go="overview">Go back</button></div>`;
+  },
+
+  renderInstall() {
+    const s = this.state.appSettings || {};
+    return `<div class="card"><h2 style="margin-top:0">Install server</h2>
+      <p class="muted">Configure the server before first use.</p>
+      <form id="install-form" class="grid two">
+        <div><label>Server name</label><input name="serverName" required value="${Utils.escAttr(s.serverName || '10lb Challenge')}" /></div>
+        <div><label>Username</label><input name="username" required autocomplete="username" /></div>
+        <div><label>Password</label><input name="password" type="password" required autocomplete="new-password" /></div>
+        <div><label>Confirm password</label><input name="confirmPassword" type="password" required autocomplete="new-password" /></div>
+        <div><label>First name</label><input name="firstName" required /></div>
+        <div><label>Last name</label><input name="lastName" required /></div>
+        <div><label>Weight format</label><select name="weightFormat"><option value="lb" selected>lb</option><option value="kg">kg</option></select></div>
+        <div><label>Currency</label><select name="currency"><option value="£" selected>£</option><option value="$">$</option><option value="€">€</option></select></div>
+        <div><label>Theme</label><select name="theme">${ThemeOptions.map((t) => `<option value="${t.key}" ${t.key === (s.theme || 'teal') ? 'selected' : ''}>${t.label}</option>`).join('')}</select></div>
+        <div><label>User session duration (days)</label><input name="sessionDurationDays" type="number" min="1" max="365" value="${Utils.safeNum(s.sessionDurationDays, 7)}" required /></div>
+        <div style="grid-column:1/-1" class="small muted">Password must contain at least 8 characters, including a number, letter, and symbol.</div>
+        <div style="grid-column:1/-1" class="row"><button class="btn" type="submit">Install server</button></div>
+      </form>
+    </div>`;
+  },
+
+  renderLogin() {
+    return `<div class="card" style="max-width:560px;margin:0 auto"><h2 style="margin-top:0">Login</h2>
+      <p class="muted">Enter your account details to continue.</p>
+      <form id="login-form" class="grid">
+        <div><label>Username</label><input name="username" required autocomplete="username" /></div>
+        <div><label>Password</label><input name="password" type="password" required autocomplete="current-password" /></div>
+        <input name="redirect" type="hidden" value="${Utils.escAttr(this.state.redirectAfterLogin || 'overview')}" />
+        <button class="btn" type="submit">Login</button>
+      </form>
+    </div>`;
   },
 
   renderOverview() {
     const round = this.currentRound();
-    if (!round) return `<div class="card"><h2>No challenges active</h2><p class="muted">Start a new round to begin.</p><button class="btn" data-go="create">Start New Round</button></div>`;
+    if (!round) return `<div class="card"><h2>No challenges active</h2><p class="muted">Start a new round to begin.</p>${this.isAdmin() ? '<button class="btn" data-go="create">Start New Round</button>' : ''}</div>`;
     const subs = Domain.submissionsByRound(this.state.submissions, round.id);
     const currentWeek = Domain.calcCurrentWeek(round, this.state.users, subs);
     const selectedWeek = this.state.weekCursor[round.id] || Math.min(currentWeek, round.weeksCount);
@@ -429,6 +808,7 @@ const App = {
     const isFinalComplete = Domain.isWeekComplete(round, this.state.users, subs, round.weeksCount);
     const prizeEmoji = ['🏆','🥈','🥉','🎖️','🎗️','⭐','✨'];
 
+    const unit = this.state.appSettings.weightFormat || 'lb';
     return `<div class="card">
       <div class="row between">
         <h2 style="margin:0">${Utils.esc(round.title)}</h2>
@@ -445,32 +825,32 @@ const App = {
         <button data-week-nav="next">▶</button>
       </div>
       <div class="small muted" style="margin-top:6px">Current progress week: ${currentWeek} / ${round.weeksCount}</div>
-      ${selectedWeek === 1 ? `<div class="card" style="margin-top:10px"><strong>Start weights</strong>${view.startWeights.length ? `<ul>${view.startWeights.map((x)=>`<li>${Utils.esc(x.user.name)}: ${x.weight}kg</li>`).join('')}</ul>` : '<p class="muted">No start weights submitted yet.</p>'}</div>` : ''}
+      ${selectedWeek === 1 ? `<div class="card" style="margin-top:10px"><strong>Start weights</strong>${view.startWeights.length ? `<ul>${view.startWeights.map((x)=>`<li>${Utils.esc(Utils.fullName(x.user))}: ${x.weight}${unit}</li>`).join('')}</ul>` : '<p class="muted">No start weights submitted yet.</p>'}</div>` : ''}
       ${selectedWeek >= 2 ? `<div class="card" style="margin-top:10px"><strong>Leaderboard</strong>
       <table class="table"><thead><tr><th>Rank</th><th>User</th><th>% Lost</th><th>This Week</th><th>Total</th></tr></thead><tbody>
       ${view.ranked.map((r, i) => {
         const rank = i + 1;
         const prize = prizeRanks.includes(i) ? ` ${prizeEmoji[i] || '🏅'}` : '';
-        const delta = r.weeklyLoss > 0 ? `<span class="arrow-loss">⬇ ${r.weeklyLoss}kg</span>` : (r.weeklyLoss < 0 ? `<span class="arrow-gain">⬆ ${Math.abs(r.weeklyLoss)}kg</span>` : '—');
-        return `<tr><td>${rank}${prize}</td><td>${Utils.esc(r.user.name)}</td><td>${Utils.pct(r.percentLoss)}</td><td>${delta}</td><td>${r.totalLoss}kg</td></tr>`;
+        const delta = r.weeklyLoss > 0 ? `<span class="arrow-loss">⬇ ${r.weeklyLoss}${unit}</span>` : (r.weeklyLoss < 0 ? `<span class="arrow-gain">⬆ ${Math.abs(r.weeklyLoss)}${unit}</span>` : '—');
+        return `<tr><td>${rank}${prize}</td><td>${Utils.esc(Utils.fullName(r.user))}</td><td>${Utils.pct(r.percentLoss)}</td><td>${delta}</td><td>${r.totalLoss}${unit}</td></tr>`;
       }).join('') || '<tr><td colspan="5" class="muted">No leaderboard data yet.</td></tr>'}
       </tbody></table>
-      ${view.holiday.length ? `<h4>Holiday</h4><ul>${view.holiday.map((x)=>`<li class="holiday">${Utils.esc(x.user.name)} (used ${x.holidaysUsed}/${round.holidaysAllowed})</li>`).join('')}</ul>`:''}
-      ${view.forfeit.length ? `<h4>Forfeit</h4><ul>${view.forfeit.map((x)=>`<li class="forfeit">${Utils.esc(x.user.name)}</li>`).join('')}</ul>`:''}
-      ${view.pending.length ? `<h4>Pending</h4><ul>${view.pending.map((x)=>`<li>${Utils.esc(x.user.name)}</li>`).join('')}</ul>`:''}
+      ${view.holiday.length ? `<h4>Holiday</h4><ul>${view.holiday.map((x)=>`<li class="holiday">${Utils.esc(Utils.fullName(x.user))} (used ${x.holidaysUsed}/${round.holidaysAllowed})</li>`).join('')}</ul>`:''}
+      ${view.forfeit.length ? `<h4>Forfeit</h4><ul>${view.forfeit.map((x)=>`<li class="forfeit">${Utils.esc(Utils.fullName(x.user))}</li>`).join('')}</ul>`:''}
+      ${view.pending.length ? `<h4>Pending</h4><ul>${view.pending.map((x)=>`<li>${Utils.esc(Utils.fullName(x.user))}</li>`).join('')}</ul>`:''}
       </div>` : ''}
-      ${selectedWeek === round.weeksCount && isFinalComplete ? `<div class="card"><strong>Final winners</strong><ol>${view.ranked.slice(0, prizeRanks.length).map((r, i)=>`<li>${Utils.esc(r.user.name)} — ${Utils.money(round.prizeSplits[i] || 0)}</li>`).join('')}</ol></div>` : ''}
-      ${round.status === 'active' ? `<div class="row"><button class="btn secondary" data-go="edit">Edit Round</button><button class="btn danger" data-go="delete">Delete Round</button></div>` : ''}
+      ${selectedWeek === round.weeksCount && isFinalComplete ? `<div class="card"><strong>Final winners</strong><ol>${view.ranked.slice(0, prizeRanks.length).map((r, i)=>`<li>${Utils.esc(Utils.fullName(r.user))} — ${Utils.money(round.prizeSplits[i] || 0, this.state.appSettings.currency)}</li>`).join('')}</ol></div>` : ''}
+      ${round.status === 'active' && this.isAdmin() ? `<div class="row"><button class="btn secondary" data-go="edit">Edit Round</button><button class="btn danger" data-go="delete">Delete Round</button></div>` : ''}
     </div>`;
   },
 
   renderRoundList() {
     const active = Domain.activeRound(this.state.rounds);
-    return `<div class="card"><div class="row between"><h2 style="margin:0">Challenge Rounds</h2>${!active ? '<button class="btn" data-go="create">Start New Round</button>' : ''}</div>
+    return `<div class="card"><div class="row between"><h2 style="margin:0">Challenge Rounds</h2>${(!active && this.isAdmin()) ? '<button class="btn" data-go="create">Start New Round</button>' : ''}</div>
       <div class="list" style="margin-top:10px">${this.state.rounds.length ? this.state.rounds.map((r) => {
         const subs = Domain.submissionsByRound(this.state.submissions, r.id);
         const progress = Domain.calcCurrentWeek(r, this.state.users, subs);
-        const prize = Utils.money(Domain.prizeTotal(r));
+        const prize = Utils.money(Domain.prizeTotal(r), this.state.appSettings.currency);
         return `<button class="list-item ${r.status === 'active' ? 'active' : ''}" data-open-round="${r.id}">
           <div class="row between"><strong>${Utils.esc(r.title)}</strong>${r.status === 'active' ? '<span class="pill ok">ACTIVE</span>' : ''}</div>
           <div class="small muted">${r.participantIds.length} participants • Week ${progress}/${r.weeksCount}</div>
@@ -482,7 +862,7 @@ const App = {
 
   createDefaults() {
     const lastRound = [...this.state.rounds].sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt))[0];
-    const allNames = [...new Set(this.state.users.map((u)=>u.name))];
+    const allNames = [...new Set(this.state.users.map((u)=>Utils.fullName(u)))];
     return {
       title: Domain.suggestTitle(lastRound),
       weeksCount: lastRound?.weeksCount || 10,
@@ -490,7 +870,7 @@ const App = {
       entryFee: lastRound?.entryFee || 10,
       startDate: new Date().toISOString().slice(0,10),
       weighDay: String(lastRound?.weighDay ?? 1),
-      selectedNames: lastRound ? Domain.roundUsers(lastRound, this.state.users).map((u)=>u.name) : allNames,
+      selectedNames: lastRound ? Domain.roundUsers(lastRound, this.state.users).map((u)=>Utils.fullName(u)) : allNames,
       allNames,
       newName: '',
       payoutMode: lastRound?.payoutMode || 'preset3',
@@ -500,6 +880,7 @@ const App = {
   },
 
   renderCreate() {
+    if (!this.isAdmin()) return this.renderDenied();
     const active = Domain.activeRound(this.state.rounds);
     if (active) {
       return `<div class="card"><p class="error">A challenge is already active.</p><button class="btn secondary" data-go="rounds">Go to round list</button></div>`;
@@ -517,17 +898,17 @@ const App = {
         <div><label>Round title</label><input name="title" value="${Utils.escAttr(d.title)}" required /></div>
         <div><label>Number of weeks</label><input type="number" min="1" max="52" name="weeksCount" value="${d.weeksCount}" required /></div>
         <div><label>Number of holidays</label><input type="number" min="0" max="12" name="holidaysAllowed" value="${d.holidaysAllowed}" required /></div>
-        <div><label>Entry fee (£)</label><input type="number" step="0.01" min="0" name="entryFee" value="${d.entryFee}" required /></div>
+        <div><label>Entry fee (${this.state.appSettings.currency})</label><input type="number" step="0.01" min="0" name="entryFee" value="${d.entryFee}" required /></div>
         <div><label>Start date</label><input type="date" name="startDate" value="${d.startDate}" required /></div>
         <div><label>Weigh day</label><select name="weighDay">${['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'].map((x,i)=>`<option value="${i}" ${String(i)===String(d.weighDay)?'selected':''}>${x}</option>`).join('')}</select></div>
 
         <div class="card" style="grid-column:1/-1"><div class="row between"><strong>Users (${count})</strong><div class="row"><button type="button" data-user-toggle="all" class="btn secondary small">Toggle all</button></div></div>
-          <div class="grid three" style="margin-top:8px">${d.allNames.map((n)=>`<label class="row"><input type="checkbox" data-user-name="${Utils.escAttr(n)}" ${d.selectedNames.includes(n)?'checked':''} style="width:auto"/> ${Utils.esc(n)}</label>`).join('') || '<p class="muted">No previous users yet.</p>'}</div>
+          <div class="grid three" style="margin-top:8px">${d.allNames.map((n)=>`<label class="row"><input type="checkbox" data-user-name="${Utils.escAttr(n)}" ${d.selectedNames.includes(n)?'checked':''} style="width:auto"/> ${Utils.esc(n)}</label>`).join('') || '<p class="muted">No users yet.</p>'}</div>
           <div class="row" style="margin-top:8px"><input id="new-user-name" placeholder="Add new user full name" value="${Utils.escAttr(d.newName || '')}"/><button type="button" class="btn" data-add-user="1">Add</button></div>
         </div>
 
         <div class="card" style="grid-column:1/-1">
-          <div class="row between"><strong>Prize payout calculator</strong><span class="tag">Pool ${Utils.money(totalPrize)}</span></div>
+          <div class="row between"><strong>Prize payout calculator</strong><span class="tag">Pool ${Utils.money(totalPrize, this.state.appSettings.currency)}</span></div>
           <label>Mode</label><select name="payoutMode" id="payout-mode">
             <option value="preset3" ${d.payoutMode==='preset3'?'selected':''}>Pay top 3</option>
             <option value="preset5" ${d.payoutMode==='preset5'?'selected':''}>Pay top 5</option>
@@ -537,7 +918,7 @@ const App = {
           <div id="payout-rows" class="grid three" style="margin-top:8px">
           ${rows.map((v,i)=>`<div><label>Rank ${i+1}</label><div class="row"><button type="button" class="btn secondary" data-pay-adjust="-1" data-pay-index="${i}">-</button><input type="number" step="0.01" data-pay-index="${i}" value="${Utils.safeNum(v)}"/><button type="button" class="btn secondary" data-pay-adjust="1" data-pay-index="${i}">+</button></div></div>`).join('')}
           </div>
-          <p class="small ${over ? 'error' : 'muted'}">Entered total: ${Utils.money(sum)} ${over ? '(cannot exceed pool)' : ''}</p>
+          <p class="small ${over ? 'error' : 'muted'}">Entered total: ${Utils.money(sum, this.state.appSettings.currency)} ${over ? '(cannot exceed pool)' : ''}</p>
         </div>
 
         <div style="grid-column:1/-1" class="row">
@@ -548,6 +929,7 @@ const App = {
   },
 
   renderEdit() {
+    if (!this.isAdmin()) return this.renderDenied();
     const round = this.currentRound();
     if (!round) return `<div class="card"><p class="muted">No round selected.</p></div>`;
     const totalPrize = Utils.round2(round.entryFee * round.participantIds.length);
@@ -555,16 +937,17 @@ const App = {
     return `<div class="card"><h2 style="margin-top:0">Edit Challenge Round</h2>
       <form id="edit-form" class="grid two">
         <div><label>Title</label><input name="title" required value="${Utils.escAttr(round.title)}" /></div>
-        <div><label>Prize total</label><input disabled value="${Utils.money(totalPrize)}" /></div>
+        <div><label>Prize total</label><input disabled value="${Utils.money(totalPrize, this.state.appSettings.currency)}" /></div>
         <div class="card" style="grid-column:1/-1"><strong>Prize splits</strong>
           <div class="grid three" style="margin-top:8px">${(round.prizeSplits || []).map((v,i)=>`<div><label>Rank ${i+1}</label><input type="number" step="0.01" name="split-${i}" value="${Utils.safeNum(v)}"/></div>`).join('')}</div>
-          <p class="small ${sum > totalPrize ? 'error' : 'muted'}">Entered: ${Utils.money(sum)}</p>
+          <p class="small ${sum > totalPrize ? 'error' : 'muted'}">Entered: ${Utils.money(sum, this.state.appSettings.currency)}</p>
         </div>
         <div class="row" style="grid-column:1/-1"><button class="btn" type="submit">Save</button><button type="button" class="btn secondary" data-go="overview">Cancel</button></div>
       </form></div>`;
   },
 
   renderDelete() {
+    if (!this.isAdmin()) return this.renderDenied();
     const round = this.currentRound();
     if (!round) return `<div class="card"><p class="muted">No round selected.</p></div>`;
     return `<div class="card"><h2>Delete Challenge Round</h2><p class="error">This cannot be undone.</p>
@@ -579,17 +962,23 @@ const App = {
     if (!round) return `<div class="card"><p class="error">Weekly submissions are only available when a challenge is active.</p></div>`;
     const subs = Domain.submissionsByRound(this.state.submissions, round.id);
     const week = Domain.calcCurrentWeek(round, this.state.users, subs);
-    const users = Domain.roundUsers(round, this.state.users).filter((u) => !Domain.isForfeit(subs, u.id, week));
-    const available = users.filter((u) => !Domain.submissionFor(subs, week, u.id));
+    let users = Domain.roundUsers(round, this.state.users).filter((u) => !Domain.isForfeit(subs, u.id, week));
+    users = users.filter((u) => !Domain.submissionFor(subs, week, u.id));
+
+    if (!this.isAdmin()) users = users.filter((u) => u.id === this.state.currentUser.id);
 
     return `<div class="card"><h2 style="margin-top:0">User Weekly Submission</h2>
       <p class="small muted">Active round: ${Utils.esc(round.title)} • Week ${week}</p>
       <form id="submit-form" class="grid two">
-        <div><label>User</label><select name="userId" required><option value="">Select user</option>${available.map((u)=>`<option value="${u.id}">${Utils.esc(u.name)}</option>`).join('')}</select></div>
+        <div><label>User</label><select name="userId" ${!this.isAdmin() ? 'disabled' : ''} required>
+          ${users.length ? users.map((u)=>`<option value="${u.id}" ${u.id === this.state.currentUser.id ? 'selected' : ''}>${Utils.esc(Utils.fullName(u))}</option>`).join('') : '<option value="">No user available</option>'}
+        </select>
+        ${!this.isAdmin() ? `<input type="hidden" name="userId" value="${Utils.escAttr(this.state.currentUser.id)}" />` : ''}
+        </div>
         <div><label>Action</label><select name="action" required><option value="weight">Upload weight</option><option value="holiday">Holiday</option><option value="forfeit">Forfeit</option></select></div>
         <div id="weight-fields" style="grid-column:1/-1" class="grid two">
           <div><label>Scale photo</label><input name="photo" type="file" accept="image/*" /></div>
-          <div><label>Weight (kg)</label><input name="weight" type="number" step="0.01" min="1" /></div>
+          <div><label>Weight (${this.state.appSettings.weightFormat})</label><input name="weight" type="number" step="0.01" min="1" /></div>
         </div>
         <div id="holiday-note" class="small muted" style="grid-column:1/-1"></div>
         <div id="forfeit-confirm-wrap" class="hidden" style="grid-column:1/-1"><label class="row"><input type="checkbox" id="forfeit-confirm" style="width:auto"/> Confirm user forfeit</label></div>
@@ -597,20 +986,210 @@ const App = {
       </form></div>`;
   },
 
+  userStats(user) {
+    const rounds = this.state.rounds;
+    const submissions = this.state.submissions.filter((s) => s.userId === user.id);
+    const roundsParticipated = new Set(submissions.map((s) => s.roundId));
+    rounds.forEach((r) => {
+      if ((r.participantIds || []).includes(user.id)) roundsParticipated.add(r.id);
+    });
+
+    let totalCashWon = 0;
+    let totalWeightDelta = 0;
+
+    rounds.filter((r) => r.status === 'completed').forEach((r) => {
+      const subs = Domain.submissionsByRound(this.state.submissions, r.id);
+      const final = Domain.weekView(r, this.state.users, subs, r.weeksCount).ranked;
+      const idx = final.findIndex((x) => x.user.id === user.id);
+      if (idx >= 0) totalCashWon += Utils.safeNum(r.prizeSplits?.[idx], 0);
+
+      const first = Domain.firstWeight(subs, user.id);
+      const latest = Domain.latestWeight(subs, user.id, r.weeksCount);
+      if (first && latest) totalWeightDelta += Utils.round2(first.weight - latest.weight);
+    });
+
+    const activeRound = Domain.activeRound(rounds);
+    const inCurrentRound = !!(activeRound && activeRound.participantIds.includes(user.id));
+
+    return { roundsParticipated: roundsParticipated.size, totalCashWon: Utils.round2(totalCashWon), totalWeightDelta: Utils.round2(totalWeightDelta), inCurrentRound };
+  },
+
+  renderUsers() {
+    if (!this.isAdmin()) return this.renderDenied();
+    const rows = this.state.users.map((u) => {
+      const stats = this.userStats(u);
+      const role = u.isMaster ? 'Master' : (u.isAdmin ? 'Admin' : 'User');
+      return `<tr>
+        <td><input type="checkbox" data-bulk-user="${u.id}" ${this.state.selectedUsers.includes(u.id) ? 'checked' : ''} ${u.isMaster ? 'disabled' : ''}/></td>
+        <td>${Utils.esc(Utils.fullName(u))}<div class="small muted">@${Utils.esc(u.username)}</div></td>
+        <td>${role}</td>
+        <td>${Utils.dateTime(u.lastLoginAt)}</td>
+        <td>${stats.roundsParticipated}</td>
+        <td>${Utils.money(stats.totalCashWon, this.state.appSettings.currency)}</td>
+        <td>${stats.totalWeightDelta}${this.state.appSettings.weightFormat}</td>
+        <td>${stats.inCurrentRound ? 'Yes' : 'No'}</td>
+        <td>
+          <div class="row">
+            <button class="btn secondary small" data-user-edit="${u.id}">Edit</button>
+            <button class="btn secondary small" data-user-password="${u.id}">Password</button>
+            ${!u.isMaster ? `<button class="btn warn small" data-user-role="${u.id}">${u.isAdmin ? 'Make user' : 'Make admin'}</button>` : ''}
+            ${!u.isMaster ? `<button class="btn danger small" data-user-delete="${u.id}">Delete</button>` : ''}
+          </div>
+        </td>
+      </tr>`;
+    }).join('');
+
+    return `<div class="card"><div class="row between"><h2 style="margin:0">Users</h2><div class="row"><button class="btn danger" data-bulk-delete="1">Delete selected</button></div></div>
+      <div style="overflow:auto;margin-top:8px">
+        <table class="table"><thead><tr><th></th><th>User</th><th>Type</th><th>Last logged in</th><th>Rounds participated</th><th>Total cash won</th><th>Total weight lost/gained</th><th>In current round</th><th>Actions</th></tr></thead>
+        <tbody>${rows || '<tr><td colspan="9" class="muted">No users found.</td></tr>'}</tbody></table>
+      </div>
+    </div>`;
+  },
+
+  renderSettings() {
+    const tab = this.state.settingsTab || 'user';
+    return `<div class="card"><h2 style="margin-top:0">Settings</h2>
+      <div class="tabs">
+        <button data-settings-tab="user" class="${tab === 'user' ? 'active' : ''}">User settings</button>
+        ${this.isAdmin() ? `<button data-settings-tab="server" class="${tab === 'server' ? 'active' : ''}">Server settings</button>` : ''}
+      </div>
+
+      ${tab === 'user' ? this.renderUserSettingsTab() : this.renderServerSettingsTab()}
+    </div>`;
+  },
+
+  renderUserSettingsTab() {
+    const u = this.state.currentUser;
+    return `<form id="user-settings-form" class="grid two">
+      <div><label>First name</label><input name="firstName" required value="${Utils.escAttr(u.firstName || '')}" /></div>
+      <div><label>Last name</label><input name="lastName" required value="${Utils.escAttr(u.lastName || '')}" /></div>
+      <div style="grid-column:1/-1"><label>Username</label><input disabled value="${Utils.escAttr(u.username)}" /></div>
+      <div style="grid-column:1/-1"><button class="btn" type="submit">Save profile</button></div>
+    </form>
+
+    <form id="user-password-form" class="grid two" style="margin-top:12px">
+      <div><label>Current password</label><input name="currentPassword" type="password" required /></div>
+      <div></div>
+      <div><label>New password</label><input name="newPassword" type="password" required /></div>
+      <div><label>Confirm new password</label><input name="confirmPassword" type="password" required /></div>
+      <div style="grid-column:1/-1"><button class="btn secondary" type="submit">Change password</button></div>
+    </form>`;
+  },
+
+  renderServerSettingsTab() {
+    if (!this.isAdmin()) return `<p class="error">Access denied.</p>`;
+    const s = this.state.appSettings;
+    return `<form id="server-settings-form" class="grid two">
+      <div><label>Server name</label><input name="serverName" required value="${Utils.escAttr(s.serverName)}" /></div>
+      <div><label>User session duration (days)</label><input name="sessionDurationDays" type="number" min="1" max="365" required value="${Utils.safeNum(s.sessionDurationDays, 7)}" /></div>
+      <div><label>Weight format</label><select name="weightFormat"><option value="lb" ${s.weightFormat==='lb'?'selected':''}>lb</option><option value="kg" ${s.weightFormat==='kg'?'selected':''}>kg</option></select></div>
+      <div><label>Currency</label><select name="currency"><option value="£" ${s.currency==='£'?'selected':''}>£</option><option value="$" ${s.currency==='$'?'selected':''}>$</option><option value="€" ${s.currency==='€'?'selected':''}>€</option></select></div>
+      <div><label>Theme</label><select name="theme">${ThemeOptions.map((t) => `<option value="${t.key}" ${s.theme===t.key?'selected':''}>${t.label}</option>`).join('')}</select></div>
+      <div class="row" style="align-items:flex-end"><button class="btn" type="submit">Save server settings</button></div>
+    </form>
+
+    <div class="card" style="margin-top:12px">
+      <h3 style="margin-top:0">Reset server</h3>
+      ${this.state.currentUser.isMaster ? `<form id="server-reset-form" class="grid two">
+          <div><label>Master password</label><input name="password" type="password" required /></div>
+          <div><label>Confirm reset</label><label class="row"><input style="width:auto" type="checkbox" name="confirm" /> Yes, uninstall this server</label></div>
+          <div style="grid-column:1/-1"><button class="btn danger" type="submit">Reset server</button></div>
+        </form>` : `<p class="error">Only the master admin can reset this server.</p>`}
+    </div>`;
+  },
+
   bindScreenEvents() {
-    document.querySelectorAll('[data-go]').forEach((el) => el.onclick = () => { this.state.route = el.dataset.go; this.render(); });
+    document.querySelectorAll('[data-go]').forEach((el) => el.onclick = () => this.navigate(el.dataset.go));
 
-    const roundBtns = document.querySelectorAll('[data-open-round]');
-    roundBtns.forEach((b) => b.onclick = () => { this.state.selectedRoundId = b.dataset.openRound; this.state.route = 'overview'; this.render(); });
+    const installForm = document.getElementById('install-form');
+    if (installForm) {
+      installForm.onsubmit = async (e) => {
+        e.preventDefault();
+        const serverName = installForm.serverName.value.trim() || '10lb Challenge';
+        const username = installForm.username.value.trim();
+        const password = installForm.password.value;
+        const confirmPassword = installForm.confirmPassword.value;
+        const firstName = installForm.firstName.value.trim();
+        const lastName = installForm.lastName.value.trim();
+        const weightFormat = installForm.weightFormat.value;
+        const currency = installForm.currency.value;
+        const theme = installForm.theme.value;
+        const sessionDurationDays = Math.max(1, Utils.safeNum(installForm.sessionDurationDays.value, 7));
 
-    const weekNav = document.querySelectorAll('[data-week-nav]');
-    weekNav.forEach((b) => b.onclick = () => {
+        if (!username || !firstName || !lastName) return this.fail('Complete all required fields.');
+        if (!Utils.validPassword(password)) return this.fail('Password must include 8+ chars, a letter, a number and a symbol.');
+        if (password !== confirmPassword) return this.fail('Passwords do not match.');
+        const exists = await Data.adapter.getUserByUsername(username);
+        if (exists) return this.fail('Username already exists.');
+
+        const hash = await Security.createPasswordRecord(password);
+        await Data.adapter.createUser({
+          id: Utils.id(),
+          username,
+          firstName,
+          lastName,
+          password: hash,
+          isAdmin: true,
+          isMaster: true,
+          lastLoginAt: null
+        });
+
+        this.state.appSettings = {
+          ...this.state.appSettings,
+          installed: true,
+          serverName,
+          weightFormat,
+          currency,
+          theme,
+          sessionDurationDays,
+          updatedAt: new Date().toISOString()
+        };
+        await Data.adapter.saveAppSettings(this.state.appSettings);
+        await this.loadSettings();
+        await this.refresh();
+
+        const user = await Data.adapter.getUserByUsername(username);
+        await this.loginAs(user);
+        this.state.route = 'overview';
+        this.setMessage('Server installed successfully.');
+        this.render();
+      };
+    }
+
+    const loginForm = document.getElementById('login-form');
+    if (loginForm) {
+      loginForm.onsubmit = async (e) => {
+        e.preventDefault();
+        const username = loginForm.username.value.trim();
+        const password = loginForm.password.value;
+        const redirect = loginForm.redirect.value || 'overview';
+        const user = await Data.adapter.getUserByUsername(username);
+        if (!user) return this.fail('Invalid username or password.');
+
+        const ok = await Security.verifyPassword(password, user.password);
+        if (!ok) return this.fail('Invalid username or password.');
+
+        await this.loginAs(user);
+        await this.refresh();
+
+        const route = redirect === 'login' ? 'overview' : redirect;
+        this.state.route = this.canAccess(route) ? route : (this.isAdmin() ? 'overview' : 'overview');
+        this.setMessage(`Welcome back, ${Utils.fullName(this.state.currentUser)}.`);
+        this.render();
+      };
+    }
+
+    document.querySelectorAll('[data-open-round]').forEach((b) => b.onclick = () => {
+      this.state.selectedRoundId = b.dataset.openRound;
+      this.state.route = 'overview';
+      this.render();
+    });
+
+    document.querySelectorAll('[data-week-nav]').forEach((b) => b.onclick = () => {
       const round = this.currentRound();
       if (!round) return;
-      const curr = this.state.weekCursor[round.id] ?? Math.min(
-        Domain.calcCurrentWeek(round, this.state.users, Domain.submissionsByRound(this.state.submissions, round.id)),
-        round.weeksCount
-      );
+      const curr = this.state.weekCursor[round.id] ?? Math.min(Domain.calcCurrentWeek(round, this.state.users, Domain.submissionsByRound(this.state.submissions, round.id)), round.weeksCount);
       const next = b.dataset.weekNav === 'prev' ? Math.max(1, curr - 1) : Math.min(round.weeksCount, curr + 1);
       this.state.weekCursor[round.id] = next;
       this.render();
@@ -647,13 +1226,15 @@ const App = {
         this.render();
       });
 
-      createForm.querySelector('[data-user-toggle="all"]').onclick = () => {
+      const toggle = createForm.querySelector('[data-user-toggle="all"]');
+      if (toggle) toggle.onclick = () => {
         const d = this.state.createDraft;
         d.selectedNames = d.selectedNames.length === d.allNames.length ? [] : [...d.allNames];
         this.render();
       };
 
-      createForm.querySelector('[data-add-user="1"]').onclick = () => {
+      const addUser = createForm.querySelector('[data-add-user="1"]');
+      if (addUser) addUser.onclick = () => {
         const d = this.state.createDraft;
         const val = document.getElementById('new-user-name').value.trim();
         if (!val) return;
@@ -741,7 +1322,7 @@ const App = {
       const updateSubmitUI = () => {
         const round = Domain.activeRound(this.state.rounds);
         if (!round) return;
-        const userId = submitForm.userId.value;
+        const userId = submitForm.userId.value || this.state.currentUser?.id;
         const action = submitForm.action.value;
         const subs = Domain.submissionsByRound(this.state.submissions, round.id);
         const week = Domain.calcCurrentWeek(round, this.state.users, subs);
@@ -765,9 +1346,10 @@ const App = {
         if (!round) return this.fail('No active challenge.');
         const subs = Domain.submissionsByRound(this.state.submissions, round.id);
         const week = Domain.calcCurrentWeek(round, this.state.users, subs);
-        const userId = submitForm.userId.value;
+        const userId = submitForm.userId.value || this.state.currentUser.id;
         const action = submitForm.action.value;
         if (!userId) return this.fail('Select a user.');
+        if (!this.isAdmin() && userId !== this.state.currentUser.id) return this.fail('You can only submit weights for yourself.');
         if (Domain.isForfeit(subs, userId, week)) return this.fail('User has already forfeited.');
         if (Domain.submissionFor(subs, week, userId)) return this.fail('User already submitted this week.');
 
@@ -808,6 +1390,169 @@ const App = {
 
         await this.refresh();
         this.setMessage('Submission saved.');
+        this.render();
+      };
+    }
+
+    const bulkCheckboxes = document.querySelectorAll('[data-bulk-user]');
+    bulkCheckboxes.forEach((x) => x.onchange = () => {
+      const id = x.dataset.bulkUser;
+      if (x.checked) this.state.selectedUsers = [...new Set([...this.state.selectedUsers, id])];
+      else this.state.selectedUsers = this.state.selectedUsers.filter((v) => v !== id);
+    });
+
+    document.querySelectorAll('[data-user-edit]').forEach((b) => b.onclick = async () => {
+      const id = b.dataset.userEdit;
+      const user = this.state.users.find((u) => u.id === id);
+      if (!user) return;
+      const firstName = prompt('First name', user.firstName || '');
+      if (firstName === null) return;
+      const lastName = prompt('Last name', user.lastName || '');
+      if (lastName === null) return;
+      await Data.adapter.updateUser({ ...user, firstName: firstName.trim(), lastName: lastName.trim() });
+      await this.refresh();
+      this.setMessage('User updated.');
+      this.render();
+    });
+
+    document.querySelectorAll('[data-user-password]').forEach((b) => b.onclick = async () => {
+      const id = b.dataset.userPassword;
+      const user = this.state.users.find((u) => u.id === id);
+      if (!user) return;
+      const password = prompt(`New password for ${Utils.fullName(user)}:`);
+      if (password === null) return;
+      if (!Utils.validPassword(password)) return this.fail('Password must include 8+ chars, letter, number and symbol.');
+      const confirm = prompt('Confirm new password:');
+      if (confirm !== password) return this.fail('Passwords do not match.');
+      const hash = await Security.createPasswordRecord(password);
+      await Data.adapter.updateUser({ ...user, password: hash });
+      this.setMessage('Password updated.');
+      this.render();
+    });
+
+    document.querySelectorAll('[data-user-role]').forEach((b) => b.onclick = async () => {
+      const id = b.dataset.userRole;
+      const user = this.state.users.find((u) => u.id === id);
+      if (!user || user.isMaster) return;
+      if (user.id === this.state.currentUser.id && user.isAdmin) return this.fail('You cannot remove your own admin access.');
+      await Data.adapter.updateUser({ ...user, isAdmin: !user.isAdmin });
+      await this.refresh();
+      this.setMessage('User type updated.');
+      this.render();
+    });
+
+    document.querySelectorAll('[data-user-delete]').forEach((b) => b.onclick = async () => {
+      const id = b.dataset.userDelete;
+      const user = this.state.users.find((u) => u.id === id);
+      if (!user) return;
+      if (user.isMaster) return this.fail('Master admin cannot be deleted.');
+      if (user.id === this.state.currentUser.id) return this.fail('You cannot delete your own account.');
+      if (!confirm(`Delete ${Utils.fullName(user)}? This cannot be undone.`)) return;
+      await Data.adapter.deleteUser(user.id);
+      this.state.selectedUsers = this.state.selectedUsers.filter((x) => x !== user.id);
+      await this.refresh();
+      this.setMessage('User deleted.');
+      this.render();
+    });
+
+    const bulkDelete = document.querySelector('[data-bulk-delete="1"]');
+    if (bulkDelete) bulkDelete.onclick = async () => {
+      const ids = this.state.selectedUsers.filter((id) => {
+        const u = this.state.users.find((x) => x.id === id);
+        return u && !u.isMaster && u.id !== this.state.currentUser.id;
+      });
+      if (!ids.length) return this.fail('Select users to delete.');
+      if (!confirm(`Delete ${ids.length} selected user(s)? This cannot be undone.`)) return;
+      for (const id of ids) await Data.adapter.deleteUser(id);
+      this.state.selectedUsers = [];
+      await this.refresh();
+      this.setMessage('Selected users deleted.');
+      this.render();
+    };
+
+    document.querySelectorAll('[data-settings-tab]').forEach((b) => b.onclick = () => {
+      this.state.settingsTab = b.dataset.settingsTab;
+      this.render();
+    });
+
+    const userSettingsForm = document.getElementById('user-settings-form');
+    if (userSettingsForm) {
+      userSettingsForm.onsubmit = async (e) => {
+        e.preventDefault();
+        const firstName = userSettingsForm.firstName.value.trim();
+        const lastName = userSettingsForm.lastName.value.trim();
+        if (!firstName || !lastName) return this.fail('First and last name are required.');
+        await Data.adapter.updateUser({ ...this.state.currentUser, firstName, lastName });
+        await this.refresh();
+        this.setMessage('Profile updated.');
+        this.render();
+      };
+    }
+
+    const userPwdForm = document.getElementById('user-password-form');
+    if (userPwdForm) {
+      userPwdForm.onsubmit = async (e) => {
+        e.preventDefault();
+        const currentPassword = userPwdForm.currentPassword.value;
+        const newPassword = userPwdForm.newPassword.value;
+        const confirmPassword = userPwdForm.confirmPassword.value;
+        const ok = await Security.verifyPassword(currentPassword, this.state.currentUser.password);
+        if (!ok) return this.fail('Current password is incorrect.');
+        if (!Utils.validPassword(newPassword)) return this.fail('New password must include 8+ chars, letter, number and symbol.');
+        if (newPassword !== confirmPassword) return this.fail('Passwords do not match.');
+        const hash = await Security.createPasswordRecord(newPassword);
+        await Data.adapter.updateUser({ ...this.state.currentUser, password: hash });
+        await this.refresh();
+        this.setMessage('Password changed.');
+        this.render();
+      };
+    }
+
+    const serverSettingsForm = document.getElementById('server-settings-form');
+    if (serverSettingsForm) {
+      serverSettingsForm.onsubmit = async (e) => {
+        e.preventDefault();
+        this.state.appSettings = {
+          ...this.state.appSettings,
+          serverName: serverSettingsForm.serverName.value.trim() || '10lb Challenge',
+          weightFormat: serverSettingsForm.weightFormat.value,
+          currency: serverSettingsForm.currency.value,
+          theme: serverSettingsForm.theme.value,
+          sessionDurationDays: Math.max(1, Utils.safeNum(serverSettingsForm.sessionDurationDays.value, 7)),
+          updatedAt: new Date().toISOString()
+        };
+        await Data.adapter.saveAppSettings(this.state.appSettings);
+        Utils.setCookie('tenlb_session', this.state.sessionToken, this.state.appSettings.sessionDurationDays);
+        this.setMessage('Server settings updated.');
+        this.render();
+      };
+    }
+
+    const resetForm = document.getElementById('server-reset-form');
+    if (resetForm) {
+      resetForm.onsubmit = async (e) => {
+        e.preventDefault();
+        if (!this.state.currentUser.isMaster) return this.fail('Only master admin can reset the server.');
+        if (!resetForm.confirm.checked) return this.fail('Confirm reset to continue.');
+        const ok = await Security.verifyPassword(resetForm.password.value, this.state.currentUser.password);
+        if (!ok) return this.fail('Invalid master password.');
+        await Data.adapter.clearAllData();
+        Utils.clearCookie('tenlb_session');
+        this.state = {
+          ...this.state,
+          route: 'install',
+          message: 'Server reset complete. Please install again.',
+          error: '',
+          rounds: [],
+          users: [],
+          submissions: [],
+          currentUser: null,
+          sessionToken: null,
+          createDraft: null,
+          selectedUsers: []
+        };
+        await this.loadSettings();
+        this.attachNav();
         this.render();
       };
     }
