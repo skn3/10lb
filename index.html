@@ -94,8 +94,9 @@
 //   3 – added syncQueue, deviceMeta key; added version/createdBy/updatedBy/
 //       clientId/deletedAt to users, rounds, submissions; added updatedAt to
 //       submissions
+//   4 – added invites store (for invite-code-based registration)
 // =============================================================================
-const Config = { DB_NAME: 'tenlb-challenge', DB_VERSION: 3 };
+const Config = { DB_NAME: 'tenlb-challenge', DB_VERSION: 4 };
 
 const Utils = {
   id: () => (crypto && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`),
@@ -258,6 +259,11 @@ const OfflineAdapter = (() => {
         const q = x.createObjectStore('syncQueue', { keyPath: 'changeId' });
         q.createIndex('status', 'status', { unique: false });
         q.createIndex('entityType', 'entityType', { unique: false });
+      }
+      // v4: invite codes for registration
+      if (!x.objectStoreNames.contains('invites')) {
+        const inv = x.createObjectStore('invites', { keyPath: 'id' });
+        inv.createIndex('code', 'code', { unique: true });
       }
 
       // --- v3 data migration: backfill new metadata fields on existing records ---
@@ -739,16 +745,43 @@ const OfflineAdapter = (() => {
       return 'local-wins-lww';
     },
 
+    // ---- Invites (device-local, never synced) --------------------------------
+    listInvites: () => getAll('invites'),
+    createInvite: (invite) => put('invites', invite),
+    async getInviteByCode(code) {
+      const conn = await open();
+      return new Promise((res, rej) => {
+        const tx = conn.transaction(['invites'], 'readonly');
+        const req = tx.objectStore('invites').index('code').get(IDBKeyRange.only(code));
+        req.onsuccess = () => res(req.result || null);
+        req.onerror = () => rej(req.error);
+      });
+    },
+    deleteInvite: (id) => del('invites', id),
+    deleteAllInvites: () => run(['invites'], 'readwrite', ({ invites }) => new Promise((res, rej) => {
+      const req = invites.clear();
+      req.onsuccess = () => res(true);
+      req.onerror = () => rej(req.error);
+    })),
+    async consumeInvite(code, userId) {
+      const invite = await this.getInviteByCode(code);
+      if (!invite) return null;
+      const updated = { ...invite, usedAt: new Date().toISOString(), usedBy: userId };
+      await put('invites', updated);
+      return updated;
+    },
+
     // ---- Reset ---------------------------------------------------------------
     async clearAllData() {
-      await run(['rounds', 'users', 'submissions', 'weeklySnapshots', 'sessions', 'settings', 'syncQueue'], 'readwrite',
-        ({ rounds, users, submissions, weeklySnapshots, sessions, settings, syncQueue }) => {
+      await run(['rounds', 'users', 'submissions', 'weeklySnapshots', 'sessions', 'settings', 'syncQueue', 'invites'], 'readwrite',
+        ({ rounds, users, submissions, weeklySnapshots, sessions, settings, syncQueue, invites }) => {
           rounds.clear();
           users.clear();
           submissions.clear();
           weeklySnapshots.clear();
           sessions.clear();
           syncQueue.clear();
+          invites.clear();
           settings.put(defaultAppSettings());
         }
       );
@@ -1111,6 +1144,7 @@ const App = {
     rounds: [],
     users: [],
     submissions: [],
+    invites: [],
     selectedRoundId: null,
     weekCursor: {},
     createDraft: null,
@@ -1120,7 +1154,9 @@ const App = {
     sessionToken: null,
     redirectAfterLogin: 'overview',
     selectedUsers: [],
-    syncMeta: null  // device/sync metadata (from getDeviceMeta)
+    syncMeta: null,        // device/sync metadata (from getDeviceMeta)
+    inviteDetail: null,    // current invite being viewed
+    pendingInviteCode: ''  // invite code from URL query param
   },
 
   isInstalled() { return !!this.state.appSettings?.installed; },
@@ -1132,15 +1168,26 @@ const App = {
     await this.loadSettings();
     await this.loadSyncMeta();
     this.setupPwa();
+
+    // Read invite code from URL query param (e.g. ?invite=ABCD1234)
+    const urlParams = new URLSearchParams(window.location.search);
+    const inviteCode = urlParams.get('invite') || '';
+    if (inviteCode) this.state.pendingInviteCode = inviteCode.toUpperCase();
+
     if (!this.isInstalled()) {
-      this.state.route = 'install';
+      // Install screen only accessible via ?setup=1 (or #install hash) and only when not yet installed
+      const isSetupUrl = urlParams.get('setup') === '1' || window.location.hash === '#install';
+      this.state.route = isSetupUrl ? 'install' : 'join';
       this.attachNav();
       this.render();
       return;
     }
 
     await this.restoreSessionFromCookie();
-    if (!this.isAuthenticated()) this.state.route = 'login';
+    // If not authenticated and invite code is in URL, go directly to join screen
+    if (!this.isAuthenticated()) {
+      this.state.route = inviteCode ? 'join' : 'login';
+    }
     await this.refresh();
     this.applyTheme();
     this.attachNav();
@@ -1215,7 +1262,7 @@ const App = {
     Utils.clearCookie('tenlb_session');
     this.state.currentUser = null;
     this.state.sessionToken = null;
-    this.state.route = this.isInstalled() ? 'login' : 'install';
+    this.state.route = this.isInstalled() ? 'login' : 'join';
     this.attachNav();
     this.render();
   },
@@ -1344,6 +1391,8 @@ const App = {
   },
 
   canAccess(route) {
+    // join is the registration screen — accessible when not authenticated
+    if (route === 'join') return !this.isAuthenticated();
     if (!this.isInstalled()) return route === 'install';
     if (['install', 'login'].includes(route)) return true;
     if (!this.isAuthenticated()) return false;
@@ -1368,7 +1417,7 @@ const App = {
       ['rounds', 'Rounds'],
       ['submit', 'Submit']
     ];
-    if (this.isAdmin()) items.push(['create', 'Create'], ['users', 'Users']);
+    if (this.isAdmin()) items.push(['create', 'Create'], ['users', 'Users'], ['invites', 'Invites']);
     items.push(['settings', 'Settings']);
 
     nav.innerHTML = items.map(([key, label]) => `<button data-route="${key}">${label}</button>`).join('');
@@ -1402,6 +1451,7 @@ const App = {
     this.state.rounds = await Data.adapter.listRounds();
     this.state.users = await Data.adapter.listUsers();
     this.state.submissions = await Data.adapter.listSubmissions();
+    this.state.invites = await Data.adapter.listInvites();
     const active = Domain.activeRound(this.state.rounds);
     if (!this.state.selectedRoundId) this.state.selectedRoundId = active?.id || this.state.rounds[0]?.id || null;
     if (this.state.currentUser) {
@@ -1427,6 +1477,7 @@ const App = {
     }
 
     if (route === 'login' && this.isAuthenticated()) route = 'overview';
+    if (route === 'join' && this.isAuthenticated()) route = 'overview';
     this.state.route = route;
     this.render();
   },
@@ -1448,13 +1499,21 @@ const App = {
     const flash = `${this.state.error ? `<p class="error">${this.state.error}</p>` : ''}${this.state.message ? `<p class="ok">${this.state.message}</p>` : ''}`;
 
     if (!this.isInstalled()) {
-      app.innerHTML = flash + this.renderInstall();
+      if (this.state.route === 'install') {
+        app.innerHTML = flash + this.renderInstall();
+      } else {
+        app.innerHTML = flash + this.renderJoin();
+      }
       this.bindScreenEvents();
       return;
     }
 
     if (!this.isAuthenticated()) {
-      app.innerHTML = flash + this.renderLogin();
+      if (this.state.route === 'join') {
+        app.innerHTML = flash + this.renderJoin();
+      } else {
+        app.innerHTML = flash + this.renderLogin();
+      }
       this.bindScreenEvents();
       return;
     }
@@ -1468,6 +1527,8 @@ const App = {
     if (this.state.route === 'submit') app.innerHTML = flash + this.renderSubmit();
     if (this.state.route === 'users') app.innerHTML = flash + this.renderUsers();
     if (this.state.route === 'settings') app.innerHTML = flash + this.renderSettings();
+    if (this.state.route === 'invites') app.innerHTML = flash + this.renderInvites();
+    if (this.state.route === 'invite-detail') app.innerHTML = flash + this.renderInviteDetail();
 
     this.bindScreenEvents();
   },
@@ -1506,6 +1567,114 @@ const App = {
         <input name="redirect" type="hidden" value="${Utils.escAttr(this.state.redirectAfterLogin || 'overview')}" />
         <button class="btn" type="submit">Login</button>
       </form>
+      <p class="small muted" style="margin-top:12px">Have an invite code? <a href="#" id="link-to-join" style="color:var(--brand)">Register here</a>.</p>
+    </div>`;
+  },
+
+  renderJoin() {
+    const code = this.state.pendingInviteCode || '';
+    const serverName = this.state.appSettings?.serverName || '10lb Challenge';
+    return `<div class="card" style="max-width:560px;margin:0 auto">
+      <h2 style="margin-top:0">Join ${Utils.esc(serverName)}</h2>
+      <p class="muted">Enter your invite code and create your account.</p>
+      <form id="join-form" class="grid">
+        <div><label>Invite code</label><input name="inviteCode" required autocomplete="off" value="${Utils.escAttr(code)}" placeholder="e.g. ABCD1234" style="text-transform:uppercase;letter-spacing:.1em" /></div>
+        <div><label>Username</label><input name="username" required autocomplete="username" /></div>
+        <div><label>Password</label><input name="password" type="password" required autocomplete="new-password" /></div>
+        <div><label>Confirm password</label><input name="confirmPassword" type="password" required autocomplete="new-password" /></div>
+        <div><label>First name</label><input name="firstName" required /></div>
+        <div><label>Last name</label><input name="lastName" required /></div>
+        <div style="grid-column:1/-1" class="small muted">Password must contain at least 8 characters, including a number, letter, and symbol.</div>
+        <div style="grid-column:1/-1" class="row">
+          <button class="btn" type="submit">Create account</button>
+          <button class="btn secondary" type="button" id="btn-go-login">Already have an account</button>
+        </div>
+      </form>
+    </div>`;
+  },
+
+  renderInvites() {
+    if (!this.isAdmin()) return this.renderDenied();
+    const pending = this.state.invites.filter((i) => !i.usedAt);
+    const used = this.state.invites.filter((i) => !!i.usedAt);
+    const baseUrl = window.location.origin + window.location.pathname;
+    const pendingRows = pending.map((inv) => `<tr>
+      <td><code style="font-size:.9rem;letter-spacing:.1em">${Utils.esc(inv.code)}</code></td>
+      <td>${Utils.dateTime(inv.createdAt)}</td>
+      <td><span class="pill warn">Pending</span></td>
+      <td>
+        <div class="row">
+          <button class="btn secondary small" data-view-invite="${Utils.escAttr(inv.id)}">View</button>
+          <button class="btn danger small" data-delete-invite="${Utils.escAttr(inv.id)}">Delete</button>
+        </div>
+      </td>
+    </tr>`).join('');
+    const usedRows = used.map((inv) => {
+      const user = this.state.users.find((u) => u.id === inv.usedBy);
+      return `<tr>
+        <td><code style="font-size:.9rem;letter-spacing:.1em">${Utils.esc(inv.code)}</code></td>
+        <td>${Utils.dateTime(inv.createdAt)}</td>
+        <td><span class="pill ok">Used</span></td>
+        <td>${user ? Utils.esc(Utils.fullName(user)) : '<span class="muted">Unknown</span>'}</td>
+        <td>${Utils.dateTime(inv.usedAt)}</td>
+        <td><button class="btn danger small" data-delete-invite="${Utils.escAttr(inv.id)}">Delete</button></td>
+      </tr>`;
+    }).join('');
+    return `<div class="card">
+      <div class="row between" style="margin-bottom:12px">
+        <h2 style="margin:0">Invites</h2>
+        <div class="row">
+          <button class="btn" id="btn-create-invite">Create invite</button>
+          ${pending.length ? `<button class="btn danger" id="btn-delete-all-invites">Delete all pending</button>` : ''}
+        </div>
+      </div>
+      <h3 style="margin-top:0">Pending (${pending.length})</h3>
+      ${pending.length ? `<div style="overflow:auto"><table class="table"><thead><tr><th>Code</th><th>Issued</th><th>Status</th><th>Actions</th></tr></thead>
+        <tbody>${pendingRows}</tbody></table></div>` : `<p class="muted">No pending invites. Create one to invite someone.</p>`}
+      ${used.length ? `<h3 style="margin-top:16px">Used (${used.length})</h3>
+        <div style="overflow:auto"><table class="table"><thead><tr><th>Code</th><th>Issued</th><th>Status</th><th>Used by</th><th>Used at</th><th>Actions</th></tr></thead>
+        <tbody>${usedRows}</tbody></table></div>` : ''}
+    </div>`;
+  },
+
+  renderInviteDetail() {
+    if (!this.isAdmin()) return this.renderDenied();
+    const inv = this.state.inviteDetail;
+    if (!inv) return this.renderInvites();
+    const baseUrl = window.location.origin + window.location.pathname;
+    const inviteLink = `${baseUrl}?invite=${encodeURIComponent(inv.code)}`;
+    return `<div class="card" style="max-width:640px;margin:0 auto">
+      <div class="row between" style="margin-bottom:12px">
+        <h2 style="margin:0">Invite link</h2>
+        <button class="btn secondary" data-go="invites">← Back to invites</button>
+      </div>
+      <p class="muted">Share this invite with the person you want to join. The code can only be used once.</p>
+
+      <div style="text-align:center;margin:16px 0">
+        <div id="qr-code-container" style="display:inline-block;padding:12px;background:#fff;border:1px solid var(--border);border-radius:12px"></div>
+        <p class="small muted" id="qr-status" style="margin:6px 0 0">Loading QR code…</p>
+      </div>
+
+      <div style="margin:16px 0">
+        <label>Invite code</label>
+        <div class="row">
+          <code id="invite-code-display" style="font-size:1.6rem;letter-spacing:.2em;font-weight:700;background:var(--bg);padding:10px 16px;border-radius:10px;flex:1;text-align:center">${Utils.esc(inv.code)}</code>
+        </div>
+      </div>
+
+      <div style="margin:16px 0">
+        <label>Invite link</label>
+        <div class="row">
+          <input id="invite-link-input" readonly value="${Utils.escAttr(inviteLink)}" style="font-size:.85rem" />
+          <button class="btn" id="btn-copy-invite-link" style="white-space:nowrap">Copy link</button>
+        </div>
+      </div>
+
+      <div class="row" style="margin-top:16px">
+        <button class="btn secondary" id="btn-create-new-invite">Create another invite</button>
+        <button class="btn danger" data-delete-invite="${Utils.escAttr(inv.id)}" id="btn-delete-this-invite">Delete this invite</button>
+      </div>
+      <p class="small muted" style="margin-top:8px">Issued: ${Utils.dateTime(inv.createdAt)}</p>
     </div>`;
   },
 
@@ -1868,6 +2037,148 @@ const App = {
 
   bindScreenEvents() {
     document.querySelectorAll('[data-go]').forEach((el) => el.onclick = () => this.navigate(el.dataset.go));
+
+    // Join/register via invite code
+    const joinForm = document.getElementById('join-form');
+    if (joinForm) {
+      // Auto-uppercase the code field as user types
+      const codeInput = joinForm.querySelector('[name="inviteCode"]');
+      if (codeInput) codeInput.oninput = () => { codeInput.value = codeInput.value.toUpperCase(); };
+
+      joinForm.onsubmit = async (e) => {
+        e.preventDefault();
+        const code = joinForm.inviteCode.value.trim().toUpperCase();
+        const username = joinForm.username.value.trim();
+        const password = joinForm.password.value;
+        const confirmPassword = joinForm.confirmPassword.value;
+        const firstName = joinForm.firstName.value.trim();
+        const lastName = joinForm.lastName.value.trim();
+
+        if (!code) return this.fail('Enter your invite code.');
+        if (!username || !firstName || !lastName) return this.fail('Complete all required fields.');
+        if (!Utils.validPassword(password)) return this.fail('Password must include 8+ chars, a letter, a number and a symbol.');
+        if (password !== confirmPassword) return this.fail('Passwords do not match.');
+
+        const invite = await Data.adapter.getInviteByCode(code);
+        if (!invite) return this.fail('Invite code not found or invalid.');
+        if (invite.usedAt) return this.fail('This invite code has already been used.');
+
+        const exists = await Data.adapter.getUserByUsername(username);
+        if (exists) return this.fail('Username already taken. Choose another.');
+
+        const hash = await Security.createPasswordRecord(password);
+        const user = await Data.adapter.createUser({
+          id: Utils.id(),
+          username,
+          firstName,
+          lastName,
+          password: hash,
+          isAdmin: false,
+          isMaster: false,
+          lastLoginAt: null
+        });
+
+        await Data.adapter.consumeInvite(code, user.id);
+        await this.loginAs(user);
+        await this.refresh();
+        this.state.route = 'overview';
+        this.state.pendingInviteCode = '';
+        this.setMessage(`Welcome, ${Utils.fullName(user)}! Your account has been created.`);
+        this.render();
+      };
+    }
+
+    const btnGoLogin = document.getElementById('btn-go-login');
+    if (btnGoLogin) btnGoLogin.onclick = () => {
+      this.state.route = 'login';
+      this.state.error = '';
+      this.state.message = '';
+      this.render();
+    };
+
+    const linkToJoin = document.getElementById('link-to-join');
+    if (linkToJoin) linkToJoin.onclick = (e) => {
+      e.preventDefault();
+      this.state.route = 'join';
+      this.state.error = '';
+      this.state.message = '';
+      this.render();
+    };
+
+    // Invite management (admin)
+    const btnCreateInvite = document.getElementById('btn-create-invite');
+    if (btnCreateInvite) btnCreateInvite.onclick = async () => {
+      const code = this._generateInviteCode();
+      const invite = { id: Utils.id(), code, createdAt: new Date().toISOString(), usedAt: null, usedBy: null };
+      await Data.adapter.createInvite(invite);
+      await this.refresh();
+      this.state.inviteDetail = invite;
+      this.state.route = 'invite-detail';
+      this.render();
+    };
+
+    const btnCreateNewInvite = document.getElementById('btn-create-new-invite');
+    if (btnCreateNewInvite) btnCreateNewInvite.onclick = async () => {
+      const code = this._generateInviteCode();
+      const invite = { id: Utils.id(), code, createdAt: new Date().toISOString(), usedAt: null, usedBy: null };
+      await Data.adapter.createInvite(invite);
+      await this.refresh();
+      this.state.inviteDetail = invite;
+      this.render();
+    };
+
+    const btnDeleteAllInvites = document.getElementById('btn-delete-all-invites');
+    if (btnDeleteAllInvites) btnDeleteAllInvites.onclick = async () => {
+      if (!confirm('Delete all pending invites? This cannot be undone.')) return;
+      const pending = this.state.invites.filter((i) => !i.usedAt);
+      await Promise.all(pending.map((inv) => Data.adapter.deleteInvite(inv.id)));
+      await this.refresh();
+      this.setMessage('All pending invites deleted.');
+      this.render();
+    };
+
+    document.querySelectorAll('[data-view-invite]').forEach((b) => b.onclick = async () => {
+      const id = b.dataset.viewInvite;
+      const inv = this.state.invites.find((i) => i.id === id);
+      if (!inv) return;
+      this.state.inviteDetail = inv;
+      this.state.route = 'invite-detail';
+      this.render();
+    });
+
+    document.querySelectorAll('[data-delete-invite]').forEach((b) => b.onclick = async () => {
+      const id = b.dataset.deleteInvite;
+      if (!confirm('Delete this invite?')) return;
+      await Data.adapter.deleteInvite(id);
+      await this.refresh();
+      if (this.state.inviteDetail?.id === id) {
+        this.state.inviteDetail = null;
+        this.state.route = 'invites';
+      }
+      this.setMessage('Invite deleted.');
+      this.render();
+    });
+
+    const btnCopyLink = document.getElementById('btn-copy-invite-link');
+    if (btnCopyLink) btnCopyLink.onclick = async () => {
+      const input = document.getElementById('invite-link-input');
+      if (!input) return;
+      try {
+        await navigator.clipboard.writeText(input.value);
+        btnCopyLink.textContent = 'Copied!';
+        setTimeout(() => { btnCopyLink.textContent = 'Copy link'; }, 2000);
+      } catch {
+        input.select();
+        document.execCommand('copy');
+        btnCopyLink.textContent = 'Copied!';
+        setTimeout(() => { btnCopyLink.textContent = 'Copy link'; }, 2000);
+      }
+    };
+
+    // Auto-render QR code when invite-detail is shown
+    if (this.state.route === 'invite-detail' && this.state.inviteDetail) {
+      this._renderInviteQR();
+    }
 
     const installForm = document.getElementById('install-form');
     if (installForm) {
@@ -2305,22 +2616,8 @@ const App = {
         if (!ok) return this.fail('Invalid master password.');
         await Data.adapter.clearAllData();
         Utils.clearCookie('tenlb_session');
-        this.state = {
-          ...this.state,
-          route: 'install',
-          message: 'Server reset complete. Please install again.',
-          error: '',
-          rounds: [],
-          users: [],
-          submissions: [],
-          currentUser: null,
-          sessionToken: null,
-          createDraft: null,
-          selectedUsers: []
-        };
-        await this.loadSettings();
-        this.attachNav();
-        this.render();
+        // Redirect to ?setup=1 so the admin can re-run the install wizard
+        window.location.href = window.location.pathname + '?setup=1';
       };
     }
 
@@ -2400,6 +2697,39 @@ const App = {
     const appId = form.appId?.value?.trim();
     if (!apiKey || !authDomain || !projectId) return null;
     return { apiKey, authDomain, projectId, storageBucket, messagingSenderId, appId };
+  },
+
+  _generateInviteCode() {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // unambiguous chars (no 0/O, 1/I)
+    let code = '';
+    const bytes = crypto.getRandomValues(new Uint8Array(8));
+    for (const b of bytes) code += chars[b % chars.length];
+    return code;
+  },
+
+  async _renderInviteQR() {
+    const container = document.getElementById('qr-code-container');
+    const status = document.getElementById('qr-status');
+    if (!container || !this.state.inviteDetail) return;
+    const baseUrl = window.location.origin + window.location.pathname;
+    const inviteLink = `${baseUrl}?invite=${encodeURIComponent(this.state.inviteDetail.code)}`;
+    try {
+      if (!window.QRCode) {
+        await new Promise((res, rej) => {
+          const s = document.createElement('script');
+          s.src = 'https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js';
+          s.onload = res;
+          s.onerror = rej;
+          document.head.appendChild(s);
+        });
+      }
+      container.innerHTML = '';
+      new window.QRCode(container, { text: inviteLink, width: 200, height: 200, correctLevel: window.QRCode.CorrectLevel.M });
+      if (status) status.textContent = 'Scan to open invite link';
+    } catch {
+      container.innerHTML = '<span class="muted small">QR code unavailable (no internet connection)</span>';
+      if (status) status.textContent = '';
+    }
   },
 
   fail(msg) { this.setMessage('', msg); this.render(); }
