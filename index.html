@@ -652,6 +652,11 @@ const OfflineAdapter = (() => {
       const all = await this.listUsers();
       return all.find((u) => u.username.toLowerCase() === String(username || '').trim().toLowerCase()) || null;
     },
+    async getUserByFirebaseUid(uid) {
+      if (!uid) return null;
+      const all = await this.listUsers();
+      return all.find((u) => u.firebaseUid === uid) || null;
+    },
     createUser: async (user) => {
       const now = new Date().toISOString();
       const value = normalizeUser({ ...user, createdAt: now, updatedAt: now });
@@ -924,13 +929,58 @@ const FirestoreAdapter = (() => {
       _db = _app.firestore();
       _auth = _app.auth();
 
-      // Sign in anonymously so Firestore rules can reference request.auth.uid
-      await _auth.signInAnonymously();
+      // Sign in anonymously as a pre-login fallback so Firestore rules can
+      // reference request.auth.uid for invite lookups. A real user sign-in
+      // (signInWithEmail) will replace this session once credentials are known.
+      if (!_auth.currentUser) {
+        await _auth.signInAnonymously();
+      }
       return true;
     },
 
     getUid() { return _auth?.currentUser?.uid || null; },
     isReady() { return !!_db; },
+
+    // ---- Auth helpers --------------------------------------------------------
+    getAuth() { return _auth; },
+
+    async signInWithEmail(email, password) {
+      if (!_auth) throw new Error('Firebase Auth not initialised');
+      const cred = await _auth.signInWithEmailAndPassword(email, password);
+      return cred?.user || null;
+    },
+
+    async createUserWithEmail(email, password) {
+      if (!_auth) throw new Error('Firebase Auth not initialised');
+      const cred = await _auth.createUserWithEmailAndPassword(email, password);
+      return cred?.user || null;
+    },
+
+    async signOut() {
+      if (_auth) await _auth.signOut();
+    },
+
+    // Returns a Promise that resolves with the current Firebase user (or null).
+    getCurrentFirebaseUser() {
+      return new Promise((resolve) => {
+        if (!_auth) return resolve(null);
+        const unsubscribe = _auth.onAuthStateChanged((user) => {
+          unsubscribe();
+          resolve(user || null);
+        });
+      });
+    },
+
+    async sendPasswordResetEmail(email) {
+      if (!_auth) throw new Error('Firebase Auth not initialised');
+      await _auth.sendPasswordResetEmail(email);
+    },
+
+    async updatePassword(newPassword) {
+      const user = _auth?.currentUser;
+      if (!user) throw new Error('No authenticated Firebase user.');
+      await user.updatePassword(newPassword);
+    },
 
     async writeRecord(entityType, record) {
       if (!_db) throw new Error('FirestoreAdapter not initialised');
@@ -1424,6 +1474,27 @@ const App = {
   },
 
   async restoreSessionFromCookie() {
+    if (this.isFirebaseMode()) {
+      // Firebase mode: session is managed by Firebase Auth. Wait for the SDK
+      // to initialise (it may already be loaded if online mode resumed), then
+      // check whether a Firebase user is already signed in.
+      if (!FirestoreAdapter.isReady()) {
+        try {
+          await this._loadFirebaseSDK();
+          await FirestoreAdapter.init(RuntimeConfig.firebase, 'default');
+        } catch (e) {
+          console.warn('Firebase SDK init failed during session restore:', e.message);
+          return;
+        }
+      }
+      const fbUser = await FirestoreAdapter.getCurrentFirebaseUser();
+      if (!fbUser || fbUser.isAnonymous) return;
+      const user = await Data.adapter.getUserByFirebaseUid(fbUser.uid);
+      if (!user) return;
+      this.state.currentUser = user;
+      return;
+    }
+    // Offline mode: cookie + IndexedDB session
     const token = Utils.getCookie('tenlb_session');
     if (!token) return;
     const session = await Data.adapter.getSession(token);
@@ -1449,13 +1520,18 @@ const App = {
   },
 
   async loginAs(user) {
-    const token = Security.sessionToken();
-    await Data.adapter.createSession(token, user.id, this.state.appSettings.sessionDurationDays || 7);
     const updated = { ...user, lastLoginAt: new Date().toISOString() };
     await this._saveWithConflictResolver('User', updated, (payload) => Data.adapter.updateUser(payload));
     this.state.currentUser = updated;
-    this.state.sessionToken = token;
-    Utils.setCookie('tenlb_session', token, this.state.appSettings.sessionDurationDays || 7);
+    if (this.isFirebaseMode()) {
+      // Firebase mode: session is managed by Firebase Auth — no cookie/IndexedDB session needed.
+      this.state.sessionToken = null;
+    } else {
+      const token = Security.sessionToken();
+      await Data.adapter.createSession(token, user.id, this.state.appSettings.sessionDurationDays || 7);
+      this.state.sessionToken = token;
+      Utils.setCookie('tenlb_session', token, this.state.appSettings.sessionDurationDays || 7);
+    }
     // Enqueue user update for sync if online
     if (Data.isOnline() && SyncEngine.isRunning()) {
       await SyncEngine.enqueue('users', updated.id, 'UPDATE', updated, updated.id);
@@ -1463,8 +1539,12 @@ const App = {
   },
 
   async logout() {
-    if (this.state.sessionToken) await Data.adapter.deleteSession(this.state.sessionToken);
-    Utils.clearCookie('tenlb_session');
+    if (this.isFirebaseMode()) {
+      if (FirestoreAdapter.isReady()) await FirestoreAdapter.signOut();
+    } else {
+      if (this.state.sessionToken) await Data.adapter.deleteSession(this.state.sessionToken);
+      Utils.clearCookie('tenlb_session');
+    }
     this.state.currentUser = null;
     this.state.sessionToken = null;
     this.state.pendingInviteCode = '';
@@ -1566,11 +1646,9 @@ const App = {
   async testFirebaseConnection(firebaseConfig) {
     try {
       await this._loadFirebaseSDK();
-      // Use a temporary named app to test connectivity
+      // Use a temporary named app to test connectivity without touching the main session
       const testName = `tenlb-test-${Date.now()}`;
       const tempApp = window.firebase.initializeApp(firebaseConfig, testName);
-      const tempAuth = tempApp.auth();
-      await tempAuth.signInAnonymously();
       const tempDb = tempApp.firestore();
       await tempDb.collection('challenges').doc('default').get();
       await tempApp.delete();
@@ -1824,11 +1902,13 @@ const App = {
 
   renderInstall() {
     const s = this.state.appSettings || {};
+    const usernameLabel = this.isFirebaseMode() ? 'Email' : 'Username';
+    const usernameAutocomplete = this.isFirebaseMode() ? 'email' : 'username';
     return `<div class="card"><h2 style="margin-top:0">Install server</h2>
       <p class="muted">Configure the server before first use.</p>
       <form id="install-form" class="grid two">
         <div><label>Server name</label><input name="serverName" required value="${Utils.escAttr(s.serverName || '10lb Challenge')}" /></div>
-        <div><label>Username</label><input name="username" required autocomplete="username" /></div>
+        <div><label>${usernameLabel}</label><input name="username" required autocomplete="${usernameAutocomplete}" ${this.isFirebaseMode() ? 'type="email"' : ''} /></div>
         <div><label>Password</label><input name="password" type="password" required autocomplete="new-password" /></div>
         <div><label>Confirm password</label><input name="confirmPassword" type="password" required autocomplete="new-password" /></div>
         <div><label>First name</label><input name="firstName" required /></div>
@@ -1844,10 +1924,12 @@ const App = {
   },
 
   renderLogin() {
+    const usernameLabel = this.isFirebaseMode() ? 'Email' : 'Username';
+    const usernameAutocomplete = this.isFirebaseMode() ? 'email' : 'username';
     return `<div class="card" style="max-width:560px;margin:0 auto"><h2 style="margin-top:0">Login</h2>
       <p class="muted">Enter your account details to continue.</p>
       <form id="login-form" class="grid">
-        <div><label>Username</label><input name="username" required autocomplete="username" /></div>
+        <div><label>${usernameLabel}</label><input name="username" required autocomplete="${usernameAutocomplete}" ${this.isFirebaseMode() ? 'type="email"' : ''} /></div>
         <div><label>Password</label><input name="password" type="password" required autocomplete="current-password" /></div>
         <input name="redirect" type="hidden" value="${Utils.escAttr(this.state.redirectAfterLogin || 'overview')}" />
         <button class="btn" type="submit">Login</button>
@@ -1867,7 +1949,7 @@ const App = {
       <p class="muted">Enter your invite code and create your account.</p>
       <form id="join-form" class="grid">
         <div><label>Invite code</label><input name="inviteCode" required autocomplete="off" value="${Utils.escAttr(code)}" placeholder="e.g. ABCD1234" style="text-transform:uppercase;letter-spacing:.1em" /></div>
-        <div><label>Username</label><input name="username" required autocomplete="username" /></div>
+        <div><label>Email</label><input name="username" type="email" required autocomplete="email" /></div>
         <div><label>Password</label><input name="password" type="password" required autocomplete="new-password" /></div>
         <div><label>Confirm password</label><input name="confirmPassword" type="password" required autocomplete="new-password" /></div>
         <div><label>First name</label><input name="firstName" required /></div>
@@ -2422,14 +2504,14 @@ const App = {
         e.preventDefault();
         if (!this.isFirebaseMode()) return this.fail('Invites are unavailable in offline mode.');
         const code = joinForm.inviteCode.value.trim().toUpperCase();
-        const username = joinForm.username.value.trim();
+        const email = joinForm.username.value.trim();
         const password = joinForm.password.value;
         const confirmPassword = joinForm.confirmPassword.value;
         const firstName = joinForm.firstName.value.trim();
         const lastName = joinForm.lastName.value.trim();
 
         if (!code) return this.fail('Enter your invite code.');
-        if (!username || !firstName || !lastName) return this.fail('Complete all required fields.');
+        if (!email || !firstName || !lastName) return this.fail('Complete all required fields.');
         if (!Utils.validPassword(password)) return this.fail('Password must include 8+ chars, a letter, a number and a symbol.');
         if (password !== confirmPassword) return this.fail('Passwords do not match.');
 
@@ -2437,16 +2519,24 @@ const App = {
         if (!invite) return this.fail('Invite code not found or invalid.');
         if (invite.usedAt) return this.fail('This invite code has already been used.');
 
-        const exists = await Data.adapter.getUserByUsername(username);
-        if (exists) return this.fail('Username already taken. Choose another.');
+        const existsByEmail = await Data.adapter.getUserByUsername(email);
+        if (existsByEmail) return this.fail('An account with this email already exists.');
 
-        const hash = await Security.createPasswordRecord(password);
+        // Create the Firebase Auth account first
+        let fbUser;
+        try {
+          fbUser = await FirestoreAdapter.createUserWithEmail(email, password);
+        } catch (err) {
+          return this.fail(`Account creation failed: ${err.message || err}`);
+        }
+
         const user = await Data.adapter.createUser({
           id: Utils.id(),
-          username,
+          username: email,
           firstName,
           lastName,
-          password: hash,
+          password: null,
+          firebaseUid: fbUser.uid,
           userType: invite.inviteType || 'user',
           isAdmin: invite.inviteType === 'admin',
           isMaster: false,
@@ -2573,7 +2663,7 @@ const App = {
         const exists = await Data.adapter.getUserByUsername(username);
         if (exists) return this.fail('Username already exists.');
 
-        const hash = await Security.createPasswordRecord(password);
+        const hash = this.isFirebaseMode() ? null : await Security.createPasswordRecord(password);
         const masterUserId = Utils.id();
         let firebaseProvision = null;
         if (this.isFirebaseMode()) {
@@ -2581,6 +2671,13 @@ const App = {
             firebaseProvision = await this._provisionFirebaseMaster(username, password, masterUserId);
           } catch (err) {
             return this.fail(`Firebase install failed: ${err.message || err}`);
+          }
+          // Sign the master admin into the main tenlb-app Firebase Auth session
+          try {
+            const email = firebaseProvision?.email || username;
+            await FirestoreAdapter.signInWithEmail(email, password);
+          } catch (err) {
+            return this.fail(`Firebase sign-in after install failed: ${err.message || err}`);
           }
         }
         await Data.adapter.createUser({
@@ -2626,6 +2723,28 @@ const App = {
         const username = loginForm.username.value.trim();
         const password = loginForm.password.value;
         const redirect = loginForm.redirect.value || this.state.redirectAfterLogin || 'overview';
+
+        if (this.isFirebaseMode()) {
+          // Firebase mode: authenticate via Firebase Auth
+          let fbUser;
+          try {
+            fbUser = await FirestoreAdapter.signInWithEmail(username, password);
+          } catch (err) {
+            return this.fail('Invalid email or password.');
+          }
+          if (!fbUser) return this.fail('Invalid email or password.');
+          const user = await Data.adapter.getUserByFirebaseUid(fbUser.uid);
+          if (!user) return this.fail('No local account found for this Firebase user. Please contact the admin.');
+          if (user.userType === 'participant' || user.canLogin === false) return this.fail('This account cannot log in.');
+          await this.loginAs(user);
+          await this.refresh();
+          const route = this.redirectToPostLogin(redirect);
+          this.setMessage(`Welcome back, ${Utils.fullName(this.state.currentUser)}.`);
+          this.navigate(route, { keepFlash: true, replace: true });
+          return;
+        }
+
+        // Offline mode: local password check
         const user = await Data.adapter.getUserByUsername(username);
         if (!user) return this.fail('Invalid username or password.');
         if (user.userType === 'participant' || user.canLogin === false) return this.fail('This account cannot log in.');
@@ -2910,6 +3029,20 @@ const App = {
         const ok = await this._saveWithConflictResolver('User', { ...user, firstName: firstName.trim(), lastName: lastName.trim() }, (payload) => Data.adapter.updateUser(payload));
         if (!ok) return;
       } else if (action === 'password') {
+        if (this.isFirebaseMode()) {
+          // Firebase mode: send a password reset email via Firebase Auth
+          const email = user.username;
+          if (!email) return this.fail('No email address on record for this user.');
+          try {
+            await FirestoreAdapter.sendPasswordResetEmail(email);
+            this.setMessage(`Password reset email sent to ${email}.`);
+            this.render();
+            return;
+          } catch (err) {
+            return this.fail(`Failed to send reset email: ${err.message || err}`);
+          }
+        }
+        // Offline mode: direct password reset
         const password = prompt(`New password for ${Utils.fullName(user)}:`);
         if (password === null) return;
         if (!Utils.validPassword(password)) return this.fail('Password must include 8+ chars, letter, number and symbol.');
@@ -3005,10 +3138,30 @@ const App = {
         const currentPassword = userPwdForm.currentPassword.value;
         const newPassword = userPwdForm.newPassword.value;
         const confirmPassword = userPwdForm.confirmPassword.value;
-        const ok = await Security.verifyPassword(currentPassword, this.state.currentUser.password);
-        if (!ok) return this.fail('Current password is incorrect.');
         if (!Utils.validPassword(newPassword)) return this.fail('New password must include 8+ chars, letter, number and symbol.');
         if (newPassword !== confirmPassword) return this.fail('Passwords do not match.');
+
+        if (this.isFirebaseMode()) {
+          // Firebase mode: re-authenticate then update via Firebase Auth
+          const email = this.state.currentUser?.username;
+          try {
+            await FirestoreAdapter.signInWithEmail(email, currentPassword);
+          } catch {
+            return this.fail('Current password is incorrect.');
+          }
+          try {
+            await FirestoreAdapter.updatePassword(newPassword);
+          } catch (err) {
+            return this.fail(`Password update failed: ${err.message || err}`);
+          }
+          this.setMessage('Password changed.');
+          this.render();
+          return;
+        }
+
+        // Offline mode: local hash verify + update
+        const ok = await Security.verifyPassword(currentPassword, this.state.currentUser.password);
+        if (!ok) return this.fail('Current password is incorrect.');
         const hash = await Security.createPasswordRecord(newPassword);
         const saved = await this._saveWithConflictResolver('User', { ...this.state.currentUser, password: hash }, (payload) => Data.adapter.updateUser(payload));
         if (!saved) return;
@@ -3032,7 +3185,9 @@ const App = {
           updatedAt: new Date().toISOString()
         };
         await Data.adapter.saveAppSettings(this.state.appSettings);
-        Utils.setCookie('tenlb_session', this.state.sessionToken, this.state.appSettings.sessionDurationDays);
+        if (!this.isFirebaseMode() && this.state.sessionToken) {
+          Utils.setCookie('tenlb_session', this.state.sessionToken, this.state.appSettings.sessionDurationDays);
+        }
         this.setMessage('Server settings updated.');
         this.render();
       };
@@ -3044,9 +3199,22 @@ const App = {
         e.preventDefault();
         if (!this.state.currentUser.isMaster) return this.fail('Only master admin can reset the server.');
         if (!resetForm.confirm.checked) return this.fail('Confirm reset to continue.');
-        const ok = await Security.verifyPassword(resetForm.password.value, this.state.currentUser.password);
-        if (!ok) return this.fail('Invalid master password.');
+
+        if (this.isFirebaseMode()) {
+          // Firebase mode: re-authenticate via Firebase Auth instead of local hash
+          const email = this.state.currentUser?.username;
+          try {
+            await FirestoreAdapter.signInWithEmail(email, resetForm.password.value);
+          } catch {
+            return this.fail('Invalid master password.');
+          }
+        } else {
+          const ok = await Security.verifyPassword(resetForm.password.value, this.state.currentUser.password);
+          if (!ok) return this.fail('Invalid master password.');
+        }
+
         await Data.adapter.clearAllData();
+        if (this.isFirebaseMode() && FirestoreAdapter.isReady()) await FirestoreAdapter.signOut();
         Utils.clearCookie('tenlb_session');
         this.state.currentUser = null;
         this.state.sessionToken = null;
