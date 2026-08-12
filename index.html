@@ -1565,17 +1565,34 @@ const App = {
     return this.isAdmin();
   },
 
+  _baseNavModel() {
+    return { items: [], authName: '', authRole: '', syncVisible: false, syncText: '' };
+  },
+
+  _buildSyncStatus(syncMeta) {
+    if (!syncMeta) return { syncVisible: false, syncText: '' };
+    const mode = syncMeta.storageMode || 'local';
+    if (mode !== 'online') return { syncVisible: false, syncText: '' };
+    const status = syncMeta.syncStatus || 'idle';
+    const statusIcons = { idle: '', syncing: '↻', synced: '✓', pending: '⚠', error: '✗' };
+    const statusText = {
+      idle: '',
+      syncing: 'Syncing…',
+      synced: `Synced ${syncMeta.lastSyncAt ? Utils.dateTime(syncMeta.lastSyncAt) : ''}`,
+      pending: 'Changes pending',
+      error: 'Sync error'
+    };
+    return {
+      syncVisible: true,
+      syncText: `${statusIcons[status] || ''} ONLINE — ${statusText[status] || status}`
+    };
+  },
+
   attachNav() {
     const nav = document.getElementById('nav');
     const authChip = document.getElementById('auth-chip');
     const syncBar = document.getElementById('sync-bar');
-    const model = {
-      items: [],
-      authName: '',
-      authRole: '',
-      syncVisible: false,
-      syncText: ''
-    };
+    const model = this._baseNavModel();
 
     if (!this.isInstalled() || !this.isAuthenticated()) {
       if (!this.react.enabled) {
@@ -1608,23 +1625,12 @@ const App = {
       if (logoutBtn) logoutBtn.onclick = () => this.logout();
     }
 
-    // Sync status bar
-    if (syncBar && this.state.syncMeta) {
-      const meta = this.state.syncMeta;
-      const mode = meta.storageMode || 'local';
-      const status = meta.syncStatus || 'idle';
-      const statusIcons = { idle: '', syncing: '↻', synced: '✓', pending: '⚠', error: '✗' };
-      const statusText = { idle: '', syncing: 'Syncing…', synced: `Synced ${meta.lastSyncAt ? Utils.dateTime(meta.lastSyncAt) : ''}`, pending: 'Changes pending', error: 'Sync error' };
-      if (mode === 'online') {
-        model.syncVisible = true;
-        model.syncText = `${statusIcons[status] || ''} ONLINE — ${statusText[status] || status}`;
-        if (!this.react.enabled) {
-          syncBar.style.display = 'block';
-          syncBar.textContent = model.syncText;
-        }
-      } else {
-        if (!this.react.enabled) syncBar.style.display = 'none';
-      }
+    const syncStatus = this._buildSyncStatus(this.state.syncMeta);
+    model.syncVisible = syncStatus.syncVisible;
+    model.syncText = syncStatus.syncText;
+    if (syncBar && !this.react.enabled) {
+      syncBar.style.display = model.syncVisible ? 'block' : 'none';
+      syncBar.textContent = model.syncVisible ? model.syncText : '';
     }
     return model;
   },
@@ -1699,6 +1705,36 @@ const App = {
     return Domain.activeRound(this.state.rounds) || this.state.rounds[0] || null;
   },
 
+  _renderAuthenticatedRoute(route) {
+    const routeScreens = {
+      denied: () => this.renderDenied(),
+      overview: () => this.renderOverview(),
+      rounds: () => this.renderRoundList(),
+      create: () => this.renderCreate(),
+      edit: () => this.renderEdit(),
+      delete: () => this.renderDelete(),
+      submit: () => this.renderSubmit(),
+      users: () => this.renderUsers(),
+      settings: () => this.renderSettings(),
+      'invite-detail': () => this.renderInviteDetail()
+    };
+    const renderRoute = routeScreens[route];
+    return renderRoute ? renderRoute() : '';
+  },
+
+  resolveScreen() {
+    if (!this.isInstalled()) {
+      if (this.state.route === 'install') return this.renderInstall();
+      if (this.state.route === 'denied') return this.renderDenied();
+      return this.renderJoin();
+    }
+    if (!this.isAuthenticated()) {
+      if (this.state.route === 'join') return this.renderJoin();
+      return this.renderLogin();
+    }
+    return this._renderAuthenticatedRoute(this.state.route);
+  },
+
   render() {
     const navModel = this.attachNav();
     this.applyTheme();
@@ -1706,42 +1742,7 @@ const App = {
 
     const app = document.getElementById('app');
     const flash = `${this.state.error ? `<p class="error">${this.state.error}</p>` : ''}${this.state.message ? `<p class="ok">${this.state.message}</p>` : ''}`;
-    let screen = '';
-
-    if (!this.isInstalled()) {
-      if (this.state.route === 'install') {
-        screen = this.renderInstall();
-      } else if (this.state.route === 'denied') {
-        screen = this.renderDenied();
-      } else {
-        screen = this.renderJoin();
-      }
-      if (!this.renderWithReact(navModel, flash, screen)) app.innerHTML = flash + screen;
-      this.bindScreenEvents();
-      return;
-    }
-
-    if (!this.isAuthenticated()) {
-      if (this.state.route === 'join') {
-        screen = this.renderJoin();
-      } else {
-        screen = this.renderLogin();
-      }
-      if (!this.renderWithReact(navModel, flash, screen)) app.innerHTML = flash + screen;
-      this.bindScreenEvents();
-      return;
-    }
-
-    if (this.state.route === 'denied') screen = this.renderDenied();
-    if (this.state.route === 'overview') screen = this.renderOverview();
-    if (this.state.route === 'rounds') screen = this.renderRoundList();
-    if (this.state.route === 'create') screen = this.renderCreate();
-    if (this.state.route === 'edit') screen = this.renderEdit();
-    if (this.state.route === 'delete') screen = this.renderDelete();
-    if (this.state.route === 'submit') screen = this.renderSubmit();
-    if (this.state.route === 'users') screen = this.renderUsers();
-    if (this.state.route === 'settings') screen = this.renderSettings();
-    if (this.state.route === 'invite-detail') screen = this.renderInviteDetail();
+    const screen = this.resolveScreen();
 
     if (!this.renderWithReact(navModel, flash, screen)) app.innerHTML = flash + screen;
 
