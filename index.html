@@ -85,6 +85,8 @@
   <nav id="nav"></nav>
   <main id="app"></main>
 
+<script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
 <script>
 // =============================================================================
 // CONFIG
@@ -1242,6 +1244,13 @@ const Domain = {
 };
 
 const App = {
+  react: {
+    enabled: false,
+    navRoot: null,
+    authRoot: null,
+    syncRoot: null,
+    appRoot: null
+  },
   state: {
     route: 'overview',
     message: '',
@@ -1281,12 +1290,29 @@ const App = {
     return type[0].toUpperCase() + type.slice(1);
   },
 
+  setupReact() {
+    if (!window.React || !window.ReactDOM?.createRoot) return;
+    const nav = document.getElementById('nav');
+    const authChip = document.getElementById('auth-chip');
+    const syncBar = document.getElementById('sync-bar');
+    const app = document.getElementById('app');
+    if (!nav || !authChip || !syncBar || !app) return;
+    this.react = {
+      enabled: true,
+      navRoot: window.ReactDOM.createRoot(nav),
+      authRoot: window.ReactDOM.createRoot(authChip),
+      syncRoot: window.ReactDOM.createRoot(syncBar),
+      appRoot: window.ReactDOM.createRoot(app)
+    };
+  },
+
   async init() {
     await loadRuntimeConfig();
     await Data.init();
     await this.loadSettings();
     await this.loadSyncMeta();
     this.setupPwa();
+    this.setupReact();
 
     // Read invite code from URL query param (e.g. ?invite=ABCD1234)
     const urlParams = new URLSearchParams(window.location.search);
@@ -1543,32 +1569,44 @@ const App = {
     const nav = document.getElementById('nav');
     const authChip = document.getElementById('auth-chip');
     const syncBar = document.getElementById('sync-bar');
+    const model = {
+      items: [],
+      authName: '',
+      authRole: '',
+      syncVisible: false,
+      syncText: ''
+    };
 
     if (!this.isInstalled() || !this.isAuthenticated()) {
-      nav.innerHTML = '';
-      authChip.innerHTML = '';
-      if (syncBar) syncBar.style.display = 'none';
-      return;
+      if (!this.react.enabled) {
+        nav.innerHTML = '';
+        authChip.innerHTML = '';
+        if (syncBar) syncBar.style.display = 'none';
+      }
+      return model;
     }
 
-    const items = [
+    model.items = [
       ['overview', 'Current Round'],
       ['rounds', 'Rounds'],
       ['submit', 'Submit']
     ];
-    if (this.isAdmin()) items.push(['create', 'Create'], ['users', 'Users']);
-    items.push(['settings', 'Settings']);
+    if (this.isAdmin()) model.items.push(['create', 'Create'], ['users', 'Users']);
+    model.items.push(['settings', 'Settings']);
+    model.authName = Utils.fullName(this.state.currentUser);
+    model.authRole = this.roleLabel(this.state.currentUser);
 
-    nav.innerHTML = items.map(([key, label]) => `<button data-route="${key}">${label}</button>`).join('');
-    nav.onclick = (e) => {
-      const b = e.target.closest('button[data-route]');
-      if (!b) return;
-      this.navigate(b.dataset.route);
-    };
-
-    authChip.innerHTML = `${Utils.esc(Utils.fullName(this.state.currentUser))} <span class="tag">${this.roleLabel(this.state.currentUser)}</span> <button class="btn secondary small" id="btn-logout">Logout</button>`;
-    const logoutBtn = document.getElementById('btn-logout');
-    if (logoutBtn) logoutBtn.onclick = () => this.logout();
+    if (!this.react.enabled) {
+      nav.innerHTML = model.items.map(([key, label]) => `<button data-route="${key}">${label}</button>`).join('');
+      nav.onclick = (e) => {
+        const b = e.target.closest('button[data-route]');
+        if (!b) return;
+        this.navigate(b.dataset.route);
+      };
+      authChip.innerHTML = `${Utils.esc(model.authName)} <span class="tag">${model.authRole}</span> <button class="btn secondary small" id="btn-logout">Logout</button>`;
+      const logoutBtn = document.getElementById('btn-logout');
+      if (logoutBtn) logoutBtn.onclick = () => this.logout();
+    }
 
     // Sync status bar
     if (syncBar && this.state.syncMeta) {
@@ -1578,12 +1616,44 @@ const App = {
       const statusIcons = { idle: '', syncing: '↻', synced: '✓', pending: '⚠', error: '✗' };
       const statusText = { idle: '', syncing: 'Syncing…', synced: `Synced ${meta.lastSyncAt ? Utils.dateTime(meta.lastSyncAt) : ''}`, pending: 'Changes pending', error: 'Sync error' };
       if (mode === 'online') {
-        syncBar.style.display = 'block';
-        syncBar.textContent = `${statusIcons[status] || ''} ONLINE — ${statusText[status] || status}`;
+        model.syncVisible = true;
+        model.syncText = `${statusIcons[status] || ''} ONLINE — ${statusText[status] || status}`;
+        if (!this.react.enabled) {
+          syncBar.style.display = 'block';
+          syncBar.textContent = model.syncText;
+        }
       } else {
-        syncBar.style.display = 'none';
+        if (!this.react.enabled) syncBar.style.display = 'none';
       }
     }
+    return model;
+  },
+
+  renderWithReact(navModel, flash, screen) {
+    if (!this.react.enabled) return false;
+    const React = window.React;
+    const e = React.createElement;
+    const syncBar = document.getElementById('sync-bar');
+    if (syncBar) syncBar.style.display = navModel.syncVisible ? 'block' : 'none';
+    this.react.navRoot.render(e(React.Fragment, null,
+      ...navModel.items.map(([key, label]) => e('button', {
+        key,
+        className: this.state.route === key ? 'active' : '',
+        onClick: () => this.navigate(key)
+      }, label))
+    ));
+    this.react.authRoot.render(navModel.authName
+      ? e(React.Fragment, null,
+        navModel.authName,
+        ' ',
+        e('span', { className: 'tag' }, navModel.authRole),
+        ' ',
+        e('button', { className: 'btn secondary small', type: 'button', onClick: () => this.logout() }, 'Logout'))
+      : null);
+    this.react.syncRoot.render(navModel.syncVisible ? navModel.syncText : null);
+    const html = `${flash}${screen}`;
+    this.react.appRoot.render(e('div', { dangerouslySetInnerHTML: { __html: html } }));
+    return true;
   },
 
   async refresh() {
@@ -1630,45 +1700,50 @@ const App = {
   },
 
   render() {
-    this.attachNav();
+    const navModel = this.attachNav();
     this.applyTheme();
     document.getElementById('server-title').textContent = this.state.appSettings?.serverName || '10lb Challenge';
 
     const app = document.getElementById('app');
     const flash = `${this.state.error ? `<p class="error">${this.state.error}</p>` : ''}${this.state.message ? `<p class="ok">${this.state.message}</p>` : ''}`;
+    let screen = '';
 
     if (!this.isInstalled()) {
       if (this.state.route === 'install') {
-        app.innerHTML = flash + this.renderInstall();
+        screen = this.renderInstall();
       } else if (this.state.route === 'denied') {
-        app.innerHTML = flash + this.renderDenied();
+        screen = this.renderDenied();
       } else {
-        app.innerHTML = flash + this.renderJoin();
+        screen = this.renderJoin();
       }
+      if (!this.renderWithReact(navModel, flash, screen)) app.innerHTML = flash + screen;
       this.bindScreenEvents();
       return;
     }
 
     if (!this.isAuthenticated()) {
       if (this.state.route === 'join') {
-        app.innerHTML = flash + this.renderJoin();
+        screen = this.renderJoin();
       } else {
-        app.innerHTML = flash + this.renderLogin();
+        screen = this.renderLogin();
       }
+      if (!this.renderWithReact(navModel, flash, screen)) app.innerHTML = flash + screen;
       this.bindScreenEvents();
       return;
     }
 
-    if (this.state.route === 'denied') app.innerHTML = flash + this.renderDenied();
-    if (this.state.route === 'overview') app.innerHTML = flash + this.renderOverview();
-    if (this.state.route === 'rounds') app.innerHTML = flash + this.renderRoundList();
-    if (this.state.route === 'create') app.innerHTML = flash + this.renderCreate();
-    if (this.state.route === 'edit') app.innerHTML = flash + this.renderEdit();
-    if (this.state.route === 'delete') app.innerHTML = flash + this.renderDelete();
-    if (this.state.route === 'submit') app.innerHTML = flash + this.renderSubmit();
-    if (this.state.route === 'users') app.innerHTML = flash + this.renderUsers();
-    if (this.state.route === 'settings') app.innerHTML = flash + this.renderSettings();
-    if (this.state.route === 'invite-detail') app.innerHTML = flash + this.renderInviteDetail();
+    if (this.state.route === 'denied') screen = this.renderDenied();
+    if (this.state.route === 'overview') screen = this.renderOverview();
+    if (this.state.route === 'rounds') screen = this.renderRoundList();
+    if (this.state.route === 'create') screen = this.renderCreate();
+    if (this.state.route === 'edit') screen = this.renderEdit();
+    if (this.state.route === 'delete') screen = this.renderDelete();
+    if (this.state.route === 'submit') screen = this.renderSubmit();
+    if (this.state.route === 'users') screen = this.renderUsers();
+    if (this.state.route === 'settings') screen = this.renderSettings();
+    if (this.state.route === 'invite-detail') screen = this.renderInviteDetail();
+
+    if (!this.renderWithReact(navModel, flash, screen)) app.innerHTML = flash + screen;
 
     this.bindScreenEvents();
   },
