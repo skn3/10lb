@@ -96,10 +96,56 @@
 //       submissions
 //   4 – added invites store (for invite-code-based registration)
 // =============================================================================
-const Config = { DB_NAME: 'tenlb-challenge', DB_VERSION: 4 };
+const Config = { DB_NAME: 'tenlb-challenge', DB_VERSION: 4, RUNTIME_CONFIG_PATH: './config.json' };
+
+let RuntimeConfig = {
+  serverMode: 'offline', // 'offline' | 'firebase'
+  firebase: {
+    apiKey: '',
+    authDomain: '',
+    projectId: '',
+    storageBucket: '',
+    messagingSenderId: '',
+    appId: ''
+  }
+};
+
+async function loadRuntimeConfig() {
+  try {
+    const paths = [Config.RUNTIME_CONFIG_PATH];
+    if (window.location.pathname.endsWith('/install') || window.location.pathname.endsWith('/install/')) paths.push('../config.json');
+    let res = null;
+    for (const p of paths) {
+      const attempt = await fetch(p, { cache: 'no-store' }).catch(() => null);
+      if (attempt?.ok) { res = attempt; break; }
+    }
+    if (!res) return RuntimeConfig;
+    const raw = await res.json();
+    const mode = raw?.serverMode === 'firebase' ? 'firebase' : 'offline';
+    RuntimeConfig = {
+      serverMode: mode,
+      firebase: {
+        apiKey: String(raw?.firebase?.apiKey || ''),
+        authDomain: String(raw?.firebase?.authDomain || ''),
+        projectId: String(raw?.firebase?.projectId || ''),
+        storageBucket: String(raw?.firebase?.storageBucket || ''),
+        messagingSenderId: String(raw?.firebase?.messagingSenderId || ''),
+        appId: String(raw?.firebase?.appId || '')
+      }
+    };
+  } catch {
+    RuntimeConfig = { ...RuntimeConfig, serverMode: 'offline' };
+  }
+  return RuntimeConfig;
+}
 
 const Utils = {
-  id: () => (crypto && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`),
+  id: () => {
+    if (crypto?.randomUUID) return crypto.randomUUID();
+    const bytes = crypto.getRandomValues(new Uint8Array(16));
+    const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+  },
   round2: (n) => Math.round((Number(n) + Number.EPSILON) * 100) / 100,
   pct: (n) => `${Number(n || 0).toFixed(2)}%`,
   esc: (s) => String(s ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;'),
@@ -110,6 +156,25 @@ const Utils = {
   },
   date: (d) => d ? new Date(d).toLocaleDateString('en-GB') : '—',
   dateTime: (d) => d ? new Date(d).toLocaleString('en-GB') : '—',
+  timeAgo: (d) => {
+    if (!d) return 'Never';
+    const sec = Math.max(1, Math.floor((Date.now() - new Date(d).getTime()) / 1000));
+    const units = [
+      ['year', 31536000],
+      ['month', 2592000],
+      ['week', 604800],
+      ['day', 86400],
+      ['hour', 3600],
+      ['min', 60]
+    ];
+    for (const [label, size] of units) {
+      if (sec >= size) {
+        const n = Math.floor(sec / size);
+        return `${n} ${label}${n !== 1 ? 's' : ''}`;
+      }
+    }
+    return `${sec} sec${sec !== 1 ? 's' : ''}`;
+  },
   weekdayName: (i) => ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][Number(i) || 0],
   clone: (v) => JSON.parse(JSON.stringify(v)),
   fullName: (user) => [user?.firstName || '', user?.lastName || ''].join(' ').trim() || user?.name || user?.username || 'Unknown user',
@@ -385,6 +450,7 @@ const OfflineAdapter = (() => {
   const normalizeUser = (u) => {
     if (!u) return null;
     const parsed = Utils.parseName(u.name || Utils.fullName(u));
+    const userType = u.userType || (u.isMaster ? 'master' : (u.isAdmin ? 'admin' : 'user'));
     return {
       ...metaDefaults(u),
       id: u.id || Utils.id(),
@@ -392,8 +458,14 @@ const OfflineAdapter = (() => {
       firstName: u.firstName || parsed.firstName,
       lastName: u.lastName || parsed.lastName,
       password: u.password || null,
-      isAdmin: !!u.isAdmin,
-      isMaster: !!u.isMaster,
+      userType,
+      isAdmin: userType === 'admin' || userType === 'master' || !!u.isAdmin,
+      isMaster: userType === 'master' || !!u.isMaster,
+      inviteCode: u.inviteCode || null,
+      invitedAt: u.invitedAt || null,
+      inviteAcceptedAt: u.inviteAcceptedAt || null,
+      canLogin: u.canLogin !== undefined ? !!u.canLogin : userType !== 'participant',
+      firebaseUid: u.firebaseUid || null,
       createdAt: u.createdAt || new Date().toISOString(),
       updatedAt: u.updatedAt || new Date().toISOString(),
       lastLoginAt: u.lastLoginAt || null
@@ -438,6 +510,12 @@ const OfflineAdapter = (() => {
         const n = normalizeUser(u);
         if (JSON.stringify(n) !== JSON.stringify(u)) await put('users', n);
       }));
+      const allUsers = (await getAll('users')).map(normalizeUser).filter((u) => !u.deletedAt);
+      const masters = allUsers.filter((u) => u.userType === 'master' || u.isMaster);
+      if (masters.length > 1) {
+        const keep = masters.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt))[0];
+        await Promise.all(masters.filter((u) => u.id !== keep.id).map((u) => put('users', normalizeUser({ ...u, userType: 'admin', isMaster: false, isAdmin: true }))));
+      }
     },
 
     // ---- App settings --------------------------------------------------------
@@ -493,8 +571,10 @@ const OfflineAdapter = (() => {
                 firstName: parsed.firstName,
                 lastName: parsed.lastName,
                 createdAt: new Date().toISOString(),
+                userType: RuntimeConfig.serverMode === 'offline' ? 'participant' : 'user',
                 isAdmin: false,
-                isMaster: false
+                isMaster: false,
+                canLogin: RuntimeConfig.serverMode !== 'offline'
               });
               users.put(user);
               map.set(key, user);
@@ -527,6 +607,14 @@ const OfflineAdapter = (() => {
       }));
     },
     updateRound: async (round) => {
+      const current = await get('rounds', round.id);
+      if (current && (current.version || 1) !== (round.version || 1)) {
+        const err = new Error('Round has changed since you opened it.');
+        err.code = 'conflict';
+        err.latest = current;
+        err.attempted = round;
+        throw err;
+      }
       const updated = { ...round, updatedAt: new Date().toISOString(), version: (round.version || 1) + 1, updatedBy: round.updatedBy };
       await put('rounds', updated);
       OfflineAdapter._maybeEnqueue('rounds', updated.id, 'UPDATE', updated, updated.updatedBy);
@@ -570,11 +658,23 @@ const OfflineAdapter = (() => {
     createUser: async (user) => {
       const now = new Date().toISOString();
       const value = normalizeUser({ ...user, createdAt: now, updatedAt: now });
+      if (value.userType === 'master' || value.isMaster) {
+        const existing = (await getAll('users')).map(normalizeUser).find((u) => !u.deletedAt && (u.userType === 'master' || u.isMaster));
+        if (existing) throw new Error('Only one master account is allowed.');
+      }
       await put('users', value);
       OfflineAdapter._maybeEnqueue('users', value.id, 'CREATE', value, value.id);
       return value;
     },
     updateUser: async (user) => {
+      const current = await get('users', user.id);
+      if (current && (current.version || 1) !== (user.version || 1)) {
+        const err = new Error('User has changed since you opened it.');
+        err.code = 'conflict';
+        err.latest = current;
+        err.attempted = user;
+        throw err;
+      }
       const updated = normalizeUser({ ...user, updatedAt: new Date().toISOString(), version: (user.version || 1) + 1 });
       await put('users', updated);
       OfflineAdapter._maybeEnqueue('users', updated.id, 'UPDATE', updated, updated.id);
@@ -633,6 +733,8 @@ const OfflineAdapter = (() => {
             if (!user) {
               const parsed = Utils.parseName(fullName);
               user = normalizeUser({ id: Utils.id(), username: `${parsed.firstName}.${parsed.lastName}`.toLowerCase().replace(/\.+/g, '.').replace(/[^a-z0-9.]/g, ''), firstName: parsed.firstName, lastName: parsed.lastName, isAdmin: false, isMaster: false, createdAt: new Date().toISOString() });
+              user.userType = RuntimeConfig.serverMode === 'offline' ? 'participant' : 'user';
+              user.canLogin = RuntimeConfig.serverMode !== 'offline';
               users.put(user);
               map.set(key, user);
             }
@@ -871,9 +973,12 @@ const Data = {
   async init() {
     this.adapter = OfflineAdapter;
     await this.adapter.init();
-    // Read persisted mode
+    // Runtime mode is controlled by deployed config.json
     const meta = await this.adapter.getDeviceMeta();
-    this.mode = meta.storageMode || 'local';
+    this.mode = RuntimeConfig.serverMode === 'firebase' ? 'online' : 'local';
+    if ((meta.storageMode || 'local') !== this.mode) {
+      await this.adapter.saveDeviceMeta({ ...meta, storageMode: this.mode });
+    }
   },
 
   isOnline() { return this.mode === 'online'; }
@@ -1051,7 +1156,7 @@ const Domain = {
   userMap(users) { return new Map(users.map((u) => [u.id, u])); },
   roundUsers(round, users) {
     const map = this.userMap(users);
-    return round.participantIds.map((id) => map.get(id)).filter(Boolean);
+    return round.participantIds.map((id) => map.get(id)).filter((u) => !!u && (!u.invitedAt || !!u.inviteAcceptedAt));
   },
   submissionsByRound(submissions, roundId) { return submissions.filter((s) => s.roundId === roundId); },
   submissionFor(subs, week, userId) { return subs.find((s) => s.weekNumber === week && s.userId === userId) || null; },
@@ -1156,14 +1261,28 @@ const App = {
     selectedUsers: [],
     syncMeta: null,        // device/sync metadata (from getDeviceMeta)
     inviteDetail: null,    // current invite being viewed
-    pendingInviteCode: ''  // invite code from URL query param
+    pendingInviteCode: '', // invite code from URL query param
+    userFilters: {
+      type: 'all',
+      status: 'all', // all|confirmed|invited
+      currentChallengeOnly: false,
+      sort: 'a-z',
+      search: ''
+    }
   },
 
   isInstalled() { return !!this.state.appSettings?.installed; },
   isAuthenticated() { return !!this.state.currentUser; },
   isAdmin(user = this.state.currentUser) { return !!(user && (user.isAdmin || user.isMaster)); },
+  isMaster(user = this.state.currentUser) { return !!(user && user.isMaster); },
+  isFirebaseMode() { return RuntimeConfig.serverMode === 'firebase'; },
+  roleLabel(user) {
+    const type = user?.userType || (user?.isMaster ? 'master' : (user?.isAdmin ? 'admin' : 'user'));
+    return type[0].toUpperCase() + type.slice(1);
+  },
 
   async init() {
+    await loadRuntimeConfig();
     await Data.init();
     await this.loadSettings();
     await this.loadSyncMeta();
@@ -1174,10 +1293,20 @@ const App = {
     const inviteCode = urlParams.get('invite') || '';
     if (inviteCode) this.state.pendingInviteCode = inviteCode.toUpperCase();
 
+    const isInstallPath = window.location.pathname.endsWith('/install') || window.location.pathname.endsWith('/install/');
     if (!this.isInstalled()) {
-      // Install screen only accessible via ?setup=1 (or #install hash) and only when not yet installed
-      const isSetupUrl = urlParams.get('setup') === '1' || window.location.hash === '#install';
-      this.state.route = isSetupUrl ? 'install' : 'join';
+      // Install screen only accessible via /install (or legacy ?setup=1)
+      const isSetupUrl = isInstallPath || urlParams.get('setup') === '1' || window.location.hash === '#install';
+      this.state.route = isSetupUrl ? 'install' : 'denied';
+      if (!isSetupUrl) this.setMessage('', 'Server not installed. Open /install to complete first-time setup.');
+      this.attachNav();
+      this.render();
+      return;
+    }
+
+    if (isInstallPath) {
+      this.state.route = 'denied';
+      this.setMessage('', 'Installation is locked. /install is no longer available.');
       this.attachNav();
       this.render();
       return;
@@ -1194,10 +1323,15 @@ const App = {
     this.render();
 
     // Resume Online Mode if it was active on last session
-    if (Data.mode === 'online' && this.state.syncMeta?.firebaseConfig) {
-      this._initOnlineMode(this.state.syncMeta.firebaseConfig).catch((err) => {
+    if (Data.mode === 'online') {
+      if (!RuntimeConfig.firebase?.apiKey || !RuntimeConfig.firebase?.authDomain || !RuntimeConfig.firebase?.projectId) {
+        Data.mode = 'local';
+        this.setMessage('', 'config.json is set to firebase mode but firebase config is incomplete. Falling back to local mode.');
+      } else {
+        this._initOnlineMode(RuntimeConfig.firebase).catch((err) => {
         console.warn('Online Mode could not resume:', err.message);
-      });
+        });
+      }
     }
 
     // Listen for remote changes to refresh UI
@@ -1247,7 +1381,7 @@ const App = {
     const token = Security.sessionToken();
     await Data.adapter.createSession(token, user.id, this.state.appSettings.sessionDurationDays || 7);
     const updated = { ...user, lastLoginAt: new Date().toISOString() };
-    await Data.adapter.updateUser(updated);
+    await this._saveWithConflictResolver('User', updated, (payload) => Data.adapter.updateUser(payload));
     this.state.currentUser = updated;
     this.state.sessionToken = token;
     Utils.setCookie('tenlb_session', token, this.state.appSettings.sessionDurationDays || 7);
@@ -1271,6 +1405,7 @@ const App = {
   // Online Mode management
   // ---------------------------------------------------------------------------
   async _initOnlineMode(firebaseConfig) {
+    if (!this.isFirebaseMode()) return;
     // Lazily load Firebase SDK scripts if not yet loaded
     await this._loadFirebaseSDK();
 
@@ -1278,7 +1413,7 @@ const App = {
     Data.mode = 'online';
 
     const meta = await Data.adapter.getDeviceMeta();
-    await Data.adapter.saveDeviceMeta({ ...meta, storageMode: 'online', firebaseConfig });
+    await Data.adapter.saveDeviceMeta({ ...meta, storageMode: 'online', firebaseConfig: RuntimeConfig.firebase });
 
     // If the current user is a master admin, register their firebase UID
     // in Firestore so security rules grant admin access
@@ -1320,38 +1455,41 @@ const App = {
     await loadScript(`${CDN}/firebase-firestore-compat.js`);
   },
 
-  async enableOnlineMode(firebaseConfig) {
-    const meta = await Data.adapter.getDeviceMeta();
-    await Data.adapter.saveDeviceMeta({ ...meta, syncStatus: 'syncing', syncError: null });
-    await this.loadSyncMeta();
-    this.render();
-
+  async _provisionFirebaseMaster(username, password, localUserId) {
+    if (!this.isFirebaseMode()) return null;
+    await this._loadFirebaseSDK();
+    const installName = 'tenlb-install';
+    let app;
     try {
-      await this._initOnlineMode(firebaseConfig);
-      this.setMessage('Online Mode enabled. Synchronising…');
-    } catch (err) {
-      // Graceful degradation — remain in Local Mode
-      Data.mode = 'local';
-      const failMeta = await Data.adapter.getDeviceMeta();
-      await Data.adapter.saveDeviceMeta({ ...failMeta, storageMode: 'local', syncStatus: 'error', syncError: String(err?.message || err) });
-      await this.loadSyncMeta();
-      this.fail(`Failed to enable Online Mode: ${err.message || err}. Remaining in Local Mode.`);
+      app = window.firebase.app(installName);
+    } catch {
+      app = window.firebase.initializeApp(RuntimeConfig.firebase, installName);
     }
+    const auth = app.auth();
+    const email = String(username).includes('@') ? String(username) : `${username}@tenlb.local`;
+    const cred = await auth.createUserWithEmailAndPassword(email, password);
+    const uid = cred?.user?.uid || null;
+    const db = app.firestore();
+    if (uid) {
+      await db.collection('challenges').doc('default').collection('admins').doc(uid)
+        .set({ grantedAt: new Date().toISOString(), localUserId, isAdmin: true, isMaster: true }, { merge: true });
+      await db.collection('challenges').doc('default').set({
+        installedAt: new Date().toISOString(),
+        installedBy: localUserId,
+        mode: 'firebase'
+      }, { merge: true });
+    }
+    return { uid, email };
+  },
+
+  async enableOnlineMode(firebaseConfig) {
+    if (!this.isFirebaseMode()) return this.fail('Server mode is offline in config.json. Set serverMode to "firebase" to enable online mode.');
+    await this._initOnlineMode(firebaseConfig || RuntimeConfig.firebase);
+    this.setMessage('Online Mode enabled. Synchronising…');
   },
 
   async disableOnlineMode() {
-    const pending = await Data.adapter.countPendingSyncItems();
-    if (pending > 0) {
-      const msg = `You have ${pending} change${pending !== 1 ? 's' : ''} that have not been uploaded. They will remain on this device and can be synchronised if Online Mode is enabled again.`;
-      if (!confirm(msg + '\n\nDisable Online Mode anyway?')) return;
-    }
-    await SyncEngine.stop();
-    Data.mode = 'local';
-    const meta = await Data.adapter.getDeviceMeta();
-    await Data.adapter.saveDeviceMeta({ ...meta, storageMode: 'local' });
-    await this.loadSyncMeta();
-    this.setMessage('Online Mode disabled. Using local storage only.');
-    this.render();
+    return this.fail('Mode is controlled by deployed config.json and cannot be changed from UI.');
   },
 
   async testFirebaseConnection(firebaseConfig) {
@@ -1392,9 +1530,10 @@ const App = {
 
   canAccess(route) {
     // join is the registration screen — accessible when not authenticated
-    if (route === 'join') return !this.isAuthenticated();
+    if (route === 'join') return this.isFirebaseMode() && !this.isAuthenticated();
     if (!this.isInstalled()) return route === 'install';
-    if (['install', 'login'].includes(route)) return true;
+    if (route === 'install') return !this.isInstalled();
+    if (route === 'login') return true;
     if (!this.isAuthenticated()) return false;
     if (['overview', 'rounds', 'submit', 'settings'].includes(route)) return true;
     return this.isAdmin();
@@ -1417,7 +1556,7 @@ const App = {
       ['rounds', 'Rounds'],
       ['submit', 'Submit']
     ];
-    if (this.isAdmin()) items.push(['create', 'Create'], ['users', 'Users'], ['invites', 'Invites']);
+    if (this.isAdmin()) items.push(['create', 'Create'], ['users', 'Users']);
     items.push(['settings', 'Settings']);
 
     nav.innerHTML = items.map(([key, label]) => `<button data-route="${key}">${label}</button>`).join('');
@@ -1427,7 +1566,7 @@ const App = {
       this.navigate(b.dataset.route);
     };
 
-    authChip.innerHTML = `${Utils.esc(Utils.fullName(this.state.currentUser))} <span class="tag">${this.state.currentUser.isMaster ? 'Master' : (this.isAdmin() ? 'Admin' : 'User')}</span> <button class="btn secondary small" id="btn-logout">Logout</button>`;
+    authChip.innerHTML = `${Utils.esc(Utils.fullName(this.state.currentUser))} <span class="tag">${this.roleLabel(this.state.currentUser)}</span> <button class="btn secondary small" id="btn-logout">Logout</button>`;
     const logoutBtn = document.getElementById('btn-logout');
     if (logoutBtn) logoutBtn.onclick = () => this.logout();
 
@@ -1501,6 +1640,8 @@ const App = {
     if (!this.isInstalled()) {
       if (this.state.route === 'install') {
         app.innerHTML = flash + this.renderInstall();
+      } else if (this.state.route === 'denied') {
+        app.innerHTML = flash + this.renderDenied();
       } else {
         app.innerHTML = flash + this.renderJoin();
       }
@@ -1527,7 +1668,6 @@ const App = {
     if (this.state.route === 'submit') app.innerHTML = flash + this.renderSubmit();
     if (this.state.route === 'users') app.innerHTML = flash + this.renderUsers();
     if (this.state.route === 'settings') app.innerHTML = flash + this.renderSettings();
-    if (this.state.route === 'invites') app.innerHTML = flash + this.renderInvites();
     if (this.state.route === 'invite-detail') app.innerHTML = flash + this.renderInviteDetail();
 
     this.bindScreenEvents();
@@ -1567,11 +1707,14 @@ const App = {
         <input name="redirect" type="hidden" value="${Utils.escAttr(this.state.redirectAfterLogin || 'overview')}" />
         <button class="btn" type="submit">Login</button>
       </form>
-      <p class="small muted" style="margin-top:12px">Have an invite code? <a href="#" id="link-to-join" style="color:var(--brand)">Register here</a>.</p>
+      ${this.isFirebaseMode() ? '<p class="small muted" style="margin-top:12px">Have an invite code? <a href="#" id="link-to-join" style="color:var(--brand)">Register here</a>.</p>' : ''}
     </div>`;
   },
 
   renderJoin() {
+    if (!this.isFirebaseMode()) {
+      return `<div class="card" style="max-width:560px;margin:0 auto"><h2 style="margin-top:0">Registration unavailable</h2><p class="muted">This server is running in offline mode. Ask the master admin to create participant accounts.</p><button class="btn secondary" type="button" id="btn-go-login">Go to login</button></div>`;
+    }
     const code = this.state.pendingInviteCode || '';
     const serverName = this.state.appSettings?.serverName || '10lb Challenge';
     return `<div class="card" style="max-width:560px;margin:0 auto">
@@ -1640,13 +1783,13 @@ const App = {
   renderInviteDetail() {
     if (!this.isAdmin()) return this.renderDenied();
     const inv = this.state.inviteDetail;
-    if (!inv) return this.renderInvites();
+    if (!inv) return this.renderUsers();
     const baseUrl = window.location.origin + window.location.pathname;
     const inviteLink = `${baseUrl}?invite=${encodeURIComponent(inv.code)}`;
     return `<div class="card" style="max-width:640px;margin:0 auto">
       <div class="row between" style="margin-bottom:12px">
         <h2 style="margin:0">Invite link</h2>
-        <button class="btn secondary" data-go="invites">← Back to invites</button>
+        <button class="btn secondary" data-go="users">← Back to users</button>
       </div>
       <p class="muted">Share this invite with the person you want to join. The code can only be used once.</p>
 
@@ -1743,7 +1886,7 @@ const App = {
 
   createDefaults() {
     const lastRound = [...this.state.rounds].sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt))[0];
-    const allNames = [...new Set(this.state.users.map((u)=>Utils.fullName(u)))];
+    const allNames = [...new Set(this.state.users.filter((u) => !u.invitedAt || !!u.inviteAcceptedAt).map((u)=>Utils.fullName(u)))];
     return {
       title: Domain.suggestTitle(lastRound),
       weeksCount: lastRound?.weeksCount || 10,
@@ -1843,7 +1986,9 @@ const App = {
     if (!round) return `<div class="card"><p class="error">Weekly submissions are only available when a challenge is active.</p></div>`;
     const subs = Domain.submissionsByRound(this.state.submissions, round.id);
     const week = Domain.calcCurrentWeek(round, this.state.users, subs);
-    let users = Domain.roundUsers(round, this.state.users).filter((u) => !Domain.isForfeit(subs, u.id, week));
+    let users = Domain.roundUsers(round, this.state.users)
+      .filter((u) => (!u.invitedAt || !!u.inviteAcceptedAt))
+      .filter((u) => !Domain.isForfeit(subs, u.id, week));
     users = users.filter((u) => !Domain.submissionFor(subs, week, u.id));
 
     if (!this.isAdmin()) users = users.filter((u) => u.id === this.state.currentUser.id);
@@ -1897,30 +2042,109 @@ const App = {
 
   renderUsers() {
     if (!this.isAdmin()) return this.renderDenied();
-    const rows = this.state.users.map((u) => {
+    const f = this.state.userFilters || {};
+    const users = this.state.users.map((u) => {
       const stats = this.userStats(u);
-      const role = u.isMaster ? 'Master' : (u.isAdmin ? 'Admin' : 'User');
+      return {
+        kind: 'user',
+        id: u.id,
+        user: u,
+        role: this.roleLabel(u),
+        invited: !!u.invitedAt && !u.inviteAcceptedAt,
+        confirmed: !u.invitedAt || !!u.inviteAcceptedAt,
+        inCurrentRound: stats.inCurrentRound,
+        roundsParticipated: stats.roundsParticipated,
+        totalCashWon: stats.totalCashWon,
+        totalWeightDelta: stats.totalWeightDelta,
+        joinedAt: u.inviteAcceptedAt || u.createdAt || null,
+        accessedAt: u.lastLoginAt || null
+      };
+    });
+    const pendingInviteRows = this.isFirebaseMode()
+      ? this.state.invites.filter((i) => !i.usedAt).map((inv) => ({
+        kind: 'invite',
+        id: `invite:${inv.id}`,
+        inviteId: inv.id,
+        invite: inv,
+        role: inv.inviteType === 'admin' ? 'Admin Invite' : 'Invite',
+        invited: true,
+        confirmed: false,
+        inCurrentRound: false,
+        roundsParticipated: 0,
+        totalCashWon: 0,
+        totalWeightDelta: 0,
+        joinedAt: null,
+        accessedAt: null
+      }))
+      : [];
+    const merged = [...users, ...pendingInviteRows];
+
+    const shown = merged.filter((row) => {
+      const type = row.kind === 'invite' ? 'invite' : (row.user.userType || (row.user.isMaster ? 'master' : (row.user.isAdmin ? 'admin' : 'user')));
+      if (f.type && f.type !== 'all' && type !== f.type) return false;
+      if (f.status === 'invited' && !row.invited) return false;
+      if (f.status === 'confirmed' && !row.confirmed) return false;
+      if (f.currentChallengeOnly && !row.inCurrentRound) return false;
+      if (f.search) {
+        const t = f.search.toLowerCase();
+        const text = row.kind === 'invite'
+          ? `${row.invite.code} ${row.role}`
+          : `${Utils.fullName(row.user)} ${row.user.username} ${row.role}`;
+        if (!text.toLowerCase().includes(t)) return false;
+      }
+      if (!this.isFirebaseMode() && row.kind === 'invite') return false;
+      return true;
+    });
+
+    const sortKey = f.sort || 'a-z';
+    shown.sort((a, b) => {
+      const dir = sortKey.endsWith('-desc') ? -1 : 1;
+      const byText = (x, y) => String(x || '').localeCompare(String(y || ''), undefined, { sensitivity: 'base' }) * dir;
+      if (sortKey.startsWith('a-z')) return byText(a.kind === 'invite' ? a.invite.code : Utils.fullName(a.user), b.kind === 'invite' ? b.invite.code : Utils.fullName(b.user));
+      if (sortKey.startsWith('type')) return byText(a.role, b.role);
+      if (sortKey.startsWith('joined')) return (new Date(a.joinedAt || a.invite?.createdAt || 0).getTime() - new Date(b.joinedAt || b.invite?.createdAt || 0).getTime()) * dir;
+      if (sortKey.startsWith('last')) return (new Date(a.accessedAt || 0).getTime() - new Date(b.accessedAt || 0).getTime()) * dir;
+      if (sortKey.startsWith('weight')) return (a.totalWeightDelta - b.totalWeightDelta) * dir;
+      if (sortKey.startsWith('money')) return (a.totalCashWon - b.totalCashWon) * dir;
+      return 0;
+    });
+
+    const rows = shown.map((row) => {
+      if (row.kind === 'invite') {
+        return `<tr>
+          <td></td>
+          <td>Invite<div class="small muted"><code>${Utils.esc(row.invite.code)}</code></div></td>
+          <td>${row.role}</td>
+          <td>—</td>
+          <td>0</td>
+          <td>${Utils.money(0, this.state.appSettings.currency)}</td>
+          <td>0${this.state.appSettings.weightFormat}</td>
+          <td>No</td>
+          <td><div class="row"><select data-user-action-select="${Utils.escAttr(row.id)}"><option value="">Actions…</option><option value="view-invite">View invite</option><option value="delete-invite">Delete invite</option></select><button class="btn secondary small" data-user-action-apply="${Utils.escAttr(row.id)}">Apply</button></div></td>
+        </tr>`;
+      }
+      const u = row.user;
       return `<tr>
         <td><input type="checkbox" data-bulk-user="${u.id}" ${this.state.selectedUsers.includes(u.id) ? 'checked' : ''} ${u.isMaster ? 'disabled' : ''}/></td>
-        <td>${Utils.esc(Utils.fullName(u))}<div class="small muted">@${Utils.esc(u.username)}</div></td>
-        <td>${role}</td>
-        <td>${Utils.dateTime(u.lastLoginAt)}</td>
-        <td>${stats.roundsParticipated}</td>
-        <td>${Utils.money(stats.totalCashWon, this.state.appSettings.currency)}</td>
-        <td>${stats.totalWeightDelta}${this.state.appSettings.weightFormat}</td>
-        <td>${stats.inCurrentRound ? 'Yes' : 'No'}</td>
-        <td>
-          <div class="row">
-            <button class="btn secondary small" data-user-edit="${u.id}">Edit</button>
-            <button class="btn secondary small" data-user-password="${u.id}">Password</button>
-            ${!u.isMaster ? `<button class="btn warn small" data-user-role="${u.id}">${u.isAdmin ? 'Make user' : 'Make admin'}</button>` : ''}
-            ${!u.isMaster ? `<button class="btn danger small" data-user-delete="${u.id}">Delete</button>` : ''}
-          </div>
-        </td>
+        <td>${Utils.esc(Utils.fullName(u))}<div class="small muted">@${Utils.esc(u.username)}${row.invited ? ' • invited' : ''}</div></td>
+        <td>${row.role}</td>
+        <td>${Utils.timeAgo(u.lastLoginAt)}</td>
+        <td>${row.roundsParticipated}</td>
+        <td>${Utils.money(row.totalCashWon, this.state.appSettings.currency)}</td>
+        <td>${row.totalWeightDelta}${this.state.appSettings.weightFormat}</td>
+        <td>${row.inCurrentRound ? 'Yes' : 'No'}</td>
+        <td><div class="row"><select data-user-action-select="${u.id}"><option value="">Actions…</option><option value="edit">Edit profile</option>${u.canLogin !== false ? '<option value="password">Reset password</option>' : ''}${(!u.isMaster && this.isFirebaseMode()) ? `<option value="toggle-admin">${u.isAdmin ? 'Make user' : 'Make admin'}</option>` : ''}${u.userType === 'participant' && this.isFirebaseMode() ? '<option value="invite-user">Invite as user</option><option value="invite-admin">Invite as admin</option>' : ''}${!u.isMaster ? '<option value="delete">Delete</option>' : ''}</select><button class="btn secondary small" data-user-action-apply="${u.id}">Apply</button></div></td>
       </tr>`;
     }).join('');
 
-    return `<div class="card"><div class="row between"><h2 style="margin:0">Users</h2><div class="row"><button class="btn danger" data-bulk-delete="1">Delete selected</button></div></div>
+    return `<div class="card"><div class="row between"><h2 style="margin:0">Users</h2><div class="row">${this.isFirebaseMode() ? '<button class="btn" id="btn-create-invite">Create invite</button>' : ''}<button class="btn danger" data-bulk-delete="1">Delete selected</button></div></div>
+      <div class="grid three" style="margin-top:8px">
+        <div><label>Type</label><select id="users-filter-type"><option value="all" ${f.type==='all'?'selected':''}>All</option><option value="master" ${f.type==='master'?'selected':''}>Master</option><option value="admin" ${f.type==='admin'?'selected':''}>Admin</option><option value="user" ${f.type==='user'?'selected':''}>User</option><option value="participant" ${f.type==='participant'?'selected':''}>Participant</option>${this.isFirebaseMode() ? `<option value="invite" ${f.type==='invite'?'selected':''}>Invite</option>` : ''}</select></div>
+        <div><label>Status</label><select id="users-filter-status"><option value="all" ${f.status==='all'?'selected':''}>All</option><option value="confirmed" ${f.status==='confirmed'?'selected':''}>Confirmed</option><option value="invited" ${f.status==='invited'?'selected':''}>Invited</option></select></div>
+        <div><label>Sort</label><select id="users-filter-sort"><option value="a-z" ${f.sort==='a-z'?'selected':''}>A-Z</option><option value="a-z-desc" ${f.sort==='a-z-desc'?'selected':''}>Z-A</option><option value="type-a-z" ${f.sort==='type-a-z'?'selected':''}>Type, A-Z</option><option value="type-a-z-desc" ${f.sort==='type-a-z-desc'?'selected':''}>Type, Z-A</option><option value="joined-a-z" ${f.sort==='joined-a-z'?'selected':''}>Joined/Invited, Oldest-Newest</option><option value="joined-a-z-desc" ${f.sort==='joined-a-z-desc'?'selected':''}>Joined/Invited, Newest-Oldest</option><option value="last-a-z" ${f.sort==='last-a-z'?'selected':''}>Last accessed, Oldest-Newest</option><option value="last-a-z-desc" ${f.sort==='last-a-z-desc'?'selected':''}>Last accessed, Newest-Oldest</option><option value="weight-a-z" ${f.sort==='weight-a-z'?'selected':''}>Total weight lost, Low-High</option><option value="weight-a-z-desc" ${f.sort==='weight-a-z-desc'?'selected':''}>Total weight lost, High-Low</option><option value="money-a-z" ${f.sort==='money-a-z'?'selected':''}>Total money won, Low-High</option><option value="money-a-z-desc" ${f.sort==='money-a-z-desc'?'selected':''}>Total money won, High-Low</option></select></div>
+        <div><label>Search</label><input id="users-filter-search" value="${Utils.escAttr(f.search || '')}" placeholder="Search users…" /></div>
+        <div><label class="row"><input type="checkbox" id="users-filter-current" style="width:auto" ${f.currentChallengeOnly ? 'checked' : ''}/> Only users in current challenge</label></div>
+      </div>
       <div style="overflow:auto;margin-top:8px">
         <table class="table"><thead><tr><th></th><th>User</th><th>Type</th><th>Last logged in</th><th>Rounds participated</th><th>Total cash won</th><th>Total weight lost/gained</th><th>In current round</th><th>Actions</th></tr></thead>
         <tbody>${rows || '<tr><td colspan="9" class="muted">No users found.</td></tr>'}</tbody></table>
@@ -1934,7 +2158,7 @@ const App = {
       <div class="tabs">
         <button data-settings-tab="user" class="${tab === 'user' ? 'active' : ''}">User settings</button>
         ${this.isAdmin() ? `<button data-settings-tab="server" class="${tab === 'server' ? 'active' : ''}">Server settings</button>` : ''}
-        ${this.isAdmin() ? `<button data-settings-tab="sync" class="${tab === 'sync' ? 'active' : ''}">Storage &amp; Sync</button>` : ''}
+        ${(this.isMaster() && this.isFirebaseMode()) ? `<button data-settings-tab="sync" class="${tab === 'sync' ? 'active' : ''}">Storage &amp; Sync</button>` : ''}
       </div>
 
       ${tab === 'user' ? this.renderUserSettingsTab() : tab === 'server' ? this.renderServerSettingsTab() : this.renderSyncSettingsTab()}
@@ -1962,12 +2186,21 @@ const App = {
   renderServerSettingsTab() {
     if (!this.isAdmin()) return `<p class="error">Access denied.</p>`;
     const s = this.state.appSettings;
+    const firebase = RuntimeConfig.firebase || {};
     return `<form id="server-settings-form" class="grid two">
       <div><label>Server name</label><input name="serverName" required value="${Utils.escAttr(s.serverName)}" /></div>
       <div><label>User session duration (days)</label><input name="sessionDurationDays" type="number" min="1" max="365" required value="${Utils.safeNum(s.sessionDurationDays, 7)}" /></div>
       <div><label>Weight format</label><select name="weightFormat"><option value="lb" ${s.weightFormat==='lb'?'selected':''}>lb</option><option value="kg" ${s.weightFormat==='kg'?'selected':''}>kg</option></select></div>
       <div><label>Currency</label><select name="currency"><option value="£" ${s.currency==='£'?'selected':''}>£</option><option value="$" ${s.currency==='$'?'selected':''}>$</option><option value="€" ${s.currency==='€'?'selected':''}>€</option></select></div>
       <div><label>Theme</label><select name="theme">${ThemeOptions.map((t) => `<option value="${t.key}" ${s.theme===t.key?'selected':''}>${t.label}</option>`).join('')}</select></div>
+      <div><label>Server mode</label><input disabled value="${RuntimeConfig.serverMode}" /></div>
+      <div style="grid-column:1/-1"><label>Firebase API Key</label><input disabled value="${this.isMaster() ? Utils.escAttr(firebase.apiKey || '') : ''}" placeholder="hidden for non-master users" /></div>
+      <div><label>Firebase Auth Domain</label><input disabled value="${this.isMaster() ? Utils.escAttr(firebase.authDomain || '') : ''}" /></div>
+      <div><label>Firebase Project ID</label><input disabled value="${this.isMaster() ? Utils.escAttr(firebase.projectId || '') : ''}" /></div>
+      <div><label>Firebase Storage Bucket</label><input disabled value="${this.isMaster() ? Utils.escAttr(firebase.storageBucket || '') : ''}" /></div>
+      <div><label>Firebase Messaging Sender ID</label><input disabled value="${this.isMaster() ? Utils.escAttr(firebase.messagingSenderId || '') : ''}" /></div>
+      <div><label>Firebase App ID</label><input disabled value="${this.isMaster() ? Utils.escAttr(firebase.appId || '') : ''}" /></div>
+      <div style="grid-column:1/-1" class="small muted">Runtime mode and Firebase settings are read from deployed config.json and cannot be changed from UI.</div>
       <div class="row" style="align-items:flex-end"><button class="btn" type="submit">Save server settings</button></div>
     </form>
 
@@ -1982,13 +2215,13 @@ const App = {
   },
 
   renderSyncSettingsTab() {
-    if (!this.isAdmin()) return `<p class="error">Access denied.</p>`;
+    if (!this.isMaster() || !this.isFirebaseMode()) return `<p class="error">Access denied.</p>`;
     const meta = this.state.syncMeta || {};
     const mode = meta.storageMode || 'local';
     const syncStatus = meta.syncStatus || 'idle';
     const lastSync = meta.lastSyncAt ? Utils.dateTime(meta.lastSyncAt) : 'Never';
     const syncError = meta.syncError || null;
-    const cfg = meta.firebaseConfig || {};
+    const cfg = RuntimeConfig.firebase || {};
     const networkOnline = navigator.onLine;
 
     // Sync status badge
@@ -2009,29 +2242,25 @@ const App = {
       ${mode === 'local' ? `<p class="muted small">Changes are stored only on this device.</p>` : ''}
 
       <div class="row" style="margin-top:8px">
-        <button class="btn ${mode === 'online' ? 'secondary' : ''}" id="btn-mode-local" ${mode === 'local' ? 'disabled' : ''}>Local</button>
-        <button class="btn ${mode === 'local' ? 'secondary' : ''}" id="btn-mode-online">Online</button>
         ${mode === 'online' ? `<button class="btn secondary" id="btn-sync-retry">↻ Retry sync</button>` : ''}
       </div>
     </div>
 
     <div class="card" id="firebase-config-card">
-      <h3 style="margin-top:0">Firebase Configuration</h3>
-      <p class="muted small">Enter your Firebase web app configuration. These are <strong>not</strong> secret server credentials — they are the standard client-side Firebase config safe to store locally. Never paste a service-account private key here.</p>
+      <h3 style="margin-top:0">Firebase Configuration (read-only)</h3>
+      <p class="muted small">This configuration is read from deployed <code>config.json</code>. UI changes are disabled.</p>
       <form id="firebase-config-form" class="grid two">
-        <div><label>API Key</label><input name="apiKey" value="${Utils.escAttr(cfg.apiKey || '')}" placeholder="AIza…" /></div>
-        <div><label>Auth Domain</label><input name="authDomain" value="${Utils.escAttr(cfg.authDomain || '')}" placeholder="project.firebaseapp.com" /></div>
-        <div><label>Project ID</label><input name="projectId" value="${Utils.escAttr(cfg.projectId || '')}" placeholder="my-project" /></div>
-        <div><label>Storage Bucket</label><input name="storageBucket" value="${Utils.escAttr(cfg.storageBucket || '')}" placeholder="project.appspot.com" /></div>
-        <div><label>Messaging Sender ID</label><input name="messagingSenderId" value="${Utils.escAttr(cfg.messagingSenderId || '')}" /></div>
-        <div><label>App ID</label><input name="appId" value="${Utils.escAttr(cfg.appId || '')}" placeholder="1:123:web:abc" /></div>
+        <div><label>API Key</label><input disabled name="apiKey" value="${Utils.escAttr(cfg.apiKey || '')}" placeholder="AIza…" /></div>
+        <div><label>Auth Domain</label><input disabled name="authDomain" value="${Utils.escAttr(cfg.authDomain || '')}" placeholder="project.firebaseapp.com" /></div>
+        <div><label>Project ID</label><input disabled name="projectId" value="${Utils.escAttr(cfg.projectId || '')}" placeholder="my-project" /></div>
+        <div><label>Storage Bucket</label><input disabled name="storageBucket" value="${Utils.escAttr(cfg.storageBucket || '')}" placeholder="project.appspot.com" /></div>
+        <div><label>Messaging Sender ID</label><input disabled name="messagingSenderId" value="${Utils.escAttr(cfg.messagingSenderId || '')}" /></div>
+        <div><label>App ID</label><input disabled name="appId" value="${Utils.escAttr(cfg.appId || '')}" placeholder="1:123:web:abc" /></div>
         <div style="grid-column:1/-1" class="row">
           <button class="btn secondary" type="button" id="btn-firebase-test">Test Connection</button>
-          <button class="btn" type="submit">${mode === 'online' ? 'Update Config &amp; Re-sync' : 'Save Config'}</button>
         </div>
         <div id="firebase-test-result" style="grid-column:1/-1"></div>
       </form>
-      ${mode === 'online' ? `<div style="margin-top:12px"><button class="btn danger" id="btn-disable-online">Disable Online Mode</button></div>` : ''}
     </div>`;
   },
 
@@ -2047,6 +2276,7 @@ const App = {
 
       joinForm.onsubmit = async (e) => {
         e.preventDefault();
+        if (!this.isFirebaseMode()) return this.fail('Invites are unavailable in offline mode.');
         const code = joinForm.inviteCode.value.trim().toUpperCase();
         const username = joinForm.username.value.trim();
         const password = joinForm.password.value;
@@ -2073,9 +2303,14 @@ const App = {
           firstName,
           lastName,
           password: hash,
-          isAdmin: false,
+          userType: invite.inviteType || 'user',
+          isAdmin: invite.inviteType === 'admin',
           isMaster: false,
-          lastLoginAt: null
+          inviteCode: code,
+          invitedAt: invite.createdAt || new Date().toISOString(),
+          inviteAcceptedAt: new Date().toISOString(),
+          lastLoginAt: null,
+          canLogin: true
         });
 
         await Data.adapter.consumeInvite(code, user.id);
@@ -2109,7 +2344,7 @@ const App = {
     const btnCreateInvite = document.getElementById('btn-create-invite');
     if (btnCreateInvite) btnCreateInvite.onclick = async () => {
       const code = this._generateInviteCode();
-      const invite = { id: Utils.id(), code, createdAt: new Date().toISOString(), usedAt: null, usedBy: null };
+      const invite = { id: Utils.id(), code, inviteType: 'user', createdAt: new Date().toISOString(), usedAt: null, usedBy: null };
       await Data.adapter.createInvite(invite);
       await this.refresh();
       this.state.inviteDetail = invite;
@@ -2120,7 +2355,7 @@ const App = {
     const btnCreateNewInvite = document.getElementById('btn-create-new-invite');
     if (btnCreateNewInvite) btnCreateNewInvite.onclick = async () => {
       const code = this._generateInviteCode();
-      const invite = { id: Utils.id(), code, createdAt: new Date().toISOString(), usedAt: null, usedBy: null };
+      const invite = { id: Utils.id(), code, inviteType: 'user', createdAt: new Date().toISOString(), usedAt: null, usedBy: null };
       await Data.adapter.createInvite(invite);
       await this.refresh();
       this.state.inviteDetail = invite;
@@ -2153,7 +2388,7 @@ const App = {
       await this.refresh();
       if (this.state.inviteDetail?.id === id) {
         this.state.inviteDetail = null;
-        this.state.route = 'invites';
+        this.state.route = 'users';
       }
       this.setMessage('Invite deleted.');
       this.render();
@@ -2184,6 +2419,7 @@ const App = {
     if (installForm) {
       installForm.onsubmit = async (e) => {
         e.preventDefault();
+        if (this.isInstalled()) return this.fail('Installation is locked.');
         const serverName = installForm.serverName.value.trim() || '10lb Challenge';
         const username = installForm.username.value.trim();
         const password = installForm.password.value;
@@ -2202,14 +2438,26 @@ const App = {
         if (exists) return this.fail('Username already exists.');
 
         const hash = await Security.createPasswordRecord(password);
+        const masterUserId = Utils.id();
+        let firebaseProvision = null;
+        if (this.isFirebaseMode()) {
+          try {
+            firebaseProvision = await this._provisionFirebaseMaster(username, password, masterUserId);
+          } catch (err) {
+            return this.fail(`Firebase install failed: ${err.message || err}`);
+          }
+        }
         await Data.adapter.createUser({
-          id: Utils.id(),
+          id: masterUserId,
           username,
           firstName,
           lastName,
           password: hash,
+          userType: 'master',
           isAdmin: true,
           isMaster: true,
+          canLogin: true,
+          firebaseUid: firebaseProvision?.uid || null,
           lastLoginAt: null
         });
 
@@ -2221,6 +2469,7 @@ const App = {
           currency,
           theme,
           sessionDurationDays,
+          installLockedAt: new Date().toISOString(),
           updatedAt: new Date().toISOString()
         };
         await Data.adapter.saveAppSettings(this.state.appSettings);
@@ -2244,6 +2493,7 @@ const App = {
         const redirect = loginForm.redirect.value || 'overview';
         const user = await Data.adapter.getUserByUsername(username);
         if (!user) return this.fail('Invalid username or password.');
+        if (user.userType === 'participant' || user.canLogin === false) return this.fail('This account cannot log in.');
 
         const ok = await Security.verifyPassword(password, user.password);
         if (!ok) return this.fail('Invalid username or password.');
@@ -2370,7 +2620,9 @@ const App = {
         const totalPrize = Utils.round2(round.entryFee * round.participantIds.length);
         const sum = Utils.round2(prizeSplits.reduce((a,b)=>a+b,0));
         if (sum > totalPrize) return this.fail('Prize splits cannot exceed total prize pool.');
-        await Data.adapter.updateRound({ ...round, title, prizeSplits });
+        const roundUpdate = { ...round, title, prizeSplits };
+        const ok = await this._saveWithConflictResolver('Round', roundUpdate, (payload) => Data.adapter.updateRound(payload));
+        if (!ok) return;
         await this.refresh();
         this.setMessage('Round updated.');
         this.state.route = 'overview';
@@ -2464,7 +2716,7 @@ const App = {
 
         await Data.adapter.recordSubmissionAndSnapshot(submission, snapshot);
         const finalComplete = Domain.isWeekComplete(round, this.state.users, nextSubs, round.weeksCount);
-        if (finalComplete && round.status === 'active') await Data.adapter.updateRound({ ...round, status: 'completed' });
+        if (finalComplete && round.status === 'active') await this._saveWithConflictResolver('Round', { ...round, status: 'completed' }, (payload) => Data.adapter.updateRound(payload));
 
         await this.refresh();
         this.setMessage('Submission saved.');
@@ -2479,57 +2731,104 @@ const App = {
       else this.state.selectedUsers = this.state.selectedUsers.filter((v) => v !== id);
     });
 
-    document.querySelectorAll('[data-user-edit]').forEach((b) => b.onclick = async () => {
-      const id = b.dataset.userEdit;
+    const setUserFilter = (key, value) => {
+      this.state.userFilters = { ...this.state.userFilters, [key]: value };
+      this.render();
+    };
+    const filterType = document.getElementById('users-filter-type');
+    if (filterType) filterType.onchange = () => setUserFilter('type', filterType.value);
+    const filterStatus = document.getElementById('users-filter-status');
+    if (filterStatus) filterStatus.onchange = () => setUserFilter('status', filterStatus.value);
+    const filterSort = document.getElementById('users-filter-sort');
+    if (filterSort) filterSort.onchange = () => setUserFilter('sort', filterSort.value);
+    const filterSearch = document.getElementById('users-filter-search');
+    if (filterSearch) filterSearch.oninput = () => setUserFilter('search', filterSearch.value.trim());
+    const filterCurrent = document.getElementById('users-filter-current');
+    if (filterCurrent) filterCurrent.onchange = () => setUserFilter('currentChallengeOnly', !!filterCurrent.checked);
+
+    document.querySelectorAll('[data-user-action-apply]').forEach((b) => b.onclick = async () => {
+      const id = b.dataset.userActionApply;
+      const select = document.querySelector(`[data-user-action-select="${CSS.escape(id)}"]`);
+      const action = select?.value || '';
+      if (!action) return;
+      if (id.startsWith('invite:')) {
+        const inviteId = id.split(':')[1];
+        const inv = this.state.invites.find((x) => x.id === inviteId);
+        if (!inv) return;
+        if (action === 'view-invite') {
+          this.state.inviteDetail = inv;
+          this.state.route = 'invite-detail';
+          return this.render();
+        }
+        if (action === 'delete-invite') {
+          if (!confirm('Delete this invite?')) return;
+          await Data.adapter.deleteInvite(inv.id);
+          await this.refresh();
+          this.setMessage('Invite deleted.');
+          return this.render();
+        }
+        return;
+      }
+
       const user = this.state.users.find((u) => u.id === id);
       if (!user) return;
-      const firstName = prompt('First name', user.firstName || '');
-      if (firstName === null) return;
-      const lastName = prompt('Last name', user.lastName || '');
-      if (lastName === null) return;
-      await Data.adapter.updateUser({ ...user, firstName: firstName.trim(), lastName: lastName.trim() });
+      if (action === 'edit') {
+        const firstName = prompt('First name', user.firstName || '');
+        if (firstName === null) return;
+        const lastName = prompt('Last name', user.lastName || '');
+        if (lastName === null) return;
+        const ok = await this._saveWithConflictResolver('User', { ...user, firstName: firstName.trim(), lastName: lastName.trim() }, (payload) => Data.adapter.updateUser(payload));
+        if (!ok) return;
+      } else if (action === 'password') {
+        const password = prompt(`New password for ${Utils.fullName(user)}:`);
+        if (password === null) return;
+        if (!Utils.validPassword(password)) return this.fail('Password must include 8+ chars, letter, number and symbol.');
+        const confirmPwd = prompt('Confirm new password:');
+        if (confirmPwd !== password) return this.fail('Passwords do not match.');
+        const hash = await Security.createPasswordRecord(password);
+        const ok = await this._saveWithConflictResolver('User', { ...user, password: hash }, (payload) => Data.adapter.updateUser(payload));
+        if (!ok) return;
+      } else if (action === 'toggle-admin') {
+        if (user.isMaster) return this.fail('Master role cannot be changed.');
+        if (user.id === this.state.currentUser.id && user.isAdmin) return this.fail('You cannot remove your own admin access.');
+        const nextType = user.isAdmin ? 'user' : 'admin';
+        const ok = await this._saveWithConflictResolver('User', { ...user, userType: nextType, isAdmin: !user.isAdmin, canLogin: true }, (payload) => Data.adapter.updateUser(payload));
+        if (!ok) return;
+      } else if (action === 'delete') {
+        if (user.isMaster) return this.fail('Master admin cannot be deleted.');
+        if (user.id === this.state.currentUser.id) return this.fail('You cannot delete your own account.');
+        if (!confirm(`Delete ${Utils.fullName(user)}? This cannot be undone.`)) return;
+        await Data.adapter.deleteUser(user.id);
+        this.state.selectedUsers = this.state.selectedUsers.filter((x) => x !== user.id);
+      } else if (action === 'invite-user' || action === 'invite-admin') {
+        if (!this.isFirebaseMode()) return this.fail('Invites are unavailable in offline mode.');
+        const existing = this.state.invites.find((i) => !i.usedAt && i.userId === user.id && i.inviteType === (action === 'invite-admin' ? 'admin' : 'user'));
+        const code = existing?.code || this._generateInviteCode();
+        const invite = {
+          id: existing?.id || Utils.id(),
+          code,
+          userId: user.id,
+          inviteType: action === 'invite-admin' ? 'admin' : 'user',
+          createdAt: new Date().toISOString(),
+          usedAt: null,
+          usedBy: null
+        };
+        await Data.adapter.createInvite(invite);
+        const ok = await this._saveWithConflictResolver('User', {
+          ...user,
+          userType: invite.inviteType,
+          isAdmin: invite.inviteType === 'admin',
+          canLogin: true,
+          inviteCode: code,
+          invitedAt: invite.createdAt,
+          inviteAcceptedAt: null
+        }, (payload) => Data.adapter.updateUser(payload));
+        if (!ok) return;
+        this.state.inviteDetail = invite;
+        this.state.route = 'invite-detail';
+      }
       await this.refresh();
-      this.setMessage('User updated.');
-      this.render();
-    });
-
-    document.querySelectorAll('[data-user-password]').forEach((b) => b.onclick = async () => {
-      const id = b.dataset.userPassword;
-      const user = this.state.users.find((u) => u.id === id);
-      if (!user) return;
-      const password = prompt(`New password for ${Utils.fullName(user)}:`);
-      if (password === null) return;
-      if (!Utils.validPassword(password)) return this.fail('Password must include 8+ chars, letter, number and symbol.');
-      const confirm = prompt('Confirm new password:');
-      if (confirm !== password) return this.fail('Passwords do not match.');
-      const hash = await Security.createPasswordRecord(password);
-      await Data.adapter.updateUser({ ...user, password: hash });
-      this.setMessage('Password updated.');
-      this.render();
-    });
-
-    document.querySelectorAll('[data-user-role]').forEach((b) => b.onclick = async () => {
-      const id = b.dataset.userRole;
-      const user = this.state.users.find((u) => u.id === id);
-      if (!user || user.isMaster) return;
-      if (user.id === this.state.currentUser.id && user.isAdmin) return this.fail('You cannot remove your own admin access.');
-      await Data.adapter.updateUser({ ...user, isAdmin: !user.isAdmin });
-      await this.refresh();
-      this.setMessage('User type updated.');
-      this.render();
-    });
-
-    document.querySelectorAll('[data-user-delete]').forEach((b) => b.onclick = async () => {
-      const id = b.dataset.userDelete;
-      const user = this.state.users.find((u) => u.id === id);
-      if (!user) return;
-      if (user.isMaster) return this.fail('Master admin cannot be deleted.');
-      if (user.id === this.state.currentUser.id) return this.fail('You cannot delete your own account.');
-      if (!confirm(`Delete ${Utils.fullName(user)}? This cannot be undone.`)) return;
-      await Data.adapter.deleteUser(user.id);
-      this.state.selectedUsers = this.state.selectedUsers.filter((x) => x !== user.id);
-      await this.refresh();
-      this.setMessage('User deleted.');
+      this.setMessage('User update saved.');
       this.render();
     });
 
@@ -2560,7 +2859,8 @@ const App = {
         const firstName = userSettingsForm.firstName.value.trim();
         const lastName = userSettingsForm.lastName.value.trim();
         if (!firstName || !lastName) return this.fail('First and last name are required.');
-        await Data.adapter.updateUser({ ...this.state.currentUser, firstName, lastName });
+        const ok = await this._saveWithConflictResolver('User', { ...this.state.currentUser, firstName, lastName }, (payload) => Data.adapter.updateUser(payload));
+        if (!ok) return;
         await this.refresh();
         this.setMessage('Profile updated.');
         this.render();
@@ -2579,7 +2879,8 @@ const App = {
         if (!Utils.validPassword(newPassword)) return this.fail('New password must include 8+ chars, letter, number and symbol.');
         if (newPassword !== confirmPassword) return this.fail('Passwords do not match.');
         const hash = await Security.createPasswordRecord(newPassword);
-        await Data.adapter.updateUser({ ...this.state.currentUser, password: hash });
+        const saved = await this._saveWithConflictResolver('User', { ...this.state.currentUser, password: hash }, (payload) => Data.adapter.updateUser(payload));
+        if (!saved) return;
         await this.refresh();
         this.setMessage('Password changed.');
         this.render();
@@ -2616,8 +2917,9 @@ const App = {
         if (!ok) return this.fail('Invalid master password.');
         await Data.adapter.clearAllData();
         Utils.clearCookie('tenlb_session');
-        // Redirect to ?setup=1 so the admin can re-run the install wizard
-        window.location.href = window.location.pathname + '?setup=1';
+        // Redirect to /install so the admin can re-run the install wizard
+        const root = window.location.pathname.replace(/\/install\/?$/, '/');
+        window.location.href = `${root.replace(/\/$/, '')}/install`;
       };
     }
 
@@ -2631,37 +2933,12 @@ const App = {
       };
     }
 
-    const btnModeLocal = document.getElementById('btn-mode-local');
-    if (btnModeLocal) {
-      btnModeLocal.onclick = async () => {
-        await this.disableOnlineMode();
-      };
-    }
-
-    const btnModeOnline = document.getElementById('btn-mode-online');
-    if (btnModeOnline) {
-      btnModeOnline.onclick = async () => {
-        // Scroll down to config form
-        const card = document.getElementById('firebase-config-card');
-        if (card) card.scrollIntoView({ behavior: 'smooth' });
-      };
-    }
-
-    const btnDisableOnline = document.getElementById('btn-disable-online');
-    if (btnDisableOnline) {
-      btnDisableOnline.onclick = async () => {
-        await this.disableOnlineMode();
-      };
-    }
-
     const firebaseTestBtn = document.getElementById('btn-firebase-test');
     if (firebaseTestBtn) {
       firebaseTestBtn.onclick = async () => {
-        const form = document.getElementById('firebase-config-form');
-        if (!form) return;
-        const cfg = this._readFirebaseConfigForm(form);
+        const cfg = RuntimeConfig.firebase;
         const resultEl = document.getElementById('firebase-test-result');
-        if (!cfg) { if (resultEl) resultEl.innerHTML = '<span class="error">Fill in all Firebase config fields first.</span>'; return; }
+        if (!cfg?.apiKey || !cfg?.authDomain || !cfg?.projectId) { if (resultEl) resultEl.innerHTML = '<span class="error">Incomplete firebase config in config.json.</span>'; return; }
         firebaseTestBtn.disabled = true;
         firebaseTestBtn.textContent = 'Testing…';
         if (resultEl) resultEl.innerHTML = '';
@@ -2675,28 +2952,6 @@ const App = {
         }
       };
     }
-
-    const firebaseConfigForm = document.getElementById('firebase-config-form');
-    if (firebaseConfigForm) {
-      firebaseConfigForm.onsubmit = async (e) => {
-        e.preventDefault();
-        const cfg = this._readFirebaseConfigForm(firebaseConfigForm);
-        if (!cfg) return this.fail('Fill in all Firebase config fields.');
-        await this.enableOnlineMode(cfg);
-        this.render();
-      };
-    }
-  },
-
-  _readFirebaseConfigForm(form) {
-    const apiKey = form.apiKey?.value?.trim();
-    const authDomain = form.authDomain?.value?.trim();
-    const projectId = form.projectId?.value?.trim();
-    const storageBucket = form.storageBucket?.value?.trim();
-    const messagingSenderId = form.messagingSenderId?.value?.trim();
-    const appId = form.appId?.value?.trim();
-    if (!apiKey || !authDomain || !projectId) return null;
-    return { apiKey, authDomain, projectId, storageBucket, messagingSenderId, appId };
   },
 
   _generateInviteCode() {
@@ -2729,6 +2984,25 @@ const App = {
     } catch {
       container.innerHTML = '<span class="muted small">QR code unavailable (no internet connection)</span>';
       if (status) status.textContent = '';
+    }
+  },
+
+  async _saveWithConflictResolver(kind, attempted, saveFn) {
+    try {
+      await saveFn(attempted);
+      return true;
+    } catch (err) {
+      if (err?.code !== 'conflict' || !err.latest) throw err;
+      const latest = err.latest;
+      const before = JSON.stringify(latest, null, 2);
+      const incoming = JSON.stringify(attempted, null, 2);
+      const ok = confirm(`${kind} was updated by another session.\n\nCurrent version:\n${before}\n\nYour changes:\n${incoming}\n\nPress OK to overwrite with your version, or Cancel to stop.`);
+      if (!ok) {
+        this.fail(`${kind} update cancelled due to conflict.`);
+        return false;
+      }
+      await saveFn({ ...attempted, version: latest.version || 1 });
+      return true;
     }
   },
 

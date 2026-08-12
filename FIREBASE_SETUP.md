@@ -134,15 +134,25 @@ Fields: { grantedAt: "2026-08-11T00:00:00Z" }
 
 ---
 
-## Step 8 — Enter the configuration in the app
+## Step 8 — Deploy runtime config.json
 
-1. Open the 10lb Challenge app.
-2. Log in as an admin.
-3. Go to **Settings → Storage & Sync**.
-4. Scroll down to **Firebase Configuration**.
-5. Enter the values from Step 7.
-6. Click **Test Connection** to verify.
-7. Click **Save Config** to enable Online Mode.
+Create `/config.json` in your deployed static files and set:
+
+```json
+{
+  "serverMode": "firebase",
+  "firebase": {
+    "apiKey": "AIzaSy...",
+    "authDomain": "your-project.firebaseapp.com",
+    "projectId": "your-project",
+    "storageBucket": "your-project.appspot.com",
+    "messagingSenderId": "123456789",
+    "appId": "1:123456789:web:abc123"
+  }
+}
+```
+
+The app reads this file on startup. Firebase settings are now read-only in UI.
 
 ---
 
@@ -187,10 +197,7 @@ All records include sync metadata:
 
 ## Disabling Online Mode
 
-You can return to Local Mode at any time via **Settings → Storage & Sync → Local**.
-
-If you have unsynchronised changes, the app will warn you. All local data is preserved.
-You can re-enable Online Mode later and the pending changes will be uploaded.
+Set `serverMode` to `"offline"` in `config.json` and redeploy.
 
 ---
 
