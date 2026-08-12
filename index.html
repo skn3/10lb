@@ -30,6 +30,14 @@
     nav { display:flex; gap:8px; padding:10px; flex-wrap:wrap; background:var(--nav-bg); border-bottom:1px solid var(--nav-border); }
     nav button { border:1px solid #cbd5e1; background:#fff; border-radius:999px; padding:8px 12px; font-weight:600; }
     nav button.active { background:var(--brand); border-color:var(--brand); color:#fff; }
+    #message-stack { max-width:1100px; margin:8px auto 0; padding:0 12px; display:flex; flex-direction:column; gap:8px; }
+    .toast-message { display:flex; align-items:flex-start; gap:10px; border-radius:10px; padding:10px 12px; color:#fff; }
+    .toast-message.success { background:var(--ok); }
+    .toast-message.error { background:var(--danger); }
+    .toast-content { flex:1; line-height:1.35; font-weight:600; word-break:break-word; }
+    .toast-close { background:none; border:0; color:inherit; padding:0; margin:0; cursor:pointer; line-height:1; display:flex; align-items:center; justify-content:center; opacity:.95; }
+    .toast-close:hover { opacity:1; }
+    .md-icon { width:20px; height:20px; fill:currentColor; flex-shrink:0; }
     main { padding:12px; max-width:1100px; margin:0 auto; }
     .card { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:12px; margin-bottom:12px; box-shadow:0 1px 2px rgba(15,23,42,.04); }
     .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
@@ -83,6 +91,7 @@
     <div id="sync-bar" style="display:none;font-size:.75rem;padding:2px 0 4px;opacity:.85"></div>
   </header>
   <nav id="nav"></nav>
+  <section id="message-stack" aria-live="polite" aria-atomic="false"></section>
   <main id="app"></main>
 
 <script>
@@ -1108,6 +1117,7 @@ const App = {
     route: 'overview',
     message: '',
     error: '',
+    toasts: [],
     rounds: [],
     users: [],
     submissions: [],
@@ -1409,7 +1419,27 @@ const App = {
     }
   },
 
-  setMessage(msg = '', err = '') { this.state.message = msg; this.state.error = err; },
+  setMessage(msg = '', err = '') {
+    if (err) this.state.toasts.push({ id: Utils.id(), type: 'error', text: err });
+    if (msg) this.state.toasts.push({ id: Utils.id(), type: 'success', text: msg });
+    this.state.message = msg;
+    this.state.error = err;
+  },
+
+  dismissToast(id) {
+    this.state.toasts = this.state.toasts.filter((t) => t.id !== id);
+    this.render();
+  },
+
+  renderToasts() {
+    if (!this.state.toasts.length) return '';
+    const icons = {
+      success: '<svg class="md-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 10c0 4.42-3.58 8-8 8s-8-3.58-8-8 3.58-8 8-8 8 3.58 8 8m-8 6c1.82 0 3.43-.8 4.53-2.05.17-.2.03-.5-.23-.5H7.71c-.26 0-.4.3-.23.5C8.57 15.2 10.18 16 12 16m-3.5-6.5c.83 0 1.5-.67 1.5-1.5S9.33 6.5 8.5 6.5 7 7.17 7 8s.67 1.5 1.5 1.5m7 0c.83 0 1.5-.67 1.5-1.5S16.33 6.5 15.5 6.5 14 7.17 14 8s.67 1.5 1.5 1.5"/></svg>',
+      error: '<svg class="md-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 10c0 4.42-3.58 8-8 8s-8-3.58-8-8 3.58-8 8-8 8 3.58 8 8m-8 6c1.6 0 3.05-.62 4.13-1.63.22-.21.07-.58-.24-.58H8.12c-.31 0-.46.37-.24.58C8.95 15.38 10.4 16 12 16m-3.5-6.5c.83 0 1.5-.67 1.5-1.5S9.33 6.5 8.5 6.5 7 7.17 7 8s.67 1.5 1.5 1.5m7 0c.83 0 1.5-.67 1.5-1.5S16.33 6.5 15.5 6.5 14 7.17 14 8s.67 1.5 1.5 1.5"/></svg>'
+    };
+    const closeIcon = '<svg class="md-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>';
+    return this.state.toasts.map((t) => `<div class="toast-message ${t.type}">${icons[t.type] || icons.success}<div class="toast-content">${Utils.esc(t.text)}</div><button type="button" class="toast-close" data-toast-close="${t.id}" aria-label="Dismiss message">${closeIcon}</button></div>`).join('');
+  },
 
   async navigate(route) {
     this.state.error = '';
@@ -1445,29 +1475,30 @@ const App = {
     document.getElementById('server-title').textContent = this.state.appSettings?.serverName || '10lb Challenge';
 
     const app = document.getElementById('app');
-    const flash = `${this.state.error ? `<p class="error">${this.state.error}</p>` : ''}${this.state.message ? `<p class="ok">${this.state.message}</p>` : ''}`;
+    const toastStack = document.getElementById('message-stack');
+    if (toastStack) toastStack.innerHTML = this.renderToasts();
 
     if (!this.isInstalled()) {
-      app.innerHTML = flash + this.renderInstall();
+      app.innerHTML = this.renderInstall();
       this.bindScreenEvents();
       return;
     }
 
     if (!this.isAuthenticated()) {
-      app.innerHTML = flash + this.renderLogin();
+      app.innerHTML = this.renderLogin();
       this.bindScreenEvents();
       return;
     }
 
-    if (this.state.route === 'denied') app.innerHTML = flash + this.renderDenied();
-    if (this.state.route === 'overview') app.innerHTML = flash + this.renderOverview();
-    if (this.state.route === 'rounds') app.innerHTML = flash + this.renderRoundList();
-    if (this.state.route === 'create') app.innerHTML = flash + this.renderCreate();
-    if (this.state.route === 'edit') app.innerHTML = flash + this.renderEdit();
-    if (this.state.route === 'delete') app.innerHTML = flash + this.renderDelete();
-    if (this.state.route === 'submit') app.innerHTML = flash + this.renderSubmit();
-    if (this.state.route === 'users') app.innerHTML = flash + this.renderUsers();
-    if (this.state.route === 'settings') app.innerHTML = flash + this.renderSettings();
+    if (this.state.route === 'denied') app.innerHTML = this.renderDenied();
+    if (this.state.route === 'overview') app.innerHTML = this.renderOverview();
+    if (this.state.route === 'rounds') app.innerHTML = this.renderRoundList();
+    if (this.state.route === 'create') app.innerHTML = this.renderCreate();
+    if (this.state.route === 'edit') app.innerHTML = this.renderEdit();
+    if (this.state.route === 'delete') app.innerHTML = this.renderDelete();
+    if (this.state.route === 'submit') app.innerHTML = this.renderSubmit();
+    if (this.state.route === 'users') app.innerHTML = this.renderUsers();
+    if (this.state.route === 'settings') app.innerHTML = this.renderSettings();
 
     this.bindScreenEvents();
   },
@@ -1868,6 +1899,7 @@ const App = {
 
   bindScreenEvents() {
     document.querySelectorAll('[data-go]').forEach((el) => el.onclick = () => this.navigate(el.dataset.go));
+    document.querySelectorAll('[data-toast-close]').forEach((el) => el.onclick = () => this.dismissToast(el.dataset.toastClose));
 
     const installForm = document.getElementById('install-form');
     if (installForm) {

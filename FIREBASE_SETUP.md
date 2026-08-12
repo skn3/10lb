@@ -15,8 +15,8 @@ The application uses its own PBKDF2 password-based login system. Firebase is use
 only for:
 
 1. **Firestore** — shared cloud storage for challenge data.
-2. **Firebase Anonymous Auth** — gives Firestore Security Rules a verifiable identity
-   so that access control can be enforced server-side.
+2. **Firebase project configuration** — used to connect this browser app to your
+   Firestore database.
 
 **Password hashes are never sent to Firebase.** They remain in IndexedDB only.
 
@@ -50,14 +50,13 @@ application.** Those are server-side secrets and have no place in a browser appl
 
 ---
 
-## Step 3 — Enable Anonymous Authentication
+## Step 3 — Authentication provider setup is not required
 
-Anonymous Auth allows each browser to get a Firebase UID without requiring a login,
-so Firestore Security Rules can enforce access control.
+This app no longer uses Firebase Anonymous Authentication.
 
-1. In the Firebase console, go to **Build → Authentication**.
-2. Click **Get started**.
-3. Under **Sign-in providers**, enable **Anonymous**.
+- You do **not** need to enable any Firebase Authentication sign-in provider for this setup.
+- If Anonymous Auth is currently enabled in an older project, it can be left on or
+  disabled; the app does not depend on it anymore.
 
 ---
 
@@ -198,7 +197,7 @@ You can re-enable Online Mode later and the pending changes will be uploaded.
 
 | Problem | Solution |
 |---|---|
-| Test Connection fails | Check API key, project ID, and that Anonymous Auth is enabled |
+| Test Connection fails | Check API key, auth domain, project ID, and Firestore availability |
 | Rules rejected error | Re-deploy `firestore.rules` |
 | Sync stuck in error | Click "↻ Retry sync" in the Storage & Sync settings |
 | App crashes on startup | Firebase config is invalid; open browser console and check the error |
