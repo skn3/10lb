@@ -1,11 +1,11 @@
 {
   "serverMode": "offline",
   "firebase": {
-    "apiKey": "",
-    "authDomain": "",
-    "projectId": "",
-    "storageBucket": "",
-    "messagingSenderId": "",
-    "appId": ""
+    "apiKey": "AIzaSyA_7hRQBxeQXki4PKjZaeF_dudmwgxrOo8",
+    "authDomain": "lb-c8f25.firebaseapp.com",
+    "projectId": "lb-c8f25",
+    "storageBucket": "lb-c8f25.firebasestorage.app",
+    "messagingSenderId": "112321058734",
+    "appId": "1:112321058734:web:b348538b988a0a45001a3f"
   }
 }
