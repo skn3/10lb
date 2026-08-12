@@ -76,10 +76,11 @@ service cloud.firestore {
         // Anyone authenticated can read user profiles (needed for leaderboard)
         allow read: if request.auth != null;
 
-        // Create: only admins can create users
-        allow create: if request.auth != null && isAdmin(challengeId)
-          // Reject any document containing a 'password' field (safety net)
-          && !('password' in request.resource.data);
+        // Create: admins can create users; a newly-registered user can create
+        //         their own profile document (firebaseUid must match their auth uid)
+        allow create: if request.auth != null
+          && !('password' in request.resource.data)
+          && (isAdmin(challengeId) || request.resource.data.firebaseUid == request.auth.uid);
 
         // Update: admins can update any user; a user can update their own
         //         profile if the firebaseUid matches
@@ -89,6 +90,15 @@ service cloud.firestore {
 
         // Delete: admins only
         allow delete: if request.auth != null && isAdmin(challengeId);
+      }
+
+      // -----------------------------------------------------------------------
+      // Invites — created and managed by admins; readable by any authenticated
+      //           user so invite codes can be validated on the join page
+      // -----------------------------------------------------------------------
+      match /invites/{inviteId} {
+        allow read: if request.auth != null;
+        allow create, update, delete: if request.auth != null && isAdmin(challengeId);
       }
 
       // -----------------------------------------------------------------------
