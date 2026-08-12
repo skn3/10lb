@@ -1,5 +1,5 @@
-const CACHE = 'tenlb-cache-v1';
-const ASSETS = ['./', './index.html'];
+const CACHE = 'tenlb-cache-v2';
+const ASSETS = ['./', './index.html', './config.json'];
 self.addEventListener('install', (event) => {
   event.waitUntil(Promise.all([
     caches.open(CACHE).then((c) => c.addAll(ASSETS)),
@@ -14,6 +14,11 @@ self.addEventListener('activate', (event) => {
 });
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
+  const reqUrl = new URL(event.request.url);
+  if (reqUrl.pathname.endsWith('/config.json')) {
+    event.respondWith(fetch(event.request).catch(() => caches.match(event.request)));
+    return;
+  }
   event.respondWith(caches.match(event.request).then((hit) => hit || fetch(event.request).then((res) => {
     const copy = res.clone();
     caches.open(CACHE).then((c) => c.put(event.request, copy));
