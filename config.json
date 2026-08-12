@@ -1,5 +1,5 @@
 {
-  "serverMode": "offline",
+  "serverMode": "firebase",
   "firebase": {
     "apiKey": "AIzaSyA_7hRQBxeQXki4PKjZaeF_dudmwgxrOo8",
     "authDomain": "lb-c8f25.firebaseapp.com",
