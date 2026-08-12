@@ -8,6 +8,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="10lb" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:FILL@0;wght@400;700&display=swap" />
   <style>
     :root {
       color-scheme: light;
@@ -37,10 +38,22 @@
     input, select, button, textarea { font:inherit; }
     input, select, textarea { width:100%; border:1px solid #cbd5e1; border-radius:10px; padding:8px; background:#fff; color:var(--text); }
     label { font-size:.9rem; color:#334155; font-weight:600; display:block; margin:8px 0 4px; }
-    .btn { border:0; background:var(--brand); color:#fff; padding:9px 12px; border-radius:10px; font-weight:700; cursor:pointer; }
+    .btn { border:0; background:var(--brand); color:#fff; padding:9px 12px; border-radius:10px; font-weight:700; cursor:pointer; display:inline-flex; align-items:center; justify-content:center; gap:8px; min-height:40px; }
     .btn.secondary { background:#334155; }
     .btn.danger { background:var(--danger); }
     .btn.warn { background:#d97706; }
+    .btn:disabled { opacity:.72; cursor:wait; }
+    .btn-icon { width:18px; min-width:18px; height:18px; display:inline-flex; align-items:center; justify-content:center; font-size:18px; line-height:1; }
+    .btn-label { display:inline-flex; align-items:center; justify-content:center; }
+    .material-symbols-rounded { font-variation-settings:'FILL' 0,'wght' 400,'GRAD' 0,'opsz' 20; }
+    .btn-spinner {
+      width:18px;
+      height:18px;
+      border-radius:50%;
+      border:2px solid currentColor;
+      border-top-color:transparent;
+      animation:spin .8s linear infinite;
+    }
     .muted { color:var(--muted); }
     .error { color:var(--danger); font-weight:600; }
     .ok { color:var(--ok); font-weight:600; }
@@ -72,6 +85,31 @@
     body[data-theme="rose"] { --brand:#be123c; --bg:#fff1f2; --card:#ffffff; --text:#500724; --muted:#9f1239; --border:#fecdd3; --nav-bg:#ffe4e6; --nav-border:#fda4af; }
     body[data-theme="slate"] { --brand:#334155; --bg:#f8fafc; --card:#ffffff; --text:#0f172a; --muted:#475569; --border:#cbd5e1; --nav-bg:#f1f5f9; --nav-border:#cbd5e1; }
     body[data-theme="emerald"] { --brand:#047857; --bg:#ecfdf5; --card:#ffffff; --text:#064e3b; --muted:#047857; --border:#a7f3d0; --nav-bg:#d1fae5; --nav-border:#6ee7b7; }
+    .snackbar-host {
+      position:fixed;
+      left:50%;
+      bottom:16px;
+      transform:translateX(-50%);
+      width:min(640px, calc(100% - 24px));
+      z-index:20;
+      pointer-events:none;
+    }
+    .snackbar {
+      display:flex;
+      align-items:flex-start;
+      gap:10px;
+      border-radius:12px;
+      padding:12px 14px;
+      border:1px solid var(--border);
+      box-shadow:0 12px 28px rgba(15,23,42,.16);
+      background:#fff;
+      color:var(--text);
+      pointer-events:auto;
+    }
+    .snackbar.success { background:#ecfdf5; border-color:#86efac; color:#166534; }
+    .snackbar.error { background:#fef2f2; border-color:#fca5a5; color:#991b1b; }
+    .snackbar-text { flex:1; font-weight:600; }
+    @keyframes spin { to { transform:rotate(360deg); } }
   </style>
 </head>
 <body data-theme="teal">
@@ -84,6 +122,7 @@
   </header>
   <nav id="nav"></nav>
   <main id="app"></main>
+  <div id="snackbar-root" class="snackbar-host" aria-live="polite" aria-atomic="true"></div>
 
 <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
@@ -182,6 +221,7 @@ const Utils = {
     return { firstName: parts[0], lastName: parts.slice(1).join(' ') };
   },
   validPassword: (password) => /^(?=.*[A-Za-z])(?=.*\d)(?=.*[^A-Za-z\d]).{8,}$/.test(password || ''),
+  passwordInputAttrs: (autocomplete) => `minlength="8" pattern="(?=.*[A-Za-z])(?=.*\\d)(?=.*[^A-Za-z\\d]).{8,}" title="Use at least 8 characters including a letter, a number, and a symbol." autocomplete="${autocomplete}"`,
   money: (n, currency = '£') => `${currency}${Number(n || 0).toFixed(2)}`,
   weight: (n, fmt = 'lb') => `${Number(n || 0)}${fmt}`,
   setCookie(name, value, days) {
@@ -1294,8 +1334,10 @@ const App = {
     navRoot: null,
     authRoot: null,
     syncRoot: null,
-    appRoot: null
+    appRoot: null,
+    snackbarRoot: null
   },
+  messageTimer: null,
   state: {
     route: 'overview',
     message: '',
@@ -1406,13 +1448,15 @@ const App = {
     const authChip = document.getElementById('auth-chip');
     const syncBar = document.getElementById('sync-bar');
     const app = document.getElementById('app');
-    if (!nav || !authChip || !syncBar || !app) return;
+    const snackbar = document.getElementById('snackbar-root');
+    if (!nav || !authChip || !syncBar || !app || !snackbar) return;
     this.react = {
       enabled: true,
       navRoot: window.ReactDOM.createRoot(nav),
       authRoot: window.ReactDOM.createRoot(authChip),
       syncRoot: window.ReactDOM.createRoot(syncBar),
-      appRoot: window.ReactDOM.createRoot(app)
+      appRoot: window.ReactDOM.createRoot(app),
+      snackbarRoot: window.ReactDOM.createRoot(snackbar)
     };
   },
 
@@ -1755,7 +1799,7 @@ const App = {
     return model;
   },
 
-  renderWithReact(navModel, flash, screen) {
+  renderWithReact(navModel, screen) {
     if (!this.react.enabled) return false;
     const React = window.React;
     const Router = window.ReactRouterDOM;
@@ -1784,8 +1828,7 @@ const App = {
         e('button', { className: 'btn secondary small', type: 'button', onClick: () => this.logout() }, 'Logout'))
       : null);
     this.react.syncRoot.render(navModel.syncVisible ? navModel.syncText : null);
-    const html = `${flash}${screen}`;
-    this.react.appRoot.render(e('div', { dangerouslySetInnerHTML: { __html: html } }));
+    this.react.appRoot.render(e('div', { dangerouslySetInnerHTML: { __html: screen } }));
     return true;
   },
 
@@ -1801,7 +1844,238 @@ const App = {
     }
   },
 
-  setMessage(msg = '', err = '') { this.state.message = msg; this.state.error = err; },
+  renderSnackbar() {
+    const host = document.getElementById('snackbar-root');
+    if (!host) return;
+    const text = this.state.error || this.state.message;
+    const kind = this.state.error ? 'error' : (this.state.message ? 'success' : '');
+    if (!text || !kind) {
+      if (this.react.enabled && this.react.snackbarRoot) this.react.snackbarRoot.render(null);
+      else host.innerHTML = '';
+      return;
+    }
+    const React = window.React;
+    if (this.react.enabled && this.react.snackbarRoot && React?.createElement) {
+      const e = React.createElement;
+      this.react.snackbarRoot.render(
+        e('div', { className: `snackbar ${kind}`, role: 'status' },
+          e('span', { className: 'btn-icon material-symbols-rounded', 'aria-hidden': 'true' }, kind === 'error' ? 'error' : 'check_circle'),
+          e('span', { className: 'snackbar-text' }, text))
+      );
+      return;
+    }
+    host.innerHTML = `<div class="snackbar ${kind}" role="status"><span class="btn-icon material-symbols-rounded" aria-hidden="true">${kind === 'error' ? 'error' : 'check_circle'}</span><span class="snackbar-text">${Utils.esc(text)}</span></div>`;
+  },
+
+  setMessage(msg = '', err = '') {
+    this.state.message = msg;
+    this.state.error = err;
+    clearTimeout(this.messageTimer);
+    this.messageTimer = null;
+    if (msg || err) {
+      this.messageTimer = setTimeout(() => {
+        this.state.message = '';
+        this.state.error = '';
+        this.renderSnackbar();
+      }, 5000);
+    }
+  },
+
+  errorMessage(err) {
+    return err?.message || String(err || 'Something went wrong.');
+  },
+
+  enhanceButtons() {
+    document.querySelectorAll('button').forEach((button) => {
+      if (button.dataset.iconSkip === '1') return;
+      const iconName = this.iconForButton(button);
+      if (!iconName) return;
+      button.dataset.iconDefault = iconName;
+      let label = button.querySelector('.btn-label');
+      if (!label) {
+        const labelText = this.buttonLabelText(button);
+        if (!labelText && button.dataset.weekNav) button.setAttribute('aria-label', button.dataset.weekNav === 'prev' ? 'Previous week' : 'Next week');
+        if (!labelText && button.dataset.payAdjust !== undefined) button.setAttribute('aria-label', Number(button.dataset.payAdjust) < 0 ? 'Decrease amount' : 'Increase amount');
+        if (labelText) button.setAttribute('aria-label', button.getAttribute('aria-label') || labelText);
+        label = document.createElement('span');
+        label.className = 'btn-label';
+        label.textContent = labelText;
+        button.textContent = '';
+        button.appendChild(label);
+      }
+      let icon = button.querySelector('.btn-icon');
+      if (!icon) {
+        icon = document.createElement('span');
+        icon.className = 'btn-icon material-symbols-rounded';
+        icon.setAttribute('aria-hidden', 'true');
+        button.prepend(icon);
+      }
+      if (!button.dataset.busy) icon.textContent = iconName;
+    });
+  },
+
+  buttonLabelText(button) {
+    if (!button) return '';
+    if (button.dataset.weekNav !== undefined || button.dataset.payAdjust !== undefined) return '';
+    return (button.querySelector('.btn-label')?.textContent || button.textContent || '').replace(/^[←↻◀▶]+\s*/, '').trim();
+  },
+
+  setButtonLabel(button, label) {
+    if (!button) return;
+    const labelEl = button.querySelector('.btn-label');
+    if (labelEl) labelEl.textContent = label;
+    else button.textContent = label;
+    this.enhanceButtons();
+  },
+
+  setButtonBusy(button, busy) {
+    if (!button) return () => {};
+    this.enhanceButtons();
+    const icon = button.querySelector('.btn-icon');
+    button.dataset.busy = busy ? '1' : '';
+    button.disabled = !!busy;
+    if (icon) {
+      icon.classList.toggle('material-symbols-rounded', !busy);
+      if (busy) {
+        icon.textContent = '';
+        icon.classList.add('btn-spinner');
+      } else {
+        icon.classList.remove('btn-spinner');
+        icon.classList.add('material-symbols-rounded');
+        icon.textContent = button.dataset.iconDefault || this.iconForButton(button) || 'check';
+      }
+    }
+    return () => this.setButtonBusy(button, false);
+  },
+
+  iconForButton(button) {
+    if (!button) return '';
+    if (button.id === 'btn-logout') return 'logout';
+    if (button.id === 'btn-go-login') return 'login';
+    if (button.id === 'btn-create-invite') return 'person_add';
+    if (button.id === 'btn-delete-all-invites') return 'delete_sweep';
+    if (button.id === 'btn-copy-invite-link') return 'content_copy';
+    if (button.id === 'btn-create-new-invite') return 'add_link';
+    if (button.id === 'btn-delete-this-invite') return 'delete';
+    if (button.id === 'btn-sync-retry') return 'sync';
+    if (button.id === 'btn-firebase-test') return 'network_check';
+    if (button.dataset.go) {
+      return {
+        overview: 'home',
+        rounds: 'list_alt',
+        create: 'add_circle',
+        edit: 'edit',
+        delete: 'delete',
+        submit: 'publish',
+        users: 'groups',
+        settings: 'settings',
+        'invite-detail': 'qr_code',
+        login: 'login',
+        join: 'person_add'
+      }[button.dataset.go] || 'arrow_forward';
+    }
+    if (button.dataset.viewInvite !== undefined) return 'visibility';
+    if (button.dataset.deleteInvite !== undefined || button.dataset.bulkDelete !== undefined) return 'delete';
+    if (button.dataset.userActionApply !== undefined) return 'task_alt';
+    if (button.dataset.userToggle === 'all') return 'select_all';
+    if (button.dataset.addUser !== undefined) return 'person_add';
+    if (button.dataset.payAdjust !== undefined) return Number(button.dataset.payAdjust) < 0 ? 'remove' : 'add';
+    if (button.dataset.openRound !== undefined) return 'emoji_events';
+    if (button.dataset.weekNav === 'prev') return 'chevron_left';
+    if (button.dataset.weekNav === 'next') return 'chevron_right';
+    if (button.dataset.settingsTab) {
+      return { user: 'person', server: 'settings', sync: 'sync' }[button.dataset.settingsTab] || 'tune';
+    }
+    const formId = button.form?.id;
+    if (button.type === 'submit' && formId) {
+      return {
+        'install-form': 'download',
+        'login-form': 'login',
+        'join-form': 'person_add',
+        'create-form': 'add_circle',
+        'edit-form': 'save',
+        'delete-form': 'delete',
+        'submit-form': 'publish',
+        'user-settings-form': 'save',
+        'user-password-form': 'password',
+        'server-settings-form': 'save',
+        'server-reset-form': 'restart_alt'
+      }[formId] || 'send';
+    }
+    const text = (button.querySelector('.btn-label')?.textContent || button.textContent).trim().toLowerCase();
+    if (text.includes('cancel')) return 'close';
+    if (text.includes('delete')) return 'delete';
+    if (text.includes('save')) return 'save';
+    if (text.includes('login')) return 'login';
+    if (text.includes('submit')) return 'publish';
+    if (text.includes('create')) return 'add_circle';
+    if (text.includes('copy')) return 'content_copy';
+    if (text.includes('back')) return 'arrow_back';
+    return button.classList.contains('danger') ? 'warning' : 'arrow_forward';
+  },
+
+  applyFormCustomValidity(form) {
+    if (!form) return;
+    form.querySelectorAll('input, textarea').forEach((field) => {
+      if (typeof field.setCustomValidity === 'function') field.setCustomValidity('');
+    });
+    form.querySelectorAll('input[required], textarea[required]').forEach((field) => {
+      const type = (field.getAttribute('type') || 'text').toLowerCase();
+      if (field.disabled || ['checkbox', 'radio', 'password', 'file'].includes(type)) return;
+      if (!String(field.value || '').trim()) field.setCustomValidity('This field is required.');
+    });
+    const password = form.querySelector('[name="password"]');
+    const newPassword = form.querySelector('[name="newPassword"]');
+    const confirmPassword = form.querySelector('[name="confirmPassword"]');
+    const passwordSource = newPassword || password;
+    if (passwordSource && confirmPassword && confirmPassword.value && passwordSource.value !== confirmPassword.value) {
+      confirmPassword.setCustomValidity('Passwords do not match.');
+    }
+  },
+
+  enhanceFormValidation(form) {
+    if (!form || form.dataset.validationBound === '1') return;
+    form.dataset.validationBound = '1';
+    const update = () => this.applyFormCustomValidity(form);
+    form.addEventListener('input', update);
+    form.addEventListener('change', update);
+    form.addEventListener('invalid', (e) => {
+      const target = e.target;
+      if (target?.validationMessage) {
+        this.setMessage('', target.validationMessage);
+        this.renderSnackbar();
+      }
+    }, true);
+    update();
+  },
+
+  validateForm(form) {
+    this.applyFormCustomValidity(form);
+    if (form.checkValidity()) return true;
+    form.reportValidity();
+    const invalid = form.querySelector(':invalid');
+    this.setMessage('', invalid?.validationMessage || 'Please correct the highlighted fields.');
+    this.renderSnackbar();
+    return false;
+  },
+
+  bindAsyncFormSubmit(form, handler) {
+    if (!form) return;
+    this.enhanceFormValidation(form);
+    form.onsubmit = async (e) => {
+      e.preventDefault();
+      if (!this.validateForm(form)) return;
+      const release = this.setButtonBusy(e.submitter || form.querySelector('button[type="submit"]'), true);
+      try {
+        await handler(e);
+      } catch (err) {
+        console.error(err);
+        this.fail(this.errorMessage(err));
+      } finally {
+        release();
+      }
+    };
+  },
 
   async navigate(route, options = {}) {
     const target = this._sanitizeRoute(route || this._defaultRoute());
@@ -1888,10 +2162,10 @@ const App = {
     document.getElementById('server-title').textContent = this.state.appSettings?.serverName || '10lb Challenge';
 
     const app = document.getElementById('app');
-    const flash = `${this.state.error ? `<p class="error">${this.state.error}</p>` : ''}${this.state.message ? `<p class="ok">${this.state.message}</p>` : ''}`;
     const screen = this.resolveScreen();
 
-    if (!this.renderWithReact(navModel, flash, screen)) app.innerHTML = flash + screen;
+    if (!this.renderWithReact(navModel, screen)) app.innerHTML = screen;
+    this.renderSnackbar();
 
     this.bindScreenEvents();
   },
@@ -1907,12 +2181,12 @@ const App = {
     return `<div class="card"><h2 style="margin-top:0">Install server</h2>
       <p class="muted">Configure the server before first use.</p>
       <form id="install-form" class="grid two">
-        <div><label>Server name</label><input name="serverName" required value="${Utils.escAttr(s.serverName || '10lb Challenge')}" /></div>
-        <div><label>${usernameLabel}</label><input name="username" required autocomplete="${usernameAutocomplete}" ${this.isFirebaseMode() ? 'type="email"' : ''} /></div>
-        <div><label>Password</label><input name="password" type="password" required autocomplete="new-password" /></div>
-        <div><label>Confirm password</label><input name="confirmPassword" type="password" required autocomplete="new-password" /></div>
-        <div><label>First name</label><input name="firstName" required /></div>
-        <div><label>Last name</label><input name="lastName" required /></div>
+        <div><label>Server name</label><input name="serverName" type="text" required autocomplete="organization" value="${Utils.escAttr(s.serverName || '10lb Challenge')}" /></div>
+        <div><label>${usernameLabel}</label><input name="username" required autocomplete="${usernameAutocomplete}" autocapitalize="none" spellcheck="false" ${this.isFirebaseMode() ? 'type="email" inputmode="email"' : 'type="text"'} /></div>
+        <div><label>Password</label><input name="password" type="password" required ${Utils.passwordInputAttrs('new-password')} /></div>
+        <div><label>Confirm password</label><input name="confirmPassword" type="password" required ${Utils.passwordInputAttrs('new-password')} /></div>
+        <div><label>First name</label><input name="firstName" type="text" required autocomplete="given-name" /></div>
+        <div><label>Last name</label><input name="lastName" type="text" required autocomplete="family-name" /></div>
         <div><label>Weight format</label><select name="weightFormat"><option value="lb" selected>lb</option><option value="kg">kg</option></select></div>
         <div><label>Currency</label><select name="currency"><option value="£" selected>£</option><option value="$">$</option><option value="€">€</option></select></div>
         <div><label>Theme</label><select name="theme">${ThemeOptions.map((t) => `<option value="${t.key}" ${t.key === (s.theme || 'teal') ? 'selected' : ''}>${t.label}</option>`).join('')}</select></div>
@@ -1929,7 +2203,7 @@ const App = {
     return `<div class="card" style="max-width:560px;margin:0 auto"><h2 style="margin-top:0">Login</h2>
       <p class="muted">Enter your account details to continue.</p>
       <form id="login-form" class="grid">
-        <div><label>${usernameLabel}</label><input name="username" required autocomplete="${usernameAutocomplete}" ${this.isFirebaseMode() ? 'type="email"' : ''} /></div>
+        <div><label>${usernameLabel}</label><input name="username" required autocomplete="${usernameAutocomplete}" autocapitalize="none" spellcheck="false" ${this.isFirebaseMode() ? 'type="email" inputmode="email"' : 'type="text"'} /></div>
         <div><label>Password</label><input name="password" type="password" required autocomplete="current-password" /></div>
         <input name="redirect" type="hidden" value="${Utils.escAttr(this.state.redirectAfterLogin || 'overview')}" />
         <button class="btn" type="submit">Login</button>
@@ -1948,12 +2222,12 @@ const App = {
       <h2 style="margin-top:0">Join ${Utils.esc(serverName)}</h2>
       <p class="muted">Enter your invite code and create your account.</p>
       <form id="join-form" class="grid">
-        <div><label>Invite code</label><input name="inviteCode" required autocomplete="off" value="${Utils.escAttr(code)}" placeholder="e.g. ABCD1234" style="text-transform:uppercase;letter-spacing:.1em" /></div>
-        <div><label>Email</label><input name="username" type="email" required autocomplete="email" /></div>
-        <div><label>Password</label><input name="password" type="password" required autocomplete="new-password" /></div>
-        <div><label>Confirm password</label><input name="confirmPassword" type="password" required autocomplete="new-password" /></div>
-        <div><label>First name</label><input name="firstName" required /></div>
-        <div><label>Last name</label><input name="lastName" required /></div>
+        <div><label>Invite code</label><input name="inviteCode" type="text" required autocomplete="off" autocapitalize="characters" spellcheck="false" minlength="8" maxlength="8" pattern="[A-HJ-NP-Z2-9]{8}" title="Enter the 8-character invite code." value="${Utils.escAttr(code)}" placeholder="e.g. ABCD1234" style="text-transform:uppercase;letter-spacing:.1em" /></div>
+        <div><label>Email</label><input name="username" type="email" required autocomplete="email" inputmode="email" autocapitalize="none" spellcheck="false" /></div>
+        <div><label>Password</label><input name="password" type="password" required ${Utils.passwordInputAttrs('new-password')} /></div>
+        <div><label>Confirm password</label><input name="confirmPassword" type="password" required ${Utils.passwordInputAttrs('new-password')} /></div>
+        <div><label>First name</label><input name="firstName" type="text" required autocomplete="given-name" /></div>
+        <div><label>Last name</label><input name="lastName" type="text" required autocomplete="family-name" /></div>
         <div style="grid-column:1/-1" class="small muted">Password must contain at least 8 characters, including a number, letter, and symbol.</div>
         <div style="grid-column:1/-1" class="row">
           <button class="btn" type="submit">Create account</button>
@@ -2144,7 +2418,7 @@ const App = {
 
     return `<div class="card"><h2 style="margin-top:0">Create Challenge Round</h2>
       <form id="create-form" class="grid two">
-        <div><label>Round title</label><input name="title" value="${Utils.escAttr(d.title)}" required /></div>
+        <div><label>Round title</label><input name="title" type="text" value="${Utils.escAttr(d.title)}" required /></div>
         <div><label>Number of weeks</label><input type="number" min="1" max="52" name="weeksCount" value="${d.weeksCount}" required /></div>
         <div><label>Number of holidays</label><input type="number" min="0" max="12" name="holidaysAllowed" value="${d.holidaysAllowed}" required /></div>
         <div><label>Entry fee (${this.state.appSettings.currency})</label><input type="number" step="0.01" min="0" name="entryFee" value="${d.entryFee}" required /></div>
@@ -2153,7 +2427,7 @@ const App = {
 
         <div class="card" style="grid-column:1/-1"><div class="row between"><strong>Users (${count})</strong><div class="row"><button type="button" data-user-toggle="all" class="btn secondary small">Toggle all</button></div></div>
           <div class="grid three" style="margin-top:8px">${d.allNames.map((n)=>`<label class="row"><input type="checkbox" data-user-name="${Utils.escAttr(n)}" ${d.selectedNames.includes(n)?'checked':''} style="width:auto"/> ${Utils.esc(n)}</label>`).join('') || '<p class="muted">No users yet.</p>'}</div>
-          <div class="row" style="margin-top:8px"><input id="new-user-name" placeholder="Add new user full name" value="${Utils.escAttr(d.newName || '')}"/><button type="button" class="btn" data-add-user="1">Add</button></div>
+          <div class="row" style="margin-top:8px"><input id="new-user-name" type="text" autocomplete="name" placeholder="Add new user full name" value="${Utils.escAttr(d.newName || '')}"/><button type="button" class="btn" data-add-user="1">Add</button></div>
         </div>
 
         <div class="card" style="grid-column:1/-1">
@@ -2185,10 +2459,10 @@ const App = {
     const sum = Utils.round2((round.prizeSplits || []).reduce((a,b)=>a+Utils.safeNum(b),0));
     return `<div class="card"><h2 style="margin-top:0">Edit Challenge Round</h2>
       <form id="edit-form" class="grid two">
-        <div><label>Title</label><input name="title" required value="${Utils.escAttr(round.title)}" /></div>
+        <div><label>Title</label><input name="title" type="text" required value="${Utils.escAttr(round.title)}" /></div>
         <div><label>Prize total</label><input disabled value="${Utils.money(totalPrize, this.state.appSettings.currency)}" /></div>
         <div class="card" style="grid-column:1/-1"><strong>Prize splits</strong>
-          <div class="grid three" style="margin-top:8px">${(round.prizeSplits || []).map((v,i)=>`<div><label>Rank ${i+1}</label><input type="number" step="0.01" name="split-${i}" value="${Utils.safeNum(v)}"/></div>`).join('')}</div>
+          <div class="grid three" style="margin-top:8px">${(round.prizeSplits || []).map((v,i)=>`<div><label>Rank ${i+1}</label><input type="number" step="0.01" min="0" name="split-${i}" value="${Utils.safeNum(v)}"/></div>`).join('')}</div>
           <p class="small ${sum > totalPrize ? 'error' : 'muted'}">Entered: ${Utils.money(sum, this.state.appSettings.currency)}</p>
         </div>
         <div class="row" style="grid-column:1/-1"><button class="btn" type="submit">Save</button><button type="button" class="btn secondary" data-go="overview">Cancel</button></div>
@@ -2201,7 +2475,7 @@ const App = {
     if (!round) return `<div class="card"><p class="muted">No round selected.</p></div>`;
     return `<div class="card"><h2>Delete Challenge Round</h2><p class="error">This cannot be undone.</p>
       <form id="delete-form">
-        <label class="row"><input type="checkbox" id="confirm-delete" style="width:auto"/> I confirm delete <strong>${Utils.esc(round.title)}</strong></label>
+        <label class="row"><input type="checkbox" id="confirm-delete" required style="width:auto"/> I confirm delete <strong>${Utils.esc(round.title)}</strong></label>
         <div class="row" style="margin-top:10px"><button class="btn danger" type="submit">Delete round</button><button type="button" class="btn secondary" data-go="overview">Cancel</button></div>
       </form></div>`;
   },
@@ -2229,7 +2503,7 @@ const App = {
         <div><label>Action</label><select name="action" required><option value="weight">Upload weight</option><option value="holiday">Holiday</option><option value="forfeit">Forfeit</option></select></div>
         <div id="weight-fields" style="grid-column:1/-1" class="grid two">
           <div><label>Scale photo</label><input name="photo" type="file" accept="image/*" /></div>
-          <div><label>Weight (${this.state.appSettings.weightFormat})</label><input name="weight" type="number" step="0.01" min="1" /></div>
+          <div><label>Weight (${this.state.appSettings.weightFormat})</label><input name="weight" type="number" step="0.01" min="1" inputmode="decimal" /></div>
         </div>
         <div id="holiday-note" class="small muted" style="grid-column:1/-1"></div>
         <div id="forfeit-confirm-wrap" class="hidden" style="grid-column:1/-1"><label class="row"><input type="checkbox" id="forfeit-confirm" style="width:auto"/> Confirm user forfeit</label></div>
@@ -2393,17 +2667,17 @@ const App = {
   renderUserSettingsTab() {
     const u = this.state.currentUser;
     return `<form id="user-settings-form" class="grid two">
-      <div><label>First name</label><input name="firstName" required value="${Utils.escAttr(u.firstName || '')}" /></div>
-      <div><label>Last name</label><input name="lastName" required value="${Utils.escAttr(u.lastName || '')}" /></div>
-      <div style="grid-column:1/-1"><label>Username</label><input disabled value="${Utils.escAttr(u.username)}" /></div>
+      <div><label>First name</label><input name="firstName" type="text" required autocomplete="given-name" value="${Utils.escAttr(u.firstName || '')}" /></div>
+      <div><label>Last name</label><input name="lastName" type="text" required autocomplete="family-name" value="${Utils.escAttr(u.lastName || '')}" /></div>
+      <div style="grid-column:1/-1"><label>Username</label><input disabled type="${this.isFirebaseMode() ? 'email' : 'text'}" value="${Utils.escAttr(u.username)}" /></div>
       <div style="grid-column:1/-1"><button class="btn" type="submit">Save profile</button></div>
     </form>
 
     <form id="user-password-form" class="grid two" style="margin-top:12px">
-      <div><label>Current password</label><input name="currentPassword" type="password" required /></div>
+      <div><label>Current password</label><input name="currentPassword" type="password" required autocomplete="current-password" /></div>
       <div></div>
-      <div><label>New password</label><input name="newPassword" type="password" required /></div>
-      <div><label>Confirm new password</label><input name="confirmPassword" type="password" required /></div>
+      <div><label>New password</label><input name="newPassword" type="password" required ${Utils.passwordInputAttrs('new-password')} /></div>
+      <div><label>Confirm new password</label><input name="confirmPassword" type="password" required ${Utils.passwordInputAttrs('new-password')} /></div>
       <div style="grid-column:1/-1"><button class="btn secondary" type="submit">Change password</button></div>
     </form>`;
   },
@@ -2413,7 +2687,7 @@ const App = {
     const s = this.state.appSettings;
     const firebase = RuntimeConfig.firebase || {};
     return `<form id="server-settings-form" class="grid two">
-      <div><label>Server name</label><input name="serverName" required value="${Utils.escAttr(s.serverName)}" /></div>
+      <div><label>Server name</label><input name="serverName" type="text" required autocomplete="organization" value="${Utils.escAttr(s.serverName)}" /></div>
       <div><label>User session duration (days)</label><input name="sessionDurationDays" type="number" min="1" max="365" required value="${Utils.safeNum(s.sessionDurationDays, 7)}" /></div>
       <div><label>Weight format</label><select name="weightFormat"><option value="lb" ${s.weightFormat==='lb'?'selected':''}>lb</option><option value="kg" ${s.weightFormat==='kg'?'selected':''}>kg</option></select></div>
       <div><label>Currency</label><select name="currency"><option value="£" ${s.currency==='£'?'selected':''}>£</option><option value="$" ${s.currency==='$'?'selected':''}>$</option><option value="€" ${s.currency==='€'?'selected':''}>€</option></select></div>
@@ -2432,8 +2706,8 @@ const App = {
     <div class="card" style="margin-top:12px">
       <h3 style="margin-top:0">Reset server</h3>
       ${this.state.currentUser.isMaster ? `<form id="server-reset-form" class="grid two">
-          <div><label>Master password</label><input name="password" type="password" required /></div>
-          <div><label>Confirm reset</label><label class="row"><input style="width:auto" type="checkbox" name="confirm" /> Yes, uninstall this server</label></div>
+          <div><label>Master password</label><input name="password" type="password" required autocomplete="current-password" /></div>
+          <div><label>Confirm reset</label><label class="row"><input style="width:auto" type="checkbox" name="confirm" required /> Yes, uninstall this server</label></div>
           <div style="grid-column:1/-1"><button class="btn danger" type="submit">Reset server</button></div>
         </form>` : `<p class="error">Only the master admin can reset this server.</p>`}
     </div>`;
@@ -2491,17 +2765,18 @@ const App = {
 
   bindScreenEvents() {
     this._ensureJsOnlyFormHandling();
+    this.enhanceButtons();
     document.querySelectorAll('[data-go]').forEach((el) => el.onclick = () => this.navigate(el.dataset.go));
 
     // Join/register via invite code
     const joinForm = document.getElementById('join-form');
     if (joinForm) {
+      this.enhanceFormValidation(joinForm);
       // Auto-uppercase the code field as user types
       const codeInput = joinForm.querySelector('[name="inviteCode"]');
       if (codeInput) codeInput.oninput = () => { codeInput.value = codeInput.value.toUpperCase(); };
 
-      joinForm.onsubmit = async (e) => {
-        e.preventDefault();
+      this.bindAsyncFormSubmit(joinForm, async () => {
         if (!this.isFirebaseMode()) return this.fail('Invites are unavailable in offline mode.');
         const code = joinForm.inviteCode.value.trim().toUpperCase();
         const email = joinForm.username.value.trim();
@@ -2553,7 +2828,7 @@ const App = {
         this.state.pendingInviteCode = '';
         this.setMessage(`Welcome, ${Utils.fullName(user)}! Your account has been created.`);
         this.navigate('overview', { keepFlash: true, replace: true });
-      };
+      });
     }
 
     const btnGoLogin = document.getElementById('btn-go-login');
@@ -2626,13 +2901,13 @@ const App = {
       if (!input) return;
       try {
         await navigator.clipboard.writeText(input.value);
-        btnCopyLink.textContent = 'Copied!';
-        setTimeout(() => { btnCopyLink.textContent = 'Copy link'; }, 2000);
+        this.setButtonLabel(btnCopyLink, 'Copied!');
+        setTimeout(() => { this.setButtonLabel(btnCopyLink, 'Copy link'); }, 2000);
       } catch {
         input.select();
         document.execCommand('copy');
-        btnCopyLink.textContent = 'Copied!';
-        setTimeout(() => { btnCopyLink.textContent = 'Copy link'; }, 2000);
+        this.setButtonLabel(btnCopyLink, 'Copied!');
+        setTimeout(() => { this.setButtonLabel(btnCopyLink, 'Copy link'); }, 2000);
       }
     };
 
@@ -2643,8 +2918,7 @@ const App = {
 
     const installForm = document.getElementById('install-form');
     if (installForm) {
-      installForm.onsubmit = async (e) => {
-        e.preventDefault();
+      this.bindAsyncFormSubmit(installForm, async () => {
         if (this.isInstalled()) return this.fail('Installation is locked.');
         const serverName = installForm.serverName.value.trim() || '10lb Challenge';
         const username = installForm.username.value.trim();
@@ -2713,13 +2987,12 @@ const App = {
         await this.loginAs(user);
         this.setMessage('Server installed successfully.');
         this.navigate('overview', { keepFlash: true, replace: true });
-      };
+      });
     }
 
     const loginForm = document.getElementById('login-form');
     if (loginForm) {
-      loginForm.onsubmit = async (e) => {
-        e.preventDefault();
+      this.bindAsyncFormSubmit(loginForm, async () => {
         const username = loginForm.username.value.trim();
         const password = loginForm.password.value;
         const redirect = loginForm.redirect.value || this.state.redirectAfterLogin || 'overview';
@@ -2758,7 +3031,7 @@ const App = {
         const route = this.redirectToPostLogin(redirect);
         this.setMessage(`Welcome back, ${Utils.fullName(this.state.currentUser)}.`);
         this.navigate(route, { keepFlash: true, replace: true });
-      };
+      });
     }
 
     document.querySelectorAll('[data-open-round]').forEach((b) => b.onclick = () => {
@@ -2833,8 +3106,7 @@ const App = {
         this.render();
       });
 
-      createForm.onsubmit = async (e) => {
-        e.preventDefault();
+      this.bindAsyncFormSubmit(createForm, async () => {
         const d = this.state.createDraft;
         const payout = (d.payoutMode === 'custom' ? d.customMemory : d.presetCurrent).map((v)=>Utils.round2(Utils.safeNum(v)));
         const totalPrize = Utils.round2(Utils.safeNum(d.entryFee) * d.selectedNames.length);
@@ -2857,13 +3129,12 @@ const App = {
         await this.refresh();
         this.setMessage('Challenge round created.');
         this.navigate('overview', { keepFlash: true });
-      };
+      });
     }
 
     const editForm = document.getElementById('edit-form');
     if (editForm) {
-      editForm.onsubmit = async (e) => {
-        e.preventDefault();
+      this.bindAsyncFormSubmit(editForm, async () => {
         const round = this.currentRound();
         if (!round) return;
         const title = editForm.title.value.trim();
@@ -2877,13 +3148,12 @@ const App = {
         await this.refresh();
         this.setMessage('Round updated.');
         this.navigate('overview', { keepFlash: true });
-      };
+      });
     }
 
     const del = document.getElementById('delete-form');
     if (del) {
-      del.onsubmit = async (e) => {
-        e.preventDefault();
+      this.bindAsyncFormSubmit(del, async () => {
         const ok = document.getElementById('confirm-delete').checked;
         if (!ok) return this.fail('Confirm deletion to continue.');
         const round = this.currentRound();
@@ -2893,7 +3163,7 @@ const App = {
         await this.refresh();
         this.setMessage('Round deleted.');
         this.navigate('rounds', { keepFlash: true });
-      };
+      });
     }
 
     const submitForm = document.getElementById('submit-form');
@@ -2908,8 +3178,12 @@ const App = {
         const holidayNote = document.getElementById('holiday-note');
         const weightFields = document.getElementById('weight-fields');
         const forfeitWrap = document.getElementById('forfeit-confirm-wrap');
+        const weightInput = submitForm.querySelector('[name="weight"]');
+        const forfeitConfirm = document.getElementById('forfeit-confirm');
         weightFields.classList.toggle('hidden', action !== 'weight');
         forfeitWrap.classList.toggle('hidden', action !== 'forfeit');
+        if (weightInput) weightInput.required = action === 'weight';
+        if (forfeitConfirm) forfeitConfirm.required = action === 'forfeit';
         if (action === 'holiday' && userId) {
           const used = Domain.holidaysUsed(subs, userId, week);
           holidayNote.textContent = `Holidays used: ${used} / ${round.holidaysAllowed}`;
@@ -2919,8 +3193,7 @@ const App = {
       submitForm.onchange = updateSubmitUI;
       updateSubmitUI();
 
-      submitForm.onsubmit = async (e) => {
-        e.preventDefault();
+      this.bindAsyncFormSubmit(submitForm, async () => {
         const round = Domain.activeRound(this.state.rounds);
         if (!round) return this.fail('No active challenge.');
         const subs = Domain.submissionsByRound(this.state.submissions, round.id);
@@ -2970,7 +3243,7 @@ const App = {
         await this.refresh();
         this.setMessage('Submission saved.');
         this.render();
-      };
+      });
     }
 
     const bulkCheckboxes = document.querySelectorAll('[data-bulk-user]');
@@ -3118,8 +3391,7 @@ const App = {
 
     const userSettingsForm = document.getElementById('user-settings-form');
     if (userSettingsForm) {
-      userSettingsForm.onsubmit = async (e) => {
-        e.preventDefault();
+      this.bindAsyncFormSubmit(userSettingsForm, async () => {
         const firstName = userSettingsForm.firstName.value.trim();
         const lastName = userSettingsForm.lastName.value.trim();
         if (!firstName || !lastName) return this.fail('First and last name are required.');
@@ -3128,13 +3400,12 @@ const App = {
         await this.refresh();
         this.setMessage('Profile updated.');
         this.render();
-      };
+      });
     }
 
     const userPwdForm = document.getElementById('user-password-form');
     if (userPwdForm) {
-      userPwdForm.onsubmit = async (e) => {
-        e.preventDefault();
+      this.bindAsyncFormSubmit(userPwdForm, async () => {
         const currentPassword = userPwdForm.currentPassword.value;
         const newPassword = userPwdForm.newPassword.value;
         const confirmPassword = userPwdForm.confirmPassword.value;
@@ -3168,13 +3439,12 @@ const App = {
         await this.refresh();
         this.setMessage('Password changed.');
         this.render();
-      };
+      });
     }
 
     const serverSettingsForm = document.getElementById('server-settings-form');
     if (serverSettingsForm) {
-      serverSettingsForm.onsubmit = async (e) => {
-        e.preventDefault();
+      this.bindAsyncFormSubmit(serverSettingsForm, async () => {
         this.state.appSettings = {
           ...this.state.appSettings,
           serverName: serverSettingsForm.serverName.value.trim() || '10lb Challenge',
@@ -3190,13 +3460,12 @@ const App = {
         }
         this.setMessage('Server settings updated.');
         this.render();
-      };
+      });
     }
 
     const resetForm = document.getElementById('server-reset-form');
     if (resetForm) {
-      resetForm.onsubmit = async (e) => {
-        e.preventDefault();
+      this.bindAsyncFormSubmit(resetForm, async () => {
         if (!this.state.currentUser.isMaster) return this.fail('Only master admin can reset the server.');
         if (!resetForm.confirm.checked) return this.fail('Confirm reset to continue.');
 
@@ -3224,7 +3493,7 @@ const App = {
         this.state.selectedUsers = [];
         this.setMessage('Server reset complete.');
         this.navigate('install', { keepFlash: true, replace: true });
-      };
+      });
     }
 
     const syncRetry = document.getElementById('btn-sync-retry');
@@ -3244,11 +3513,11 @@ const App = {
         const resultEl = document.getElementById('firebase-test-result');
         if (!cfg?.apiKey || !cfg?.authDomain || !cfg?.projectId) { if (resultEl) resultEl.innerHTML = '<span class="error">Incomplete firebase config in config.json.</span>'; return; }
         firebaseTestBtn.disabled = true;
-        firebaseTestBtn.textContent = 'Testing…';
+        this.setButtonLabel(firebaseTestBtn, 'Testing…');
         if (resultEl) resultEl.innerHTML = '';
         const result = await this.testFirebaseConnection(cfg);
         firebaseTestBtn.disabled = false;
-        firebaseTestBtn.textContent = 'Test Connection';
+        this.setButtonLabel(firebaseTestBtn, 'Test Connection');
         if (resultEl) {
           resultEl.innerHTML = result.ok
             ? '<span class="ok">✓ Connection successful</span>'
