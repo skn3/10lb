@@ -1323,7 +1323,7 @@ const App = {
     if (!this.isInstalled()) return requested === 'install' ? 'install' : 'denied';
     if (!this.isAuthenticated()) {
       if (requested === 'join' && this.isFirebaseMode()) return 'join';
-      return requested === 'login' ? 'login' : 'login';
+      return 'login';
     }
     if (requested === 'install' || requested === 'login' || requested === 'join') return 'overview';
     return this.canAccess(requested) ? requested : 'denied';
@@ -1385,17 +1385,10 @@ const App = {
     await this.restoreSessionFromCookie();
     await this.refresh();
     this._applyRouteFromHash();
-    if (!window.location.hash) {
-      this.navigate(this._defaultRoute(), { replace: true });
-    }
     this.applyTheme();
     this.attachNav();
     this.render();
     window.addEventListener('hashchange', () => {
-      this._applyRouteFromHash();
-      this.render();
-    });
-    window.addEventListener('popstate', () => {
       this._applyRouteFromHash();
       this.render();
     });
@@ -1474,6 +1467,8 @@ const App = {
     Utils.clearCookie('tenlb_session');
     this.state.currentUser = null;
     this.state.sessionToken = null;
+    this.state.pendingInviteCode = '';
+    this.state.redirectAfterLogin = 'overview';
     this.navigate(this._defaultRoute(), { replace: true });
   },
 
@@ -1686,13 +1681,13 @@ const App = {
     if (!this.react.enabled) return false;
     const React = window.React;
     const Router = window.ReactRouterDOM;
-    if (!Router?.HashRouter || !Router?.NavLink) return false;
-    const { HashRouter, NavLink } = Router;
+    if (!Router?.HashRouter || !Router?.Link) return false;
+    const { HashRouter, Link } = Router;
     const e = React.createElement;
     const syncBar = document.getElementById('sync-bar');
     if (syncBar) syncBar.style.display = navModel.syncVisible ? 'block' : 'none';
     this.react.navRoot.render(e(HashRouter, null, e(React.Fragment, null,
-      ...navModel.items.map(([key, label]) => e(NavLink, {
+      ...navModel.items.map(([key, label]) => e(Link, {
         key,
         to: `/${key}`,
         className: this.state.route === key ? 'active' : '',
@@ -1757,9 +1752,9 @@ const App = {
 
   _ensureJsOnlyFormHandling() {
     document.querySelectorAll('form').forEach((form) => {
-      form.setAttribute('method', 'post');
-      form.setAttribute('action', 'javascript:void(0)');
       if (!form.dataset.jsSubmitBound) {
+        form.setAttribute('method', 'post');
+        form.removeAttribute('action');
         form.dataset.jsSubmitBound = '1';
         form.addEventListener('submit', (e) => e.preventDefault());
       }
@@ -3055,6 +3050,10 @@ const App = {
         Utils.clearCookie('tenlb_session');
         this.state.currentUser = null;
         this.state.sessionToken = null;
+        this.state.pendingInviteCode = '';
+        this.state.redirectAfterLogin = 'overview';
+        this.state.inviteDetail = null;
+        this.state.selectedUsers = [];
         this.setMessage('Server reset complete.');
         this.navigate('install', { keepFlash: true, replace: true });
       };
