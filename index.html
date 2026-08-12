@@ -2975,6 +2975,11 @@ const App = {
             return this.fail(`Firebase install failed: ${err.message || err}`);
           }
           // Sign the master admin into the main tenlb-app Firebase Auth session
+          // FirestoreAdapter may not be initialised yet on a fresh install, so
+          // ensure it is before calling signInWithEmail.
+          if (!FirestoreAdapter.isReady()) {
+            await FirestoreAdapter.init(RuntimeConfig.firebase, 'default');
+          }
           try {
             const email = firebaseProvision?.email || username;
             await FirestoreAdapter.signInWithEmail(email, password);
