@@ -87,28 +87,32 @@
     body[data-theme="emerald"] { --brand:#047857; --bg:#ecfdf5; --card:#ffffff; --text:#064e3b; --muted:#047857; --border:#a7f3d0; --nav-bg:#d1fae5; --nav-border:#6ee7b7; }
     .snackbar-host {
       position:fixed;
-      left:50%;
-      bottom:16px;
-      transform:translateX(-50%);
-      width:min(640px, calc(100% - 24px));
-      z-index:20;
+      top:0;
+      left:0;
+      right:0;
+      z-index:9999;
       pointer-events:none;
+      display:flex;
+      flex-direction:column;
     }
     .snackbar {
       display:flex;
-      align-items:flex-start;
+      align-items:center;
       gap:10px;
-      border-radius:12px;
-      padding:12px 14px;
-      border:1px solid var(--border);
-      box-shadow:0 12px 28px rgba(15,23,42,.16);
-      background:#fff;
-      color:var(--text);
+      padding:13px 18px;
       pointer-events:auto;
+      transform:translateY(-100%);
+      animation:snack-slide-in 0.28s cubic-bezier(0.34,1.56,0.64,1) forwards;
+      font-size:.93rem;
+      line-height:1.3;
     }
-    .snackbar.success { background:#ecfdf5; border-color:#86efac; color:#166534; }
-    .snackbar.error { background:#fef2f2; border-color:#fca5a5; color:#991b1b; }
+    .snackbar.success { background:#16a34a; color:#fff; }
+    .snackbar.error { background:#dc2626; color:#fff; }
+    .snackbar-icon { font-size:1.25rem; flex-shrink:0; line-height:1; }
     .snackbar-text { flex:1; font-weight:600; }
+    .snackbar-close { background:none; border:none; cursor:pointer; color:rgba(255,255,255,0.85); padding:0 0 0 8px; font-size:1.1rem; line-height:1; flex-shrink:0; display:flex; align-items:center; }
+    .snackbar-close:hover { color:#fff; }
+    @keyframes snack-slide-in { from { transform:translateY(-100%); opacity:0.6; } to { transform:translateY(0); opacity:1; } }
     @keyframes spin { to { transform:rotate(360deg); } }
   </style>
 </head>
@@ -1847,38 +1851,62 @@ const App = {
   renderSnackbar() {
     const host = document.getElementById('snackbar-root');
     if (!host) return;
-    const text = this.state.error || this.state.message;
-    const kind = this.state.error ? 'error' : (this.state.message ? 'success' : '');
-    if (!text || !kind) {
-      if (this.react.enabled && this.react.snackbarRoot) this.react.snackbarRoot.render(null);
-      else host.innerHTML = '';
-      return;
+    if (!this._snacks) this._snacks = [];
+    host.innerHTML = '';
+    for (const item of this._snacks) {
+      const bar = document.createElement('div');
+      bar.className = `snackbar ${item.kind}`;
+      bar.setAttribute('role', 'status');
+      bar.dataset.snackId = item.id;
+      const icon = document.createElement('span');
+      icon.className = 'snackbar-icon';
+      icon.setAttribute('aria-hidden', 'true');
+      icon.textContent = item.kind === 'error' ? '😢' : '😊';
+      const txt = document.createElement('span');
+      txt.className = 'snackbar-text';
+      txt.textContent = item.text;
+      bar.appendChild(icon);
+      bar.appendChild(txt);
+      if (item.kind === 'error') {
+        const closeBtn = document.createElement('button');
+        closeBtn.className = 'snackbar-close';
+        closeBtn.setAttribute('aria-label', 'Dismiss');
+        closeBtn.textContent = '✕';
+        closeBtn.addEventListener('click', () => this._removeSnack(item.id));
+        bar.appendChild(closeBtn);
+      }
+      host.appendChild(bar);
     }
-    const React = window.React;
-    if (this.react.enabled && this.react.snackbarRoot && React?.createElement) {
-      const e = React.createElement;
-      this.react.snackbarRoot.render(
-        e('div', { className: `snackbar ${kind}`, role: 'status' },
-          e('span', { className: 'btn-icon material-symbols-rounded', 'aria-hidden': 'true' }, kind === 'error' ? 'error' : 'check_circle'),
-          e('span', { className: 'snackbar-text' }, text))
-      );
-      return;
+  },
+
+  _snackCounter: 0,
+  _snacks: [],
+
+  _pushSnack(text, kind) {
+    if (!text) return;
+    if (!this._snacks) this._snacks = [];
+    const id = ++this._snackCounter;
+    const item = { id, text, kind };
+    this._snacks.push(item);
+    this.renderSnackbar();
+    if (kind === 'success') {
+      item._timer = setTimeout(() => this._removeSnack(id), 7000);
     }
-    host.innerHTML = `<div class="snackbar ${kind}" role="status"><span class="btn-icon material-symbols-rounded" aria-hidden="true">${kind === 'error' ? 'error' : 'check_circle'}</span><span class="snackbar-text">${Utils.esc(text)}</span></div>`;
+  },
+
+  _removeSnack(id) {
+    if (!this._snacks) return;
+    const item = this._snacks.find((s) => s.id === id);
+    if (item?._timer) clearTimeout(item._timer);
+    this._snacks = this._snacks.filter((s) => s.id !== id);
+    this.renderSnackbar();
   },
 
   setMessage(msg = '', err = '') {
     this.state.message = msg;
     this.state.error = err;
-    clearTimeout(this.messageTimer);
-    this.messageTimer = null;
-    if (msg || err) {
-      this.messageTimer = setTimeout(() => {
-        this.state.message = '';
-        this.state.error = '';
-        this.renderSnackbar();
-      }, 5000);
-    }
+    if (msg) this._pushSnack(msg, 'success');
+    if (err) this._pushSnack(err, 'error');
   },
 
   errorMessage(err) {
@@ -1989,7 +2017,7 @@ const App = {
     const formId = button.form?.id;
     if (button.type === 'submit' && formId) {
       return {
-        'install-form': 'download',
+        'install-form': 'install_desktop',
         'login-form': 'login',
         'join-form': 'person_add',
         'create-form': 'add_circle',
@@ -2947,6 +2975,11 @@ const App = {
             return this.fail(`Firebase install failed: ${err.message || err}`);
           }
           // Sign the master admin into the main tenlb-app Firebase Auth session
+          // FirestoreAdapter may not be initialised yet on a fresh install, so
+          // ensure it is before calling signInWithEmail.
+          if (!FirestoreAdapter.isReady()) {
+            await FirestoreAdapter.init(RuntimeConfig.firebase, 'default');
+          }
           try {
             const email = firebaseProvision?.email || username;
             await FirestoreAdapter.signInWithEmail(email, password);
