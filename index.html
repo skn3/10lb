@@ -87,6 +87,7 @@
 
 <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/react-router-dom@6/umd/react-router-dom.production.min.js" crossorigin></script>
 <script>
 // =============================================================================
 // CONFIG
@@ -114,14 +115,8 @@ let RuntimeConfig = {
 
 async function loadRuntimeConfig() {
   try {
-    const paths = [Config.RUNTIME_CONFIG_PATH];
-    if (window.location.pathname.endsWith('/install') || window.location.pathname.endsWith('/install/')) paths.push('../config.json');
-    let res = null;
-    for (const p of paths) {
-      const attempt = await fetch(p, { cache: 'no-store' }).catch(() => null);
-      if (attempt?.ok) { res = attempt; break; }
-    }
-    if (!res) return RuntimeConfig;
+    const res = await fetch(Config.RUNTIME_CONFIG_PATH, { cache: 'no-store' }).catch(() => null);
+    if (!res?.ok) return RuntimeConfig;
     const raw = await res.json();
     const mode = raw?.serverMode === 'firebase' ? 'firebase' : 'offline';
     RuntimeConfig = {
@@ -1270,7 +1265,7 @@ const App = {
     selectedUsers: [],
     syncMeta: null,        // device/sync metadata (from getDeviceMeta)
     inviteDetail: null,    // current invite being viewed
-    pendingInviteCode: '', // invite code from URL query param
+    pendingInviteCode: '', // invite code from hash route/query import
     userFilters: {
       type: 'all',
       status: 'all', // all|confirmed|invited
@@ -1290,8 +1285,73 @@ const App = {
     return type[0].toUpperCase() + type.slice(1);
   },
 
+  _sanitizeRoute(route) {
+    const value = String(route || '').replace(/^\/+/, '').trim();
+    const normalized = value || 'overview';
+    const allowed = new Set(['install', 'denied', 'login', 'join', 'overview', 'rounds', 'create', 'edit', 'delete', 'submit', 'users', 'settings', 'invite-detail']);
+    return allowed.has(normalized) ? normalized : 'overview';
+  },
+
+  _buildHashRoute(route, options = {}) {
+    const target = this._sanitizeRoute(route);
+    const params = new URLSearchParams();
+    if (target === 'join') {
+      const invite = (options.inviteCode || this.state.pendingInviteCode || '').trim().toUpperCase();
+      if (invite) params.set('invite', invite);
+    }
+    const q = params.toString();
+    return `#/${target}${q ? `?${q}` : ''}`;
+  },
+
+  _readHashRoute() {
+    const rawHash = String(window.location.hash || '').replace(/^#\/?/, '');
+    const [pathPart, queryPart = ''] = rawHash.split('?');
+    return {
+      route: pathPart ? this._sanitizeRoute(pathPart) : '',
+      params: new URLSearchParams(queryPart)
+    };
+  },
+
+  _defaultRoute() {
+    if (!this.isInstalled()) return 'install';
+    if (!this.isAuthenticated()) return (this.isFirebaseMode() && this.state.pendingInviteCode) ? 'join' : 'login';
+    return 'overview';
+  },
+
+  _guardRoute(route) {
+    const requested = this._sanitizeRoute(route);
+    if (!this.isInstalled()) return requested === 'install' ? 'install' : 'denied';
+    if (!this.isAuthenticated()) {
+      if (requested === 'join' && this.isFirebaseMode()) return 'join';
+      return requested === 'login' ? 'login' : 'login';
+    }
+    if (requested === 'install' || requested === 'login' || requested === 'join') return 'overview';
+    return this.canAccess(requested) ? requested : 'denied';
+  },
+
+  _applyRouteFromHash() {
+    const parsed = this._readHashRoute();
+    const invite = parsed.params.get('invite');
+    if (invite) this.state.pendingInviteCode = invite.toUpperCase();
+    const requested = parsed.route || this._defaultRoute();
+    if (this.isInstalled() && !this.isAuthenticated() && !['login', 'join'].includes(requested)) {
+      this.state.redirectAfterLogin = requested;
+    }
+    const resolved = this._guardRoute(requested);
+    if (!this.isInstalled() && resolved === 'denied') {
+      this.setMessage('', 'Server not installed. Open #/install to complete first-time setup.');
+    } else if (this.isInstalled() && requested === 'install' && resolved !== 'install') {
+      this.setMessage('', 'Installation is locked. #/install is no longer available.');
+    }
+    this.state.route = resolved;
+    const expectedHash = this._buildHashRoute(resolved);
+    if (window.location.hash !== expectedHash) {
+      history.replaceState(null, '', `${window.location.pathname}${expectedHash}`);
+    }
+  },
+
   setupReact() {
-    if (!window.React || !window.ReactDOM?.createRoot) return;
+    if (!window.React || !window.ReactDOM?.createRoot || !window.ReactRouterDOM?.HashRouter) return;
     const nav = document.getElementById('nav');
     const authChip = document.getElementById('auth-chip');
     const syncBar = document.getElementById('sync-bar');
@@ -1314,39 +1374,31 @@ const App = {
     this.setupPwa();
     this.setupReact();
 
-    // Read invite code from URL query param (e.g. ?invite=ABCD1234)
+    // Import invite code from query once, then move to hash routing
     const urlParams = new URLSearchParams(window.location.search);
-    const inviteCode = urlParams.get('invite') || '';
-    if (inviteCode) this.state.pendingInviteCode = inviteCode.toUpperCase();
-
-    const isInstallPath = window.location.pathname.endsWith('/install') || window.location.pathname.endsWith('/install/');
-    if (!this.isInstalled()) {
-      // Install screen only accessible via /install (or legacy ?setup=1)
-      const isSetupUrl = isInstallPath || urlParams.get('setup') === '1' || window.location.hash === '#install';
-      this.state.route = isSetupUrl ? 'install' : 'denied';
-      if (!isSetupUrl) this.setMessage('', 'Server not installed. Open /install to complete first-time setup.');
-      this.attachNav();
-      this.render();
-      return;
-    }
-
-    if (isInstallPath) {
-      this.state.route = 'denied';
-      this.setMessage('', 'Installation is locked. /install is no longer available.');
-      this.attachNav();
-      this.render();
-      return;
+    const inviteCode = (urlParams.get('invite') || '').trim().toUpperCase();
+    if (inviteCode) this.state.pendingInviteCode = inviteCode;
+    if (window.location.search) {
+      history.replaceState(null, '', `${window.location.pathname}${window.location.hash}`);
     }
 
     await this.restoreSessionFromCookie();
-    // If not authenticated and invite code is in URL, go directly to join screen
-    if (!this.isAuthenticated()) {
-      this.state.route = inviteCode ? 'join' : 'login';
-    }
     await this.refresh();
+    this._applyRouteFromHash();
+    if (!window.location.hash) {
+      this.navigate(this._defaultRoute(), { replace: true });
+    }
     this.applyTheme();
     this.attachNav();
     this.render();
+    window.addEventListener('hashchange', () => {
+      this._applyRouteFromHash();
+      this.render();
+    });
+    window.addEventListener('popstate', () => {
+      this._applyRouteFromHash();
+      this.render();
+    });
 
     // Resume Online Mode if it was active on last session
     if (Data.mode === 'online') {
@@ -1422,9 +1474,7 @@ const App = {
     Utils.clearCookie('tenlb_session');
     this.state.currentUser = null;
     this.state.sessionToken = null;
-    this.state.route = this.isInstalled() ? 'login' : 'join';
-    this.attachNav();
-    this.render();
+    this.navigate(this._defaultRoute(), { replace: true });
   },
 
   // ---------------------------------------------------------------------------
@@ -1555,12 +1605,9 @@ const App = {
   },
 
   canAccess(route) {
-    // join is the registration screen — accessible when not authenticated
-    if (route === 'join') return this.isFirebaseMode() && !this.isAuthenticated();
+    route = route || 'overview';
     if (!this.isInstalled()) return route === 'install';
-    if (route === 'install') return !this.isInstalled();
-    if (route === 'login') return true;
-    if (!this.isAuthenticated()) return false;
+    if (!this.isAuthenticated()) return route === 'login' || (route === 'join' && this.isFirebaseMode());
     if (['overview', 'rounds', 'submit', 'settings'].includes(route)) return true;
     return this.isAdmin();
   },
@@ -1638,16 +1685,23 @@ const App = {
   renderWithReact(navModel, flash, screen) {
     if (!this.react.enabled) return false;
     const React = window.React;
+    const Router = window.ReactRouterDOM;
+    if (!Router?.HashRouter || !Router?.NavLink) return false;
+    const { HashRouter, NavLink } = Router;
     const e = React.createElement;
     const syncBar = document.getElementById('sync-bar');
     if (syncBar) syncBar.style.display = navModel.syncVisible ? 'block' : 'none';
-    this.react.navRoot.render(e(React.Fragment, null,
-      ...navModel.items.map(([key, label]) => e('button', {
+    this.react.navRoot.render(e(HashRouter, null, e(React.Fragment, null,
+      ...navModel.items.map(([key, label]) => e(NavLink, {
         key,
+        to: `/${key}`,
         className: this.state.route === key ? 'active' : '',
-        onClick: () => this.navigate(key)
+        onClick: (event) => {
+          event.preventDefault();
+          this.navigate(key);
+        }
       }, label))
-    ));
+    )));
     this.react.authRoot.render(navModel.authName
       ? e(React.Fragment, null,
         navModel.authName,
@@ -1676,25 +1730,45 @@ const App = {
 
   setMessage(msg = '', err = '') { this.state.message = msg; this.state.error = err; },
 
-  async navigate(route) {
-    this.state.error = '';
-    this.state.message = '';
-
-    if (!this.canAccess(route)) {
-      if (!this.isAuthenticated()) {
-        this.state.redirectAfterLogin = route;
-        this.state.route = 'login';
-      } else {
-        this.state.route = 'denied';
-      }
+  async navigate(route, options = {}) {
+    const target = this._sanitizeRoute(route || this._defaultRoute());
+    if (!options.keepFlash) {
+      this.state.error = '';
+      this.state.message = '';
+    }
+    if (!this.isAuthenticated() && this.isInstalled() && !['login', 'join'].includes(target)) {
+      this.state.redirectAfterLogin = target;
+    }
+    if (target === 'join' && options.inviteCode) this.state.pendingInviteCode = String(options.inviteCode).toUpperCase();
+    const nextHash = this._buildHashRoute(target, options);
+    if (window.location.hash === nextHash) {
+      this._applyRouteFromHash();
       this.render();
       return;
     }
-
-    if (route === 'login' && this.isAuthenticated()) route = 'overview';
-    if (route === 'join' && this.isAuthenticated()) route = 'overview';
-    this.state.route = route;
+    history[options.replace ? 'replaceState' : 'pushState'](null, '', `${window.location.pathname}${nextHash}`);
+    this._applyRouteFromHash();
     this.render();
+  },
+
+  routeLink(route, options = {}) {
+    return `${window.location.origin}${window.location.pathname}${this._buildHashRoute(route, options)}`;
+  },
+
+  _ensureJsOnlyFormHandling() {
+    document.querySelectorAll('form').forEach((form) => {
+      form.setAttribute('method', 'post');
+      form.setAttribute('action', 'javascript:void(0)');
+      if (!form.dataset.jsSubmitBound) {
+        form.dataset.jsSubmitBound = '1';
+        form.addEventListener('submit', (e) => e.preventDefault());
+      }
+    });
+  },
+
+  redirectToPostLogin(route) {
+    const target = route && route !== 'login' ? route : (this.state.redirectAfterLogin || 'overview');
+    return this._guardRoute(target);
   },
 
   currentRound() {
@@ -1816,7 +1890,6 @@ const App = {
     if (!this.isAdmin()) return this.renderDenied();
     const pending = this.state.invites.filter((i) => !i.usedAt);
     const used = this.state.invites.filter((i) => !!i.usedAt);
-    const baseUrl = window.location.origin + window.location.pathname;
     const pendingRows = pending.map((inv) => `<tr>
       <td><code style="font-size:.9rem;letter-spacing:.1em">${Utils.esc(inv.code)}</code></td>
       <td>${Utils.dateTime(inv.createdAt)}</td>
@@ -1860,8 +1933,7 @@ const App = {
     if (!this.isAdmin()) return this.renderDenied();
     const inv = this.state.inviteDetail;
     if (!inv) return this.renderUsers();
-    const baseUrl = window.location.origin + window.location.pathname;
-    const inviteLink = `${baseUrl}?invite=${encodeURIComponent(inv.code)}`;
+    const inviteLink = this.routeLink('join', { inviteCode: inv.code });
     return `<div class="card" style="max-width:640px;margin:0 auto">
       <div class="row between" style="margin-bottom:12px">
         <h2 style="margin:0">Invite link</h2>
@@ -2341,6 +2413,7 @@ const App = {
   },
 
   bindScreenEvents() {
+    this._ensureJsOnlyFormHandling();
     document.querySelectorAll('[data-go]').forEach((el) => el.onclick = () => this.navigate(el.dataset.go));
 
     // Join/register via invite code
@@ -2392,28 +2465,21 @@ const App = {
         await Data.adapter.consumeInvite(code, user.id);
         await this.loginAs(user);
         await this.refresh();
-        this.state.route = 'overview';
         this.state.pendingInviteCode = '';
         this.setMessage(`Welcome, ${Utils.fullName(user)}! Your account has been created.`);
-        this.render();
+        this.navigate('overview', { keepFlash: true, replace: true });
       };
     }
 
     const btnGoLogin = document.getElementById('btn-go-login');
     if (btnGoLogin) btnGoLogin.onclick = () => {
-      this.state.route = 'login';
-      this.state.error = '';
-      this.state.message = '';
-      this.render();
+      this.navigate('login');
     };
 
     const linkToJoin = document.getElementById('link-to-join');
     if (linkToJoin) linkToJoin.onclick = (e) => {
       e.preventDefault();
-      this.state.route = 'join';
-      this.state.error = '';
-      this.state.message = '';
-      this.render();
+      this.navigate('join');
     };
 
     // Invite management (admin)
@@ -2424,8 +2490,7 @@ const App = {
       await Data.adapter.createInvite(invite);
       await this.refresh();
       this.state.inviteDetail = invite;
-      this.state.route = 'invite-detail';
-      this.render();
+      this.navigate('invite-detail');
     };
 
     const btnCreateNewInvite = document.getElementById('btn-create-new-invite');
@@ -2453,8 +2518,7 @@ const App = {
       const inv = this.state.invites.find((i) => i.id === id);
       if (!inv) return;
       this.state.inviteDetail = inv;
-      this.state.route = 'invite-detail';
-      this.render();
+      this.navigate('invite-detail');
     });
 
     document.querySelectorAll('[data-delete-invite]').forEach((b) => b.onclick = async () => {
@@ -2464,7 +2528,8 @@ const App = {
       await this.refresh();
       if (this.state.inviteDetail?.id === id) {
         this.state.inviteDetail = null;
-        this.state.route = 'users';
+        this.navigate('users', { keepFlash: true, replace: true });
+        return;
       }
       this.setMessage('Invite deleted.');
       this.render();
@@ -2554,9 +2619,8 @@ const App = {
 
         const user = await Data.adapter.getUserByUsername(username);
         await this.loginAs(user);
-        this.state.route = 'overview';
         this.setMessage('Server installed successfully.');
-        this.render();
+        this.navigate('overview', { keepFlash: true, replace: true });
       };
     }
 
@@ -2566,7 +2630,7 @@ const App = {
         e.preventDefault();
         const username = loginForm.username.value.trim();
         const password = loginForm.password.value;
-        const redirect = loginForm.redirect.value || 'overview';
+        const redirect = loginForm.redirect.value || this.state.redirectAfterLogin || 'overview';
         const user = await Data.adapter.getUserByUsername(username);
         if (!user) return this.fail('Invalid username or password.');
         if (user.userType === 'participant' || user.canLogin === false) return this.fail('This account cannot log in.');
@@ -2577,17 +2641,15 @@ const App = {
         await this.loginAs(user);
         await this.refresh();
 
-        const route = redirect === 'login' ? 'overview' : redirect;
-        this.state.route = this.canAccess(route) ? route : (this.isAdmin() ? 'overview' : 'overview');
+        const route = this.redirectToPostLogin(redirect);
         this.setMessage(`Welcome back, ${Utils.fullName(this.state.currentUser)}.`);
-        this.render();
+        this.navigate(route, { keepFlash: true, replace: true });
       };
     }
 
     document.querySelectorAll('[data-open-round]').forEach((b) => b.onclick = () => {
       this.state.selectedRoundId = b.dataset.openRound;
-      this.state.route = 'overview';
-      this.render();
+      this.navigate('overview');
     });
 
     document.querySelectorAll('[data-week-nav]').forEach((b) => b.onclick = () => {
@@ -2680,8 +2742,7 @@ const App = {
         this.state.createDraft = null;
         await this.refresh();
         this.setMessage('Challenge round created.');
-        this.state.route = 'overview';
-        this.render();
+        this.navigate('overview', { keepFlash: true });
       };
     }
 
@@ -2701,8 +2762,7 @@ const App = {
         if (!ok) return;
         await this.refresh();
         this.setMessage('Round updated.');
-        this.state.route = 'overview';
-        this.render();
+        this.navigate('overview', { keepFlash: true });
       };
     }
 
@@ -2718,8 +2778,7 @@ const App = {
         this.state.selectedRoundId = null;
         await this.refresh();
         this.setMessage('Round deleted.');
-        this.state.route = 'rounds';
-        this.render();
+        this.navigate('rounds', { keepFlash: true });
       };
     }
 
@@ -2833,8 +2892,8 @@ const App = {
         if (!inv) return;
         if (action === 'view-invite') {
           this.state.inviteDetail = inv;
-          this.state.route = 'invite-detail';
-          return this.render();
+          this.navigate('invite-detail');
+          return;
         }
         if (action === 'delete-invite') {
           if (!confirm('Delete this invite?')) return;
@@ -2901,7 +2960,8 @@ const App = {
         }, (payload) => Data.adapter.updateUser(payload));
         if (!ok) return;
         this.state.inviteDetail = invite;
-        this.state.route = 'invite-detail';
+        this.navigate('invite-detail');
+        return;
       }
       await this.refresh();
       this.setMessage('User update saved.');
@@ -2993,9 +3053,10 @@ const App = {
         if (!ok) return this.fail('Invalid master password.');
         await Data.adapter.clearAllData();
         Utils.clearCookie('tenlb_session');
-        // Redirect to /install so the admin can re-run the install wizard
-        const root = window.location.pathname.replace(/\/install\/?$/, '/');
-        window.location.href = `${root.replace(/\/$/, '')}/install`;
+        this.state.currentUser = null;
+        this.state.sessionToken = null;
+        this.setMessage('Server reset complete.');
+        this.navigate('install', { keepFlash: true, replace: true });
       };
     }
 
@@ -3042,8 +3103,7 @@ const App = {
     const container = document.getElementById('qr-code-container');
     const status = document.getElementById('qr-status');
     if (!container || !this.state.inviteDetail) return;
-    const baseUrl = window.location.origin + window.location.pathname;
-    const inviteLink = `${baseUrl}?invite=${encodeURIComponent(this.state.inviteDetail.code)}`;
+    const inviteLink = this.routeLink('join', { inviteCode: this.state.inviteDetail.code });
     try {
       if (!window.QRCode) {
         await new Promise((res, rej) => {

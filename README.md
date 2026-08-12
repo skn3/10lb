@@ -26,8 +26,13 @@ Server mode and Firebase values are read-only in the app UI and cannot be edited
 ## Installation lock
 
 - Initial setup is available only when the app is not installed.
-- Use `/install` (or legacy `?setup=1`) for first-time setup.
-- After installation, setup is locked and future `/install` access is rejected.
+- Use `#/install` for first-time setup.
+- After installation, setup is locked and future `#/install` access is rejected.
+
+## Routing and forms
+
+- The app uses hash routing for all in-app navigation (`#/login`, `#/join`, `#/overview`, etc.) so it works on GitHub Pages static hosting.
+- All form submissions are handled in JavaScript and prevented from native URL redirects.
 
 ## User types
 
