@@ -2861,7 +2861,7 @@ const App = {
       </div>
       ${syncError ? `<p class="error small">Error: ${Utils.esc(syncError)}</p>` : ''}
       ${mode === 'local' ? `<p class="muted small">Changes are stored only on this device.</p>` : ''}
-      <p class="small muted" style="margin-top:8px">Tracked active Firebase sessions: ${this.state.sessions.length}</p>
+      ${this.isFirebaseMode() ? `<p class="small muted" style="margin-top:8px">Tracked active Firebase sessions: ${this.state.sessions.length}</p>` : ''}
 
       <div class="row" style="margin-top:8px">
         ${mode === 'online' ? `<button class="btn secondary" id="btn-sync-retry">↻ Retry sync</button>` : ''}
@@ -2914,7 +2914,9 @@ const App = {
         if (!Utils.validPassword(password)) return this.fail('Password must include 8+ chars, a letter, a number and a symbol.');
         if (password !== confirmPassword) return this.fail('Passwords do not match.');
 
-        const invite = await this._getFirebaseInvite(code);
+        const invite = this.isFirebaseMode()
+          ? await this._getFirebaseInvite(code)
+          : await Data.adapter.getInviteByCode(code);
         if (!invite) return this.fail('Invite code not found or invalid.');
         if (invite.usedAt) return this.fail('This invite code has already been used.');
 
@@ -2923,6 +2925,7 @@ const App = {
 
         // Create the Firebase Auth account first
         if (!FirestoreAdapter.isReady()) {
+          await this._loadFirebaseSDK();
           await FirestoreAdapter.init(RuntimeConfig.firebase, 'default');
         }
         let fbUser;

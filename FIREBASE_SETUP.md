@@ -38,7 +38,7 @@ This mode is required for:
 
 ## Step 4 — Deploy Firestore Security Rules
 
-The security rules live in `/home/runner/work/10lb/10lb/firestore.rules`.
+The security rules live in `firestore.rules`.
 
 ### Using the Firebase CLI
 
@@ -57,7 +57,7 @@ firebase deploy --only firestore:rules
 
 ## Step 5 — Deploy Firestore Indexes
 
-The composite indexes live in `/home/runner/work/10lb/10lb/firestore.indexes.json`.
+The composite indexes live in `firestore.indexes.json`.
 
 ```bash
 firebase deploy --only firestore:indexes
