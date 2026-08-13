@@ -168,3 +168,6 @@ export const SyncEngine = (() => {
     isRunning: () => _running
   };
 })();
+
+// Expose on globalThis so OfflineAdapter can resolve lazily without circular imports.
+globalThis._tenlbSyncEngine = SyncEngine;

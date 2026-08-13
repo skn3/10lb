@@ -2383,9 +2383,16 @@ export const App = {
 
   _generateInviteCode() {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // unambiguous chars (no 0/O, 1/I)
+    // Use rejection sampling to eliminate modulo bias.
+    const limit = 256 - (256 % chars.length);
     let code = '';
-    const bytes = crypto.getRandomValues(new Uint8Array(8));
-    for (const b of bytes) code += chars[b % chars.length];
+    while (code.length < 8) {
+      const bytes = crypto.getRandomValues(new Uint8Array(16));
+      for (const b of bytes) {
+        if (b < limit) code += chars[b % chars.length];
+        if (code.length === 8) break;
+      }
+    }
     return code;
   },
 
