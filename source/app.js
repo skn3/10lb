@@ -10,6 +10,7 @@ import { SyncEngine } from './features/storage/classes/syncEngine.js';
 import { Domain } from './domain.js';
 import { OfflinePlugin } from './features/auth/classes/offlinePlugin.js';
 import { FirebasePlugin } from './features/auth/classes/firebasePlugin.js';
+import { SubmissionStatusPanel } from './shared/components/submissionStatusPanel.js';
 
 // =============================================================================
 // APP — Main application object
@@ -165,7 +166,7 @@ export const App = {
   _sanitizeRoute(route) {
     const value = String(route || '').replace(/^\/+/, '').trim();
     const normalized = value || 'overview';
-    const allowed = new Set(['install', 'denied', 'login', 'join', 'overview', 'rounds', 'create', 'edit', 'delete', 'submit', 'users', 'settings', 'invite-detail']);
+    const allowed = new Set(['install', 'denied', 'login', 'join', 'overview', 'rounds', 'create', 'edit', 'delete', 'submit', 'users', 'settings', 'invite-detail', 'finish-week']);
     return allowed.has(normalized) ? normalized : 'overview';
   },
 
@@ -1193,7 +1194,8 @@ export const App = {
       submit: () => this.renderSubmit(),
       users: () => this.renderUsers(),
       settings: () => this.renderSettings(),
-      'invite-detail': () => this.renderInviteDetail()
+      'invite-detail': () => this.renderInviteDetail(),
+      'finish-week': () => this.renderFinishWeek()
     };
     const renderRoute = routeScreens[route];
     return renderRoute ? renderRoute() : '';
@@ -1396,9 +1398,12 @@ export const App = {
     const view = Domain.weekView(round, this.state.users, subs, selectedWeek);
     const prizeRanks = Domain.payoutRankIndices(round);
     const isFinalComplete = Domain.isWeekComplete(round, this.state.users, subs, round.weeksCount);
-    const prizeEmoji = ['🏆','🥈','🥉','🎖️','🎗️','⭐','✨'];
+    const canGoNext = selectedWeek < currentWeek;
 
     const unit = this.state.appSettings.weightFormat || 'lb';
+    const statusPanel = (this.isAdmin() && selectedWeek === currentWeek)
+      ? SubmissionStatusPanel.render(round, this.state.users, subs, selectedWeek, {})
+      : '';
     return `<div class="card">
       <div class="row between">
         <h2 style="margin:0">${Utils.esc(round.title)}</h2>
@@ -1410,17 +1415,18 @@ export const App = {
         <span>Weigh day: ${Utils.weekdayName(round.weighDay)}</span>
       </div>
       <div class="row between week-nav" style="margin-top:8px">
-        <button data-week-nav="prev">◀</button>
+        <button data-week-nav="prev" ${selectedWeek <= 1 ? 'disabled' : ''}>◀</button>
         <strong>Week ${selectedWeek} of ${round.weeksCount}</strong>
-        <button data-week-nav="next">▶</button>
+        <button data-week-nav="next" ${!canGoNext ? 'disabled' : ''}>▶</button>
       </div>
       <div class="small muted" style="margin-top:6px">Current progress week: ${currentWeek} / ${round.weeksCount}</div>
+      ${statusPanel}
       ${selectedWeek === 1 ? `<div class="card" style="margin-top:10px"><strong>Start weights</strong>${view.startWeights.length ? `<ul>${view.startWeights.map((x)=>`<li>${Utils.esc(Utils.fullName(x.user))}: ${x.weight}${unit}</li>`).join('')}</ul>` : '<p class="muted">No start weights submitted yet.</p>'}</div>` : ''}
       ${selectedWeek >= 2 ? `<div class="card" style="margin-top:10px"><strong>Leaderboard</strong>
       <table class="table"><thead><tr><th>Rank</th><th>User</th><th>% Lost</th><th>This Week</th><th>Total</th></tr></thead><tbody>
       ${view.ranked.map((r, i) => {
         const rank = i + 1;
-        const prize = prizeRanks.includes(i) ? ` ${prizeEmoji[i] || '🏅'}` : '';
+        const prize = prizeRanks.includes(i) ? ` ${['🏆','🥈','🥉','🎖️','🎗️','⭐','✨'][i] || '🏅'}` : '';
         const delta = r.weeklyLoss > 0 ? `<span class="arrow-loss">⬇ ${r.weeklyLoss}${unit}</span>` : (r.weeklyLoss < 0 ? `<span class="arrow-gain">⬆ ${Math.abs(r.weeklyLoss)}${unit}</span>` : '—');
         return `<tr><td>${rank}${prize}</td><td>${Utils.esc(Utils.fullName(r.user))}</td><td>${Utils.pct(r.percentLoss)}</td><td>${delta}</td><td>${r.totalLoss}${unit}</td></tr>`;
       }).join('') || '<tr><td colspan="5" class="muted">No leaderboard data yet.</td></tr>'}
@@ -1428,6 +1434,7 @@ export const App = {
       ${view.holiday.length ? `<h4>Holiday</h4><ul>${view.holiday.map((x)=>`<li class="holiday">${Utils.esc(Utils.fullName(x.user))} (used ${x.holidaysUsed}/${round.holidaysAllowed})</li>`).join('')}</ul>`:''}
       ${view.forfeit.length ? `<h4>Forfeit</h4><ul>${view.forfeit.map((x)=>`<li class="forfeit">${Utils.esc(Utils.fullName(x.user))}</li>`).join('')}</ul>`:''}
       ${view.pending.length ? `<h4>Pending</h4><ul>${view.pending.map((x)=>`<li>${Utils.esc(Utils.fullName(x.user))}</li>`).join('')}</ul>`:''}
+      <div style="margin-top:12px"><canvas id="weight-chart" height="220"></canvas></div>
       </div>` : ''}
       ${selectedWeek === round.weeksCount && isFinalComplete ? `<div class="card"><strong>Final winners</strong><ol>${view.ranked.slice(0, prizeRanks.length).map((r, i)=>`<li>${Utils.esc(Utils.fullName(r.user))} — ${Utils.money(round.prizeSplits[i] || 0, this.state.appSettings.currency)}</li>`).join('')}</ol></div>` : ''}
       ${round.status === 'active' && this.isAdmin() ? `<div class="row"><button class="btn secondary" data-go="edit">Edit Round</button><button class="btn danger" data-go="delete">Delete Round</button></div>` : ''}
@@ -1553,11 +1560,80 @@ export const App = {
       </form></div>`;
   },
 
+  renderFinishWeek() {
+    if (!this.isAdmin()) return this.renderDenied();
+    const round = Domain.activeRound(this.state.rounds);
+    if (!round) return `<div class="card"><p class="error">No active challenge round.</p><button class="btn secondary" data-go="overview">Back</button></div>`;
+    const subs = Domain.submissionsByRound(this.state.submissions, round.id);
+    const week = Domain.calcCurrentWeek(round, this.state.users, subs);
+    const statusPanel = SubmissionStatusPanel.render(round, this.state.users, subs, week, { hideFinishWeekButton: true });
+    return `<div class="card"><h2 style="margin-top:0">Finish Week ${week}</h2>
+      ${statusPanel}
+      <p class="muted">Once you generate results, the weigh-ins for week ${week} will be finalised. After finalising, the submit screen will advance to week ${week + 1} so participants can enter their next weigh-in.</p>
+      <form id="finish-week-form">
+        <label class="row" style="margin-bottom:12px"><input type="checkbox" id="finish-week-confirm" data-label="Confirm finalise week" required style="width:auto"/> I confirm I want to finalise week ${week} results</label>
+        <div class="row"><button class="btn" type="submit">Generate Results</button><button type="button" class="btn secondary" data-go="overview">Cancel</button></div>
+      </form>
+    </div>`;
+  },
+
   renderSubmit() {
     const round = Domain.activeRound(this.state.rounds);
     if (!round) return `<div class="card"><p class="error">Weekly submissions are only available when a challenge is active.</p></div>`;
     const subs = Domain.submissionsByRound(this.state.submissions, round.id);
     const week = Domain.calcCurrentWeek(round, this.state.users, subs);
+    const unit = this.state.appSettings.weightFormat || 'lb';
+
+    const statusPanel = this.isAdmin()
+      ? SubmissionStatusPanel.render(round, this.state.users, subs, week, { hideSubmitButton: true })
+      : '';
+
+    // Normal (non-admin) user view
+    if (!this.isAdmin()) {
+      const userId = this.state.currentUser.id;
+
+      // Forfeit check
+      if (Domain.isForfeit(subs, userId, week)) {
+        return `<div class="card"><h2 style="margin-top:0">User Weekly Submission</h2>
+          <p class="small muted">Active round: ${Utils.esc(round.title)} • Week ${week}</p>
+          <p class="error">You have forfeited this challenge round. You can no longer submit weights.</p>
+        </div>`;
+      }
+
+      // Already submitted this week
+      const existing = Domain.submissionFor(subs, week, userId);
+      if (existing) {
+        let submittedMsg = '';
+        if (existing.type === 'weight') {
+          submittedMsg = `<p>Your submitted weight for week ${week}: <strong>${existing.weight}${unit}</strong></p>`;
+        } else if (existing.type === 'holiday') {
+          submittedMsg = `<p>You are on holiday this week (week ${week}).</p>`;
+        } else {
+          submittedMsg = `<p>Submission recorded for week ${week}: <strong>${Utils.esc(existing.type)}</strong></p>`;
+        }
+        const canEdit = !Domain.isWeekFinished(round, week);
+        return `<div class="card"><h2 style="margin-top:0">User Weekly Submission</h2>
+          <p class="small muted">Active round: ${Utils.esc(round.title)} • Week ${week}</p>
+          ${submittedMsg}
+          ${canEdit ? `<p class="small muted">The week has not been finalised yet. You may edit your submission.</p>
+          <button class="btn secondary" data-edit-submission="${Utils.escAttr(existing.id)}">Edit Submission</button>` : `<p class="small muted">This week has been finalised and can no longer be edited.</p>`}
+        </div>`;
+      }
+    }
+
+    // Admin all-submitted check
+    if (this.isAdmin()) {
+      const allDone = Domain.isWeekComplete(round, this.state.users, subs, week);
+      if (allDone) {
+        return `<div class="card"><h2 style="margin-top:0">User Weekly Submission</h2>
+          <p class="small muted">Active round: ${Utils.esc(round.title)} • Week ${week}</p>
+          ${statusPanel}
+          <p class="muted">All submissions for week ${week} have been completed.</p>
+          <button class="btn" data-go="finish-week">Finish Week</button>
+        </div>`;
+      }
+    }
+
     let users = Domain.roundUsers(round, this.state.users)
       .filter((u) => (!u.invitedAt || !!u.inviteAcceptedAt))
       .filter((u) => !Domain.isForfeit(subs, u.id, week));
@@ -1567,6 +1643,7 @@ export const App = {
 
     return `<div class="card"><h2 style="margin-top:0">User Weekly Submission</h2>
       <p class="small muted">Active round: ${Utils.esc(round.title)} • Week ${week}</p>
+      ${statusPanel}
       <form id="submit-form" class="grid two">
         <div><label>User</label><select name="userId" ${!this.isAdmin() ? 'disabled' : ''} required>
           ${users.length ? users.map((u)=>`<option value="${u.id}" ${u.id === this.state.currentUser.id ? 'selected' : ''}>${Utils.esc(Utils.fullName(u))}</option>`).join('') : '<option value="">No user available</option>'}
@@ -2210,8 +2287,10 @@ export const App = {
     document.querySelectorAll('[data-week-nav]').forEach((b) => b.onclick = () => {
       const round = this.currentRound();
       if (!round) return;
-      const curr = this.state.weekCursor[round.id] ?? Math.min(Domain.calcCurrentWeek(round, this.state.users, Domain.submissionsByRound(this.state.submissions, round.id)), round.weeksCount);
-      const next = b.dataset.weekNav === 'prev' ? Math.max(1, curr - 1) : Math.min(round.weeksCount, curr + 1);
+      const subs = Domain.submissionsByRound(this.state.submissions, round.id);
+      const currentWeek = Domain.calcCurrentWeek(round, this.state.users, subs);
+      const curr = this.state.weekCursor[round.id] ?? Math.min(currentWeek, round.weeksCount);
+      const next = b.dataset.weekNav === 'prev' ? Math.max(1, curr - 1) : Math.min(currentWeek, curr + 1);
       this.state.weekCursor[round.id] = next;
       this.render();
     });
@@ -2331,6 +2410,25 @@ export const App = {
         await this.refresh();
         this.setMessage('Round deleted.');
         this.navigate('rounds', { keepFlash: true });
+      });
+    }
+
+    const finishWeekForm = document.getElementById('finish-week-form');
+    if (finishWeekForm) {
+      this.bindAsyncFormSubmit(finishWeekForm, async () => {
+        if (!document.getElementById('finish-week-confirm').checked) return this.fail('Please confirm to continue.');
+        const round = Domain.activeRound(this.state.rounds);
+        if (!round) return this.fail('No active challenge.');
+        const subs = Domain.submissionsByRound(this.state.submissions, round.id);
+        const week = Domain.calcCurrentWeek(round, this.state.users, subs);
+        const completedWeeks = [...(round.completedWeeks || [])];
+        if (!completedWeeks.includes(week)) completedWeeks.push(week);
+        const roundUpdate = { ...round, completedWeeks };
+        const ok = await this._saveWithConflictResolver('Round', roundUpdate, (payload) => Data.adapter.updateRound(payload));
+        if (!ok) return;
+        await this.refresh();
+        this.setMessage(`Week ${week} finalised.`);
+        this.navigate('overview', { keepFlash: true });
       });
     }
 
@@ -2729,6 +2827,75 @@ export const App = {
         }
       };
     }
+
+    this._attachWeightChart();
+  },
+
+  _attachWeightChart() {
+    const canvas = document.getElementById('weight-chart');
+    if (!canvas || typeof Chart === 'undefined') return;
+    const round = this.currentRound();
+    if (!round) return;
+    const subs = Domain.submissionsByRound(this.state.submissions, round.id);
+    const currentWeek = Domain.calcCurrentWeek(round, this.state.users, subs);
+    const selectedWeek = this.state.weekCursor[round.id] || Math.min(currentWeek, round.weeksCount);
+    if (selectedWeek < 2) return;
+
+    const participants = Domain.roundUsers(round, this.state.users);
+    const unit = this.state.appSettings.weightFormat || 'lb';
+    const colors = ['#0f766e','#4338ca','#be123c','#d97706','#047857','#7c3aed','#db2777','#0369a1','#65a30d','#dc2626'];
+    const labels = [];
+    for (let w = 1; w <= selectedWeek; w++) labels.push(`Wk ${w}`);
+
+    const datasets = [];
+    participants.forEach((u, idx) => {
+      const startSub = Domain.firstWeight(subs, u.id);
+      if (!startSub) return; // no start weight, skip
+      const startWeight = Utils.safeNum(startSub.weight);
+      if (!startWeight) return;
+      const data = [];
+      for (let w = 1; w <= selectedWeek; w++) {
+        if (Domain.isForfeit(subs, u.id, w)) { data.push(null); continue; }
+        const sub = Domain.submissionFor(subs, w, u.id);
+        if (!sub || sub.type === 'holiday') { data.push(null); continue; }
+        if (sub.type !== 'weight') { data.push(null); continue; }
+        const loss = Utils.round2(startWeight - Utils.safeNum(sub.weight));
+        data.push(loss);
+      }
+      if (data.every((d) => d === null)) return;
+      datasets.push({
+        label: Utils.fullName(u),
+        data,
+        borderColor: colors[idx % colors.length],
+        backgroundColor: colors[idx % colors.length] + '22',
+        tension: 0.3,
+        spanGaps: false,
+        pointRadius: 4
+      });
+    });
+
+    if (!datasets.length) return;
+
+    // Destroy any previous chart instance (stored on App to survive canvas replacement)
+    if (this._weightChartInstance) { this._weightChartInstance.destroy(); this._weightChartInstance = null; }
+    this._weightChartInstance = new Chart(canvas, {
+      type: 'line',
+      data: { labels, datasets },
+      options: {
+        responsive: true,
+        plugins: {
+          legend: { position: 'bottom' },
+          title: { display: true, text: `Weight loss journey (${unit})` }
+        },
+        scales: {
+          y: {
+            title: { display: true, text: `Total loss (${unit})` },
+            ticks: { callback: (v) => `${v}${unit}` }
+          },
+          x: { title: { display: true, text: 'Week' } }
+        }
+      }
+    });
   },
 
   _generateInviteCode() {
