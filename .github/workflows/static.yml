@@ -44,10 +44,14 @@ jobs:
           # Create the dist folder that will be deployed
           mkdir -p dist/fonts
 
-          # Bundle all JavaScript files from source/ into a single bundle
-          # Currently source/index.html contains all JS inline; once JS is split
-          # into separate files under source/ this step will bundle them.
-          # For now we copy index.html as-is (no separate JS files yet).
+          # Bundle all JS modules from source/ into a single IIFE bundle.
+          # React/ReactDOM/ReactRouterDOM are loaded from CDN before bundle.js
+          # so they remain globals and do not need to be bundled.
+          esbuild source/main.js \
+            --bundle \
+            --format=iife \
+            --outfile=dist/bundle.js
+
           cp source/index.html dist/index.html
           cp source/sw.js dist/sw.js
           cp source/fonts/MaterialSymbolsRounded.woff2 dist/fonts/MaterialSymbolsRounded.woff2
