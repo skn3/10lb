@@ -9,7 +9,7 @@ export const Device = {
     if (this._id) return this._id;
     let id = localStorage.getItem('tenlb_clientId');
     if (!id) {
-      id = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      id = crypto.randomUUID ? crypto.randomUUID() : Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, '0')).join('');
       localStorage.setItem('tenlb_clientId', id);
     }
     this._id = id;
