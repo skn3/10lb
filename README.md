@@ -1,5 +1,21 @@
 # 10lb Challenge
 
+## Project layout
+
+```
+source/             — public files compiled and deployed to GitHub Pages
+  index.html        — application shell
+  sw.js             — service worker
+  fonts/            — self-hosted WOFF2 fonts
+config.json         — runtime configuration (deployed separately, see below)
+firestore.rules     — Firestore security rules
+firestore.indexes.json — Firestore composite indexes
+FIREBASE_SETUP.md   — Firebase project setup guide
+README.md           — this file
+```
+
+The GitHub Actions workflow (`static.yml`) uses **esbuild** to bundle JavaScript files from `source/` into a single bundle, then deploys a hard-coded whitelist of files (`index.html`, `sw.js`, `fonts/`, bundle) to the GitHub Pages root. `config.json` must be deployed manually alongside the app or via your hosting provider — it is not bundled.
+
 ## Runtime configuration
 
 The app reads `/config.json` at startup. This file must be deployed with the static files.

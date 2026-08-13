@@ -1,4 +1,4 @@
-# Simple workflow for deploying static content to GitHub Pages
+# Workflow for building and deploying static content to GitHub Pages
 name: Deploy static content to Pages
 
 on:
@@ -22,7 +22,6 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # Single deploy job since we're just deploying
   deploy:
     environment:
       name: github-pages
@@ -31,13 +30,37 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install esbuild
+        run: npm install --global esbuild
+
+      - name: Build
+        run: |
+          # Create the dist folder that will be deployed
+          mkdir -p dist/fonts
+
+          # Bundle all JavaScript files from source/ into a single bundle
+          # Currently source/index.html contains all JS inline; once JS is split
+          # into separate files under source/ this step will bundle them.
+          # For now we copy index.html as-is (no separate JS files yet).
+          cp source/index.html dist/index.html
+          cp source/sw.js dist/sw.js
+          cp source/fonts/MaterialSymbolsRounded.woff2 dist/fonts/MaterialSymbolsRounded.woff2
+
       - name: Setup Pages
         uses: actions/configure-pages@v5
+
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          # Upload entire repository
-          path: '.'
+          # Deploy only the built dist folder (served from domain root)
+          path: 'dist'
+
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v5
