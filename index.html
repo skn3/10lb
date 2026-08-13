@@ -1790,7 +1790,7 @@ const App = {
       tempApp = window.firebase.initializeApp(firebaseConfig, testName);
       const tempDb = tempApp.firestore();
       await tempDb.collection('challenges').doc('default').get();
-      await tempApp.delete();
+      try { await tempApp.delete(); } catch (_) {}
       return { ok: true };
     } catch (err) {
       // permission-denied means Firestore is reachable and rules are enforced correctly.
