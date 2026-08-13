@@ -2876,9 +2876,9 @@ export const App = {
 
     if (!datasets.length) return;
 
-    // Destroy any previous chart on this canvas
-    if (canvas._chartInstance) canvas._chartInstance.destroy();
-    canvas._chartInstance = new Chart(canvas, {
+    // Destroy any previous chart instance (stored on App to survive canvas replacement)
+    if (this._weightChartInstance) { this._weightChartInstance.destroy(); this._weightChartInstance = null; }
+    this._weightChartInstance = new Chart(canvas, {
       type: 'line',
       data: { labels, datasets },
       options: {
