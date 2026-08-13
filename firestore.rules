@@ -54,7 +54,7 @@ service cloud.firestore {
         && request.resource.data.code == resource.data.code
         && request.resource.data.createdAt == resource.data.createdAt
         && request.resource.data.inviteType == resource.data.inviteType
-        && (!('userId' in resource.data) || !('userId' in request.resource.data) || request.resource.data.userId == resource.data.userId)
+        && (!('userId' in resource.data) || request.resource.data.userId == resource.data.userId)
         && request.resource.data.usedByFirebaseUid == request.auth.uid;
     }
 

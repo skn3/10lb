@@ -2345,7 +2345,7 @@ export const App = {
         return;
       }
       await this.refresh();
-      if (this.state.editingUserId === user.id && action !== 'edit') this.state.editingUserId = null;
+      if (this.state.editingUserId && this.state.editingUserId === id && action !== 'edit') this.state.editingUserId = null;
       this.setMessage('User update saved.');
       this.render();
     });
