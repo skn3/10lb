@@ -484,6 +484,185 @@ export const App = {
     return { items: [], authName: '', authRole: '', syncVisible: false, syncText: '' };
   },
 
+  _syncNavVisibility(nav, hasItems) {
+    if (!nav) return;
+    nav.classList.toggle('has-items', !!hasItems);
+    if (!hasItems) nav.classList.remove('is-dragging');
+  },
+
+  _stopNavTween() {
+    if (!this._navMotion?.raf) return;
+    cancelAnimationFrame(this._navMotion.raf);
+    this._navMotion.raf = null;
+  },
+
+  _setNavOffset(offset) {
+    const navMotion = this._navMotion;
+    if (!navMotion?.track) return;
+    navMotion.offset = offset;
+    navMotion.track.style.transform = `translate3d(${offset}px,0,0)`;
+  },
+
+  _applyNavRubber(offset) {
+    const navMotion = this._navMotion;
+    if (!navMotion) return offset;
+    if (offset > navMotion.maxOffset) return navMotion.maxOffset + ((offset - navMotion.maxOffset) * 0.35);
+    if (offset < navMotion.minOffset) return navMotion.minOffset + ((offset - navMotion.minOffset) * 0.35);
+    return offset;
+  },
+
+  _measureNavBounds() {
+    const navMotion = this._navMotion;
+    if (!navMotion?.nav || !navMotion.track) return;
+    const viewportWidth = navMotion.nav.clientWidth || 0;
+    const trackWidth = navMotion.track.scrollWidth || 0;
+    navMotion.maxOffset = 0;
+    navMotion.minOffset = Math.min(0, viewportWidth - trackWidth);
+    if (navMotion.minOffset === 0) {
+      this._setNavOffset(0);
+      navMotion.velocity = 0;
+      return;
+    }
+    if (navMotion.offset > navMotion.maxOffset) this._setNavOffset(navMotion.maxOffset);
+    if (navMotion.offset < navMotion.minOffset) this._setNavOffset(navMotion.minOffset);
+  },
+
+  _startNavInertia() {
+    const navMotion = this._navMotion;
+    if (!navMotion) return;
+    this._stopNavTween();
+    let lastTs = performance.now();
+    const tick = (ts) => {
+      const dt = Math.min(32, Math.max(8, ts - lastTs));
+      lastTs = ts;
+      const spring = 0.14;
+      const damping = 0.9;
+      const friction = 0.95;
+      let next = navMotion.offset + (navMotion.velocity * dt);
+      if (next > navMotion.maxOffset) {
+        const over = navMotion.maxOffset - next;
+        navMotion.velocity += over * spring;
+      } else if (next < navMotion.minOffset) {
+        const over = navMotion.minOffset - next;
+        navMotion.velocity += over * spring;
+      }
+      navMotion.velocity *= (next > navMotion.maxOffset || next < navMotion.minOffset) ? damping : friction;
+      if (Math.abs(navMotion.velocity) > 2.2) navMotion.velocity = Math.sign(navMotion.velocity) * 2.2;
+      next = navMotion.offset + (navMotion.velocity * dt);
+      if (Math.abs(navMotion.velocity) < 0.01) {
+        if (next > navMotion.maxOffset) next = navMotion.maxOffset;
+        if (next < navMotion.minOffset) next = navMotion.minOffset;
+      }
+      this._setNavOffset(next);
+      const inBounds = next <= navMotion.maxOffset + 0.5 && next >= navMotion.minOffset - 0.5;
+      if (Math.abs(navMotion.velocity) < 0.01 && inBounds) {
+        navMotion.velocity = 0;
+        navMotion.raf = null;
+        return;
+      }
+      navMotion.raf = requestAnimationFrame(tick);
+    };
+    navMotion.raf = requestAnimationFrame(tick);
+  },
+
+  _teardownNavMotion() {
+    const navMotion = this._navMotion;
+    if (!navMotion) return;
+    this._stopNavTween();
+    navMotion.nav?.removeEventListener('pointerdown', navMotion.onPointerDown);
+    window.removeEventListener('pointermove', navMotion.onPointerMove);
+    window.removeEventListener('pointerup', navMotion.onPointerUp);
+    window.removeEventListener('pointercancel', navMotion.onPointerUp);
+    window.removeEventListener('resize', navMotion.onResize);
+    navMotion.nav?.removeEventListener('click', navMotion.onClickCapture, true);
+    this._navMotion = null;
+  },
+
+  _ensureNavMotion() {
+    const nav = document.getElementById('nav');
+    if (!nav || !nav.classList.contains('has-items')) {
+      this._teardownNavMotion();
+      return;
+    }
+    const track = nav.querySelector('.menu-track');
+    if (!track) {
+      this._teardownNavMotion();
+      return;
+    }
+    if (this._navMotion?.nav === nav && this._navMotion?.track === track) {
+      this._measureNavBounds();
+      return;
+    }
+    this._teardownNavMotion();
+    const navMotion = {
+      nav,
+      track,
+      dragging: false,
+      pointerId: null,
+      startX: 0,
+      startOffset: 0,
+      lastX: 0,
+      lastTs: 0,
+      velocity: 0,
+      offset: 0,
+      minOffset: 0,
+      maxOffset: 0,
+      moved: false,
+      suppressClickUntil: 0,
+      raf: null
+    };
+    navMotion.onPointerDown = (event) => {
+      if (event.button != null && event.button !== 0) return;
+      this._stopNavTween();
+      navMotion.dragging = true;
+      navMotion.pointerId = event.pointerId;
+      navMotion.startX = event.clientX;
+      navMotion.startOffset = navMotion.offset;
+      navMotion.lastX = event.clientX;
+      navMotion.lastTs = event.timeStamp;
+      navMotion.velocity = 0;
+      navMotion.moved = false;
+      nav.classList.add('is-dragging');
+      if (event.target?.setPointerCapture) event.target.setPointerCapture(event.pointerId);
+    };
+    navMotion.onPointerMove = (event) => {
+      if (!navMotion.dragging || navMotion.pointerId !== event.pointerId) return;
+      const dx = event.clientX - navMotion.startX;
+      if (Math.abs(dx) > 4) navMotion.moved = true;
+      const rawOffset = navMotion.startOffset + dx;
+      this._setNavOffset(this._applyNavRubber(rawOffset));
+      const dt = Math.max(1, event.timeStamp - navMotion.lastTs);
+      const vx = (event.clientX - navMotion.lastX) / dt;
+      navMotion.velocity = (navMotion.velocity * 0.7) + (vx * 0.3);
+      if (Math.abs(navMotion.velocity) > 2.2) navMotion.velocity = Math.sign(navMotion.velocity) * 2.2;
+      navMotion.lastX = event.clientX;
+      navMotion.lastTs = event.timeStamp;
+    };
+    navMotion.onPointerUp = (event) => {
+      if (!navMotion.dragging || (event.pointerId != null && navMotion.pointerId !== event.pointerId)) return;
+      navMotion.dragging = false;
+      navMotion.pointerId = null;
+      nav.classList.remove('is-dragging');
+      if (navMotion.moved) navMotion.suppressClickUntil = Date.now() + 250;
+      this._startNavInertia();
+    };
+    navMotion.onResize = () => this._measureNavBounds();
+    navMotion.onClickCapture = (event) => {
+      if (Date.now() < navMotion.suppressClickUntil) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+    };
+    nav.addEventListener('pointerdown', navMotion.onPointerDown);
+    window.addEventListener('pointermove', navMotion.onPointerMove);
+    window.addEventListener('pointerup', navMotion.onPointerUp);
+    window.addEventListener('pointercancel', navMotion.onPointerUp);
+    window.addEventListener('resize', navMotion.onResize);
+    nav.addEventListener('click', navMotion.onClickCapture, true);
+    this._navMotion = navMotion;
+    this._measureNavBounds();
+  },
+
   _buildSyncStatus(syncMeta) {
     if (!syncMeta) return { syncVisible: false, syncText: '' };
     const mode = syncMeta.storageMode || 'local';
@@ -515,24 +694,29 @@ export const App = {
         authChip.innerHTML = '';
         if (syncBar) syncBar.style.display = 'none';
       }
+      this._syncNavVisibility(nav, false);
       return model;
     }
 
     model.items = [
-      ['overview', 'Current Round'],
-      ['rounds', 'Rounds'],
-      ['submit', 'Submit']
+      { key: 'overview', label: 'Current Round', icon: 'dashboard' },
+      { key: 'rounds', label: 'Rounds', icon: 'calendar_month' },
+      { key: 'submit', label: 'Submit', icon: 'monitor_weight' }
     ];
-    if (this.isAdmin()) model.items.push(['create', 'Create'], ['users', 'Users']);
-    model.items.push(['settings', 'Settings']);
+    if (this.isAdmin()) model.items.push(
+      { key: 'create', label: 'Create', icon: 'add_circle' },
+      { key: 'users', label: 'Users', icon: 'group' }
+    );
+    model.items.push({ key: 'settings', label: 'Settings', icon: 'settings' });
     model.authName = Utils.fullName(this.state.currentUser);
     model.authRole = this.roleLabel(this.state.currentUser);
 
     if (!this.react.enabled) {
-      nav.innerHTML = model.items.map(([key, label]) => `<button data-route="${key}">${label}</button>`).join('');
+      nav.innerHTML = `<div class="menu-track" role="menubar">${model.items.map((item) => `<a href="${this._buildHashRoute(item.key)}" class="menu-item ${this.state.route === item.key ? 'active' : ''}" role="menuitem" data-route="${item.key}" aria-current="${this.state.route === item.key ? 'page' : 'false'}"><span class="material-symbols-rounded" aria-hidden="true">${item.icon}</span><span>${Utils.esc(item.label)}</span></a>`).join('')}</div>`;
       nav.onclick = (e) => {
-        const b = e.target.closest('button[data-route]');
+        const b = e.target.closest('[data-route]');
         if (!b) return;
+        e.preventDefault();
         this.navigate(b.dataset.route);
       };
       authChip.innerHTML = `${Utils.esc(model.authName)} <span class="tag">${model.authRole}</span> <button class="btn secondary small" id="btn-logout">Logout</button>`;
@@ -547,6 +731,7 @@ export const App = {
       syncBar.style.display = model.syncVisible ? 'block' : 'none';
       syncBar.textContent = model.syncVisible ? model.syncText : '';
     }
+    this._syncNavVisibility(nav, model.items.length > 0);
     return model;
   },
 
@@ -559,16 +744,19 @@ export const App = {
     const e = React.createElement;
     const syncBar = document.getElementById('sync-bar');
     if (syncBar) syncBar.style.display = navModel.syncVisible ? 'block' : 'none';
-    this.react.navRoot.render(e(HashRouter, null, e(React.Fragment, null,
-      ...navModel.items.map(([key, label]) => e(Link, {
-        key,
-        to: `/${key}`,
-        className: this.state.route === key ? 'active' : '',
+    this._syncNavVisibility(document.getElementById('nav'), navModel.items.length > 0);
+    this.react.navRoot.render(e(HashRouter, null, e('div', { className: 'menu-track', role: 'menubar' },
+      ...navModel.items.map((item) => e(Link, {
+        key: item.key,
+        to: `/${item.key}`,
+        className: `menu-item ${this.state.route === item.key ? 'active' : ''}`,
+        role: 'menuitem',
+        'aria-current': this.state.route === item.key ? 'page' : 'false',
         onClick: (event) => {
           event.preventDefault();
-          this.navigate(key);
+          this.navigate(item.key);
         }
-      }, label))
+      }, e('span', { className: 'material-symbols-rounded', 'aria-hidden': 'true' }, item.icon), e('span', null, item.label)))
     )));
     this.react.authRoot.render(navModel.authName
       ? e(React.Fragment, null,
@@ -606,23 +794,16 @@ export const App = {
       bar.className = `snackbar ${item.kind}`;
       bar.setAttribute('role', 'status');
       bar.dataset.snackId = item.id;
-      const icon = document.createElement('span');
-      icon.className = 'snackbar-icon material-symbols-rounded filled';
-      icon.setAttribute('aria-hidden', 'true');
-      icon.textContent = item.kind === 'error' ? 'sentiment_stressed' : 'mood';
       const txt = document.createElement('span');
       txt.className = 'snackbar-text';
       txt.textContent = item.text;
-      bar.appendChild(icon);
       bar.appendChild(txt);
-      if (item.kind === 'error') {
-        const closeBtn = document.createElement('button');
-        closeBtn.className = 'snackbar-close';
-        closeBtn.setAttribute('aria-label', 'Dismiss');
-        closeBtn.textContent = '✕';
-        closeBtn.addEventListener('click', () => this._removeSnack(item.id));
-        bar.appendChild(closeBtn);
-      }
+      const closeBtn = document.createElement('button');
+      closeBtn.className = 'snackbar-close';
+      closeBtn.setAttribute('aria-label', 'Dismiss');
+      closeBtn.textContent = '✕';
+      closeBtn.addEventListener('click', () => this._removeSnack(item.id));
+      bar.appendChild(closeBtn);
       host.appendChild(bar);
     }
   },
@@ -1043,6 +1224,7 @@ export const App = {
     const screen = this.resolveScreen();
 
     if (!this.renderWithReact(navModel, screen)) app.innerHTML = screen;
+    this._ensureNavMotion();
     this.updateStickyOffsets();
     this.renderSnackbar();
 
@@ -2488,8 +2670,22 @@ export const App = {
           if (!ok) return this.fail('Invalid master password.');
         }
 
+        if (this.isFirebaseMode() && SyncEngine.isRunning()) await SyncEngine.stop();
+        if (this.isFirebaseMode() && FirestoreAdapter.isReady()) await FirestoreAdapter.resetChallengeData();
         await Data.adapter.clearAllData();
-        if (this.isFirebaseMode() && FirestoreAdapter.isReady()) await FirestoreAdapter.signOut();
+        if (this.isFirebaseMode() && FirestoreAdapter.isReady()) {
+          const authUser = FirestoreAdapter.getAuth()?.currentUser;
+          if (authUser) {
+            try {
+              await authUser.delete();
+            } catch (e) {
+              console.warn('Could not delete current Firebase auth user during reset:', e.message);
+              await FirestoreAdapter.signOut();
+            }
+          } else {
+            await FirestoreAdapter.signOut();
+          }
+        }
         Utils.clearCookie('tenlb_session');
         this.state.currentUser = null;
         this.state.sessionToken = null;
@@ -2498,7 +2694,9 @@ export const App = {
         this.state.inviteDetail = null;
         this.state.selectedUsers = [];
         this.setMessage('Server reset complete.');
-        this.navigate('install', { keepFlash: true, replace: true });
+        history.replaceState(null, '', window.location.pathname);
+        this._applyRouteFromHash();
+        this.render();
       });
     }
 
