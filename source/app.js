@@ -25,6 +25,7 @@ export const App = {
     snackbarRoot: null
   },
   messageTimer: null,
+  stickyOffsetTimer: null,
   state: {
     route: 'overview',
     message: '',
@@ -43,6 +44,7 @@ export const App = {
     sessionToken: null,
     redirectAfterLogin: 'overview',
     selectedUsers: [],
+    editingUserId: null,
     syncMeta: null,        // device/sync metadata (from getDeviceMeta)
     inviteDetail: null,    // current invite being viewed
     pendingInviteCode: '', // invite code from hash route/query import
@@ -263,6 +265,10 @@ export const App = {
     window.addEventListener('hashchange', () => {
       this._applyRouteFromHash();
       this.render();
+    });
+    window.addEventListener('resize', () => {
+      if (this.stickyOffsetTimer) clearTimeout(this.stickyOffsetTimer);
+      this.stickyOffsetTimer = setTimeout(() => this.updateStickyOffsets(), 80);
     });
 
     // Plugin-specific startup side effects (e.g. starting Firestore sync).
@@ -593,10 +599,6 @@ export const App = {
   renderSnackbar() {
     const host = document.getElementById('snackbar-root');
     if (!host) return;
-    // Position just below nav (header + nav)
-    const nav = document.getElementById('nav');
-    const navRect = nav ? nav.getBoundingClientRect() : null;
-    host.style.top = navRect && navRect.bottom > 0 ? navRect.bottom + 'px' : '0';
     if (!this._snacks) this._snacks = [];
     host.innerHTML = '';
     for (const item of this._snacks) {
@@ -605,9 +607,9 @@ export const App = {
       bar.setAttribute('role', 'status');
       bar.dataset.snackId = item.id;
       const icon = document.createElement('span');
-      icon.className = 'snackbar-icon';
+      icon.className = 'snackbar-icon material-symbols-rounded filled';
       icon.setAttribute('aria-hidden', 'true');
-      icon.textContent = item.kind === 'error' ? '😢' : '😊';
+      icon.textContent = item.kind === 'error' ? 'sentiment_stressed' : 'mood';
       const txt = document.createElement('span');
       txt.className = 'snackbar-text';
       txt.textContent = item.text;
@@ -657,6 +659,11 @@ export const App = {
 
   errorMessage(err) {
     return err?.message || String(err || 'Something went wrong.');
+  },
+
+  updateStickyOffsets() {
+    const header = document.querySelector('header');
+    document.documentElement.style.setProperty('--header-offset', `${header?.offsetHeight || 0}px`);
   },
 
   enhanceButtons() {
@@ -766,6 +773,7 @@ export const App = {
         'install-form': 'install_desktop',
         'login-form': 'login',
         'join-form': 'person_add',
+        'edit-user-form': 'save',
         'create-form': 'add_circle',
         'edit-form': 'save',
         'delete-form': 'delete',
@@ -790,46 +798,139 @@ export const App = {
 
   applyFormCustomValidity(form) {
     if (!form) return;
-    form.querySelectorAll('input, textarea').forEach((field) => {
+    this.prepareFormFields(form);
+    form.querySelectorAll('input, select, textarea').forEach((field) => {
       if (typeof field.setCustomValidity === 'function') field.setCustomValidity('');
     });
-    form.querySelectorAll('input[required], textarea[required]').forEach((field) => {
+    form.querySelectorAll('input[required], select[required], textarea[required]').forEach((field) => {
       const type = (field.getAttribute('type') || 'text').toLowerCase();
-      if (field.disabled || ['checkbox', 'radio', 'password', 'file'].includes(type)) return;
-      if (!String(field.value || '').trim()) field.setCustomValidity('This field is required.');
+      if (field.disabled) return;
+      if (['checkbox', 'radio'].includes(type)) {
+        if (!field.checked) field.setCustomValidity(`${this.fieldLabel(field)} is required.`);
+        return;
+      }
+      if (type === 'file') return;
+      if (!String(field.value || '').trim()) field.setCustomValidity(`${this.fieldLabel(field)} is required.`);
     });
     const password = form.querySelector('[name="password"]');
     const newPassword = form.querySelector('[name="newPassword"]');
     const confirmPassword = form.querySelector('[name="confirmPassword"]');
     const passwordSource = newPassword || password;
     if (passwordSource && confirmPassword && confirmPassword.value && passwordSource.value !== confirmPassword.value) {
-      confirmPassword.setCustomValidity('Passwords do not match.');
+      confirmPassword.setCustomValidity(`${this.fieldLabel(confirmPassword)} must match ${this.fieldLabel(passwordSource)}.`);
     }
+  },
+
+  prepareFormFields(form) {
+    if (!form) return;
+    const fields = form.querySelectorAll('input, select, textarea');
+    fields.forEach((field, index) => {
+      const type = (field.getAttribute('type') || '').toLowerCase();
+      if (['hidden', 'button', 'submit', 'reset'].includes(type)) return;
+      if (!field.id) {
+        const safeName = (field.name || field.type || `field-${index}`).replace(/[^a-z0-9_-]+/gi, '-').toLowerCase();
+        field.id = `${form.id || 'form'}-${safeName}-${index}`;
+      }
+      const label = Array.from(field.parentElement?.children || []).find((node) => node.tagName === 'LABEL' && !node.contains(field));
+      if (label && !label.getAttribute('for')) label.setAttribute('for', field.id);
+      this.fieldErrorSlot(field);
+    });
+  },
+
+  fieldLabel(field) {
+    if (!field) return 'This field';
+    const explicit = field.getAttribute('data-label') || field.getAttribute('aria-label');
+    if (explicit) return explicit.trim();
+    if (field.id) {
+      const linked = field.form?.querySelector(`label[for="${CSS.escape(field.id)}"]`);
+      if (linked) return linked.textContent.replace(/\s+/g, ' ').trim();
+    }
+    const wrapping = field.closest('label');
+    if (wrapping) {
+      const text = wrapping.textContent.replace(/\s+/g, ' ').trim();
+      if (text) return text;
+    }
+    return (field.name || 'This field').replace(/([A-Z])/g, ' $1').replace(/[-_]+/g, ' ').trim().replace(/^./, (x) => x.toUpperCase());
+  },
+
+  fieldErrorSlot(field) {
+    if (!field?.form) return null;
+    const type = (field.getAttribute('type') || '').toLowerCase();
+    if (['hidden', 'button', 'submit', 'reset'].includes(type)) return null;
+    const id = `${field.id}-error`;
+    let slot = document.getElementById(id);
+    if (!slot) {
+      slot = document.createElement('div');
+      slot.id = id;
+      slot.className = 'field-error';
+      const anchor = ['checkbox', 'radio'].includes(type) ? (field.closest('label') || field) : field;
+      anchor.insertAdjacentElement('afterend', slot);
+    }
+    field.setAttribute('aria-describedby', id);
+    return slot;
+  },
+
+  fieldValidationMessage(field) {
+    const label = this.fieldLabel(field);
+    if (field.validationMessage && field.validity.customError) return field.validationMessage;
+    if (field.validity.valueMissing) return `${label} is required.`;
+    if (field.validity.typeMismatch) {
+      const type = (field.getAttribute('type') || '').toLowerCase();
+      if (type === 'email') return `Enter a valid ${label.toLowerCase()}.`;
+      return `${label} is invalid.`;
+    }
+    if (field.validity.patternMismatch && field.title) return `${label}: ${field.title}`;
+    if (field.validity.tooShort) return `${label} is too short.`;
+    if (field.validity.tooLong) return `${label} is too long.`;
+    if (field.validity.rangeUnderflow) return `${label} must be at least ${field.min}.`;
+    if (field.validity.rangeOverflow) return `${label} must be no more than ${field.max}.`;
+    if (field.validity.stepMismatch) return `${label} has an invalid value.`;
+    if (field.validity.badInput) return `${label} has an invalid value.`;
+    return field.validationMessage || `${label} is invalid.`;
+  },
+
+  setFieldValidation(field, message = '') {
+    if (!field || !field.willValidate) return;
+    const slot = this.fieldErrorSlot(field);
+    if (!slot) return;
+    const hasError = !!message;
+    field.classList.toggle('is-invalid', hasError);
+    field.setAttribute('aria-invalid', hasError ? 'true' : 'false');
+    slot.classList.toggle('visible', hasError);
+    slot.textContent = message;
+  },
+
+  clearFormValidation(form) {
+    if (!form) return;
+    form.querySelectorAll('input, select, textarea').forEach((field) => this.setFieldValidation(field, ''));
   },
 
   enhanceFormValidation(form) {
     if (!form || form.dataset.validationBound === '1') return;
     form.dataset.validationBound = '1';
-    const update = () => this.applyFormCustomValidity(form);
+    this.prepareFormFields(form);
+    const update = (event) => {
+      this.applyFormCustomValidity(form);
+      if (event?.target) this.setFieldValidation(event.target, '');
+      const confirmPassword = form.querySelector('[name="confirmPassword"]');
+      if (confirmPassword && event?.target && ['password', 'newPassword', 'confirmPassword'].includes(event.target.name)) {
+        this.setFieldValidation(confirmPassword, '');
+      }
+    };
     form.addEventListener('input', update);
     form.addEventListener('change', update);
-    form.addEventListener('invalid', (e) => {
-      const target = e.target;
-      if (target?.validationMessage) {
-        this.setMessage('', target.validationMessage);
-        this.renderSnackbar();
-      }
-    }, true);
     update();
   },
 
   validateForm(form) {
+    this.clearFormValidation(form);
     this.applyFormCustomValidity(form);
-    if (form.checkValidity()) return true;
-    form.reportValidity();
-    const invalid = form.querySelector(':invalid');
-    this.setMessage('', invalid?.validationMessage || 'Please correct the highlighted fields.');
-    this.renderSnackbar();
+    const invalidFields = Array.from(form.querySelectorAll('input, select, textarea'))
+      .filter((field) => field.willValidate && !field.disabled && !field.checkValidity());
+    if (!invalidFields.length) return true;
+    invalidFields.forEach((field) => this.setFieldValidation(field, this.fieldValidationMessage(field)));
+    invalidFields[0]?.focus();
+    this.fail('Form validation failed.');
     return false;
   },
 
@@ -942,6 +1043,7 @@ export const App = {
     const screen = this.resolveScreen();
 
     if (!this.renderWithReact(navModel, screen)) app.innerHTML = screen;
+    this.updateStickyOffsets();
     this.renderSnackbar();
 
     this.bindScreenEvents();
@@ -991,7 +1093,7 @@ export const App = {
         <input name="redirect" type="hidden" value="${Utils.escAttr(this.state.redirectAfterLogin || 'overview')}" />
         <button class="btn" type="submit">Login</button>
       </form>
-      ${this.isFirebaseMode() ? '<p class="small muted" style="margin-top:12px">Have an invite code? <a href="#" id="link-to-join" style="color:var(--brand)">Register here</a>.</p>' : ''}
+      ${this.isFirebaseMode() ? '<p class="small muted" style="margin-top:12px">Have an invite code? <a href="#" id="link-to-join" style="color:var(--brand)">Click here to register</a></p>' : ''}
     </div>`;
   },
 
@@ -1209,8 +1311,11 @@ export const App = {
         <div><label>Weigh day</label><select name="weighDay">${['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'].map((x,i)=>`<option value="${i}" ${String(i)===String(d.weighDay)?'selected':''}>${x}</option>`).join('')}</select></div>
 
         <div class="card" style="grid-column:1/-1"><div class="row between"><strong>Users (${count})</strong><div class="row"><button type="button" data-user-toggle="all" class="btn secondary small">Toggle all</button></div></div>
-          <div class="grid three" style="margin-top:8px">${d.allNames.map((n)=>`<label class="row"><input type="checkbox" data-user-name="${Utils.escAttr(n)}" ${d.selectedNames.includes(n)?'checked':''} style="width:auto"/> ${Utils.esc(n)}</label>`).join('') || '<p class="muted">No users yet.</p>'}</div>
-          <div class="row" style="margin-top:8px"><input id="new-user-name" type="text" autocomplete="name" placeholder="Add new user full name" value="${Utils.escAttr(d.newName || '')}"/><button type="button" class="btn" data-add-user="1">Add</button></div>
+          <div class="grid three" style="margin-top:8px">${d.allNames.map((n)=>`<label class="row"><input type="checkbox" data-user-name="${Utils.escAttr(n)}" data-label="${Utils.escAttr(n)}" ${d.selectedNames.includes(n)?'checked':''} style="width:auto"/> ${Utils.esc(n)}</label>`).join('') || '<p class="muted">No users yet.</p>'}</div>
+          <div style="margin-top:8px">
+            <label for="new-user-name">Add user full name</label>
+            <div class="row"><input id="new-user-name" type="text" autocomplete="name" placeholder="Add new user full name" value="${Utils.escAttr(d.newName || '')}"/><button type="button" class="btn" data-add-user="1">Add</button></div>
+          </div>
         </div>
 
         <div class="card" style="grid-column:1/-1">
@@ -1258,7 +1363,10 @@ export const App = {
     if (!round) return `<div class="card"><p class="muted">No round selected.</p></div>`;
     return `<div class="card"><h2>Delete Challenge Round</h2><p class="error">This cannot be undone.</p>
       <form id="delete-form">
-        <label class="row"><input type="checkbox" id="confirm-delete" required style="width:auto"/> I confirm delete <strong>${Utils.esc(round.title)}</strong></label>
+        <div>
+          <label for="confirm-delete">Confirm delete</label>
+          <label class="row"><input type="checkbox" id="confirm-delete" data-label="Confirm delete" required style="width:auto"/> I confirm delete <strong>${Utils.esc(round.title)}</strong></label>
+        </div>
         <div class="row" style="margin-top:10px"><button class="btn danger" type="submit">Delete round</button><button type="button" class="btn secondary" data-go="overview">Cancel</button></div>
       </form></div>`;
   },
@@ -1289,7 +1397,10 @@ export const App = {
           <div><label>Weight (${this.state.appSettings.weightFormat})</label><input name="weight" type="number" step="0.01" min="1" inputmode="decimal" /></div>
         </div>
         <div id="holiday-note" class="small muted" style="grid-column:1/-1"></div>
-        <div id="forfeit-confirm-wrap" class="hidden" style="grid-column:1/-1"><label class="row"><input type="checkbox" id="forfeit-confirm" style="width:auto"/> Confirm user forfeit</label></div>
+        <div id="forfeit-confirm-wrap" class="hidden" style="grid-column:1/-1">
+          <label for="forfeit-confirm">Confirm forfeit</label>
+          <label class="row"><input type="checkbox" id="forfeit-confirm" data-label="Confirm forfeit" style="width:auto"/> Confirm user forfeit</label>
+        </div>
         <div style="grid-column:1/-1" class="row"><button class="btn" type="submit">Submit</button></div>
       </form></div>`;
   },
@@ -1422,7 +1533,20 @@ export const App = {
       </tr>`;
     }).join('');
 
+    const editingUser = this.state.users.find((user) => user.id === this.state.editingUserId);
     return `<div class="card"><div class="row between"><h2 style="margin:0">Users</h2><div class="row">${this.isFirebaseMode() ? '<button class="btn" id="btn-create-invite">Create invite</button>' : ''}<button class="btn danger" data-bulk-delete="1">Delete selected</button></div></div>
+      ${editingUser ? `<div class="card" style="margin-top:12px">
+        <h3 style="margin-top:0">Edit user</h3>
+        <form id="edit-user-form" class="grid two">
+          <div><label>First name</label><input name="firstName" type="text" required autocomplete="given-name" value="${Utils.escAttr(editingUser.firstName || '')}" /></div>
+          <div><label>Last name</label><input name="lastName" type="text" required autocomplete="family-name" value="${Utils.escAttr(editingUser.lastName || '')}" /></div>
+          <div style="grid-column:1/-1"><label>Email</label><input name="username" type="email" disabled value="${Utils.escAttr(editingUser.username || '')}" /></div>
+          <div style="grid-column:1/-1" class="row">
+            <button class="btn" type="submit">Save user</button>
+            <button class="btn secondary" type="button" id="btn-cancel-edit-user">Cancel</button>
+          </div>
+        </form>
+      </div>` : ''}
       <div class="grid three" style="margin-top:8px">
         <div><label>Type</label><select id="users-filter-type"><option value="all" ${f.type==='all'?'selected':''}>All</option><option value="master" ${f.type==='master'?'selected':''}>Master</option><option value="admin" ${f.type==='admin'?'selected':''}>Admin</option><option value="user" ${f.type==='user'?'selected':''}>User</option><option value="participant" ${f.type==='participant'?'selected':''}>Participant</option>${this.isFirebaseMode() ? `<option value="invite" ${f.type==='invite'?'selected':''}>Invite</option>` : ''}</select></div>
         <div><label>Status</label><select id="users-filter-status"><option value="all" ${f.status==='all'?'selected':''}>All</option><option value="confirmed" ${f.status==='confirmed'?'selected':''}>Confirmed</option><option value="invited" ${f.status==='invited'?'selected':''}>Invited</option></select></div>
@@ -1493,7 +1617,7 @@ export const App = {
       <h3 style="margin-top:0">Reset server</h3>
       ${this.state.currentUser.isMaster ? `<form id="server-reset-form" class="grid two">
           <div><label>Master password</label><input name="password" type="password" required autocomplete="current-password" /></div>
-          <div><label>Confirm reset</label><label class="row"><input style="width:auto" type="checkbox" name="confirm" required /> Yes, uninstall this server</label></div>
+          <div><label for="server-reset-form-confirm-1">Confirm reset</label><label class="row"><input id="server-reset-form-confirm-1" data-label="Confirm reset" style="width:auto" type="checkbox" name="confirm" required /> Yes, uninstall this server</label></div>
           <div style="grid-column:1/-1"><button class="btn danger" type="submit">Reset server</button></div>
         </form>` : `<p class="error">Only the master admin can reset this server.</p>`}
     </div>`;
@@ -2157,12 +2281,9 @@ export const App = {
       const user = this.state.users.find((u) => u.id === id);
       if (!user) return;
       if (action === 'edit') {
-        const firstName = prompt('First name', user.firstName || '');
-        if (firstName === null) return;
-        const lastName = prompt('Last name', user.lastName || '');
-        if (lastName === null) return;
-        const ok = await this._saveWithConflictResolver('User', { ...user, firstName: firstName.trim(), lastName: lastName.trim() }, (payload) => Data.adapter.updateUser(payload));
-        if (!ok) return;
+        this.state.editingUserId = user.id;
+        this.render();
+        return;
       } else if (action === 'password') {
         if (this.isFirebaseMode()) {
           // Firebase mode: send a password reset email via Firebase Auth
@@ -2228,6 +2349,7 @@ export const App = {
         return;
       }
       await this.refresh();
+      if (this.state.editingUserId && this.state.editingUserId === id && action !== 'edit') this.state.editingUserId = null;
       this.setMessage('User update saved.');
       this.render();
     });
@@ -2325,6 +2447,27 @@ export const App = {
         this.render();
       });
     }
+
+    const editUserForm = document.getElementById('edit-user-form');
+    if (editUserForm && this.state.editingUserId) {
+      this.bindAsyncFormSubmit(editUserForm, async () => {
+        const user = this.state.users.find((entry) => entry.id === this.state.editingUserId);
+        if (!user) return this.fail('User not found.');
+        const firstName = editUserForm.firstName.value.trim();
+        const lastName = editUserForm.lastName.value.trim();
+        const ok = await this._saveWithConflictResolver('User', { ...user, firstName, lastName }, (payload) => Data.adapter.updateUser(payload));
+        if (!ok) return;
+        this.state.editingUserId = null;
+        await this.refresh();
+        this.setMessage('User update saved.');
+        this.render();
+      });
+    }
+    const cancelEditUser = document.getElementById('btn-cancel-edit-user');
+    if (cancelEditUser) cancelEditUser.onclick = () => {
+      this.state.editingUserId = null;
+      this.render();
+    };
 
     const resetForm = document.getElementById('server-reset-form');
     if (resetForm) {
