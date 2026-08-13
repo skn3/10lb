@@ -269,18 +269,28 @@ export const OfflineAdapter = (() => {
     // ---- Device / sync metadata (local-only, never synced) -------------------
     async getDeviceMeta() {
       const d = await get('settings', 'device');
-      return d || {
+      if (d) {
+        if (Object.prototype.hasOwnProperty.call(d, 'firebaseConfig')) {
+          const { firebaseConfig, ...sanitised } = d;
+          await put('settings', { ...sanitised, key: 'device' });
+          return sanitised;
+        }
+        return d;
+      }
+      return {
         key: 'device',
         clientId: Device.getId(),
         storageMode: 'local',  // 'local' | 'online'
-        firebaseConfig: null,
         firebaseUidMap: {},    // localUserId → firebaseUid
         syncStatus: 'idle',    // 'idle' | 'syncing' | 'synced' | 'pending' | 'error'
         lastSyncAt: null,
         syncError: null
       };
     },
-    saveDeviceMeta: async (meta) => put('settings', { ...meta, key: 'device' }),
+    saveDeviceMeta: async (meta) => {
+      const { firebaseConfig, ...sanitised } = (meta || {});
+      return put('settings', { ...sanitised, key: 'device' });
+    },
 
     // Helper used by write methods: enqueue a sync operation when online
     _maybeEnqueue(entityType, entityId, operation, payload, userId) {

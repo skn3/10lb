@@ -354,7 +354,7 @@ export const App = {
     Data.mode = 'online';
 
     const meta = await Data.adapter.getDeviceMeta();
-    await Data.adapter.saveDeviceMeta({ ...meta, storageMode: 'online', firebaseConfig: RuntimeConfig.firebase });
+    await Data.adapter.saveDeviceMeta({ ...meta, storageMode: 'online' });
 
     if (this.state.currentUser) await this._ensureFirebaseAuthenticatedState(this.state.currentUser);
     await this.loadSyncMeta();
@@ -953,9 +953,18 @@ export const App = {
 
   renderInstall() {
     const s = this.state.appSettings || {};
+    const firebase = RuntimeConfig.firebase || {};
     return `<div class="card"><h2 style="margin-top:0">Install server</h2>
       <p class="muted">Configure the server before first use.</p>
       <form id="install-form" class="grid two">
+        <div><label>Server mode (config.js)</label><input disabled value="${Utils.escAttr(RuntimeConfig.serverMode || '')}" /></div>
+        <div><label>Firebase API Key (config.js)</label><input disabled value="${Utils.escAttr(firebase.apiKey || '')}" /></div>
+        <div><label>Firebase Auth Domain (config.js)</label><input disabled value="${Utils.escAttr(firebase.authDomain || '')}" /></div>
+        <div><label>Firebase Project ID (config.js)</label><input disabled value="${Utils.escAttr(firebase.projectId || '')}" /></div>
+        <div><label>Firebase Storage Bucket (config.js)</label><input disabled value="${Utils.escAttr(firebase.storageBucket || '')}" /></div>
+        <div><label>Firebase Messaging Sender ID (config.js)</label><input disabled value="${Utils.escAttr(firebase.messagingSenderId || '')}" /></div>
+        <div><label>Firebase App ID (config.js)</label><input disabled value="${Utils.escAttr(firebase.appId || '')}" /></div>
+        <div style="grid-column:1/-1" class="small muted">These values are read-only previews from config.js and are not saved by this form.</div>
         <div><label>Server name</label><input name="serverName" type="text" required autocomplete="organization" value="${Utils.escAttr(s.serverName || '10lb Challenge')}" /></div>
         <div><label>Email</label><input name="username" type="email" inputmode="email" required autocomplete="email" autocapitalize="none" spellcheck="false" /></div>
         <div><label>Password</label><input name="password" type="password" required ${Utils.passwordInputAttrs('new-password')} /></div>
