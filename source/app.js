@@ -422,13 +422,13 @@ export const App = {
   },
 
   async enableOnlineMode(firebaseConfig) {
-    if (!this.isFirebaseMode()) return this.fail('Server mode is offline in config.json. Set serverMode to "firebase" to enable online mode.');
+    if (!this.isFirebaseMode()) return this.fail('Server mode is offline in config.js. Set serverMode to "firebase" to enable online mode.');
     await this._initOnlineMode(firebaseConfig || RuntimeConfig.firebase);
     this.setMessage('Online Mode enabled. Synchronising…');
   },
 
   async disableOnlineMode() {
-    return this.fail('Mode is controlled by deployed config.json and cannot be changed from UI.');
+    return this.fail('Mode is controlled by deployed config.js and cannot be changed from UI.');
   },
 
   async testFirebaseConnection(firebaseConfig) {
@@ -1476,7 +1476,7 @@ export const App = {
       <div><label>Firebase Storage Bucket</label><input disabled value="${this.isMaster() ? Utils.escAttr(firebase.storageBucket || '') : ''}" /></div>
       <div><label>Firebase Messaging Sender ID</label><input disabled value="${this.isMaster() ? Utils.escAttr(firebase.messagingSenderId || '') : ''}" /></div>
       <div><label>Firebase App ID</label><input disabled value="${this.isMaster() ? Utils.escAttr(firebase.appId || '') : ''}" /></div>
-      <div style="grid-column:1/-1" class="small muted">Runtime mode and Firebase settings are read from deployed config.json and cannot be changed from UI.</div>
+      <div style="grid-column:1/-1" class="small muted">Runtime mode and Firebase settings are read from config.js and cannot be changed from UI.</div>
       <div class="row" style="align-items:flex-end"><button class="btn" type="submit">Save server settings</button></div>
     </form>
 
@@ -1525,7 +1525,7 @@ export const App = {
 
     <div class="card" id="firebase-config-card">
       <h3 style="margin-top:0">Firebase Configuration (read-only)</h3>
-      <p class="muted small">This configuration is read from deployed <code>config.json</code>. UI changes are disabled.</p>
+      <p class="muted small">This configuration is read from <code>config.js</code>. UI changes are disabled.</p>
       <form id="firebase-config-form" class="grid two">
         <div><label>API Key</label><input disabled name="apiKey" value="${Utils.escAttr(cfg.apiKey || '')}" placeholder="AIza…" /></div>
         <div><label>Auth Domain</label><input disabled name="authDomain" value="${Utils.escAttr(cfg.authDomain || '')}" placeholder="project.firebaseapp.com" /></div>
@@ -2365,7 +2365,7 @@ export const App = {
       firebaseTestBtn.onclick = async () => {
         const cfg = RuntimeConfig.firebase;
         const resultEl = document.getElementById('firebase-test-result');
-        if (!cfg?.apiKey || !cfg?.authDomain || !cfg?.projectId) { if (resultEl) resultEl.innerHTML = '<span class="error">Incomplete firebase config in config.json.</span>'; return; }
+        if (!cfg?.apiKey || !cfg?.authDomain || !cfg?.projectId) { if (resultEl) resultEl.innerHTML = '<span class="error">Incomplete firebase config in config.js.</span>'; return; }
         firebaseTestBtn.disabled = true;
         this.setButtonLabel(firebaseTestBtn, 'Testing…');
         if (resultEl) resultEl.innerHTML = '';
@@ -2451,4 +2451,3 @@ export const App = {
     el.scrollTop = el.scrollHeight;
   }
 };
-

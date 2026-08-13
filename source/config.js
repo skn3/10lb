@@ -8,39 +8,20 @@
 //       submissions
 //   4 – added invites store (for invite-code-based registration)
 // =============================================================================
-export const Config = { DB_NAME: 'tenlb-challenge', DB_VERSION: 4, RUNTIME_CONFIG_PATH: './config.json' };
+export const Config = { DB_NAME: 'tenlb-challenge', DB_VERSION: 4 };
 
 export let RuntimeConfig = {
-  serverMode: 'offline', // 'offline' | 'firebase'
+  serverMode: 'firebase', // 'offline' | 'firebase'
   firebase: {
-    apiKey: '',
-    authDomain: '',
-    projectId: '',
-    storageBucket: '',
-    messagingSenderId: '',
-    appId: ''
+    apiKey: 'AIzaSyA_7hRQBxeQXki4PKjZaeF_dudmwgxrOo8',
+    authDomain: 'lb-c8f25.firebaseapp.com',
+    projectId: 'lb-c8f25',
+    storageBucket: 'lb-c8f25.firebasestorage.app',
+    messagingSenderId: '112321058734',
+    appId: '1:112321058734:web:b348538b988a0a45001a3f'
   }
 };
 
 export async function loadRuntimeConfig() {
-  try {
-    const res = await fetch(Config.RUNTIME_CONFIG_PATH, { cache: 'no-store' }).catch(() => null);
-    if (!res?.ok) return RuntimeConfig;
-    const raw = await res.json();
-    const mode = raw?.serverMode === 'firebase' ? 'firebase' : 'offline';
-    RuntimeConfig = {
-      serverMode: mode,
-      firebase: {
-        apiKey: String(raw?.firebase?.apiKey || ''),
-        authDomain: String(raw?.firebase?.authDomain || ''),
-        projectId: String(raw?.firebase?.projectId || ''),
-        storageBucket: String(raw?.firebase?.storageBucket || ''),
-        messagingSenderId: String(raw?.firebase?.messagingSenderId || ''),
-        appId: String(raw?.firebase?.appId || '')
-      }
-    };
-  } catch {
-    RuntimeConfig = { ...RuntimeConfig, serverMode: 'offline' };
-  }
   return RuntimeConfig;
 }

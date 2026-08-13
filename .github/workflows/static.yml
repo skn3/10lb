@@ -45,6 +45,7 @@ jobs:
           mkdir -p dist/fonts
 
           # Bundle all JS modules from source/ into a single IIFE bundle.
+          # source/config.js is included directly by the bundle (no config.json conversion).
           # React/ReactDOM/ReactRouterDOM are loaded from CDN before bundle.js
           # so they remain globals and do not need to be bundled.
           esbuild source/main.js \
