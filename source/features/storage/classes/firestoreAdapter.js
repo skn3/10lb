@@ -19,6 +19,7 @@ export const FirestoreAdapter = (() => {
   // Firestore path: /challenges/{challengeId}/{entityType}/{id}
   const colRef = (entityType) => _db.collection('challenges').doc(_challengeId).collection(entityType);
   const docRef = (entityType, id) => colRef(entityType).doc(id);
+  const challengeRef = () => _db.collection('challenges').doc(_challengeId);
 
   return {
     async init(firebaseConfig, challengeId) {
@@ -107,6 +108,44 @@ export const FirestoreAdapter = (() => {
     async removeRecord(entityType, id) {
       if (!_db) throw new Error('FirestoreAdapter not initialised');
       await docRef(entityType, id).delete();
+    },
+
+    async resetChallengeData() {
+      if (!_db) throw new Error('FirestoreAdapter not initialised');
+      const uid = _auth?.currentUser?.uid || null;
+      const deleteCollection = async (name) => {
+        // Chunk deletes to keep each write batch below Firestore limits.
+        while (true) {
+          const snap = await colRef(name).limit(200).get();
+          if (snap.empty) break;
+          const batch = _db.batch();
+          snap.docs.forEach((doc) => batch.delete(doc.ref));
+          await batch.commit();
+          if (snap.size < 200) break;
+        }
+      };
+      await deleteCollection('sessions');
+      await deleteCollection('invites');
+      await deleteCollection('submissions');
+      await deleteCollection('rounds');
+      await deleteCollection('users');
+
+      // Remove any extra admins first, keep current admin until the very end.
+      const adminSnap = await colRef('admins').get();
+      const batch = _db.batch();
+      adminSnap.docs.forEach((doc) => {
+        if (doc.id !== uid) batch.delete(doc.ref);
+      });
+      await batch.commit();
+
+      await challengeRef().delete();
+      if (uid) {
+        try {
+          await docRef('admins', uid).delete();
+        } catch (e) {
+          console.warn('Could not delete current admin record during reset:', e.message);
+        }
+      }
     },
 
     async getChallengeDoc() {
