@@ -1782,23 +1782,16 @@ const App = {
   },
 
   async testFirebaseConnection(firebaseConfig) {
-    let tempApp;
     try {
       await this._loadFirebaseSDK();
       // Use a temporary named app to test connectivity without touching the main session
       const testName = `tenlb-test-${Date.now()}`;
-      tempApp = window.firebase.initializeApp(firebaseConfig, testName);
+      const tempApp = window.firebase.initializeApp(firebaseConfig, testName);
       const tempDb = tempApp.firestore();
       await tempDb.collection('challenges').doc('default').get();
-      try { await tempApp.delete(); } catch (_) {}
+      await tempApp.delete();
       return { ok: true };
     } catch (err) {
-      // permission-denied means Firestore is reachable and rules are enforced correctly.
-      // An unauthenticated read is expected to be denied on a secured project.
-      if (err.code === 'permission-denied') {
-        if (tempApp) { try { await tempApp.delete(); } catch (_) {} }
-        return { ok: true };
-      }
       return { ok: false, error: err.message || String(err) };
     }
   },
@@ -2322,6 +2315,7 @@ const App = {
         <div style="grid-column:1/-1" class="small muted">Password must contain at least 8 characters, including a number, letter, and symbol.</div>
         <div style="grid-column:1/-1" class="row"><button class="btn" type="submit">Install server</button></div>
       </form>
+      <div id="install-log" style="display:none;margin-top:16px;padding:12px;background:var(--surface2,#1a1a2e);border:1px solid var(--border,#333);border-radius:6px;font-family:monospace;font-size:12px;line-height:1.6;color:var(--text,#ccc);max-height:300px;overflow-y:auto;white-space:pre-wrap;word-break:break-all"></div>
     </div>`;
   },
 
@@ -3095,35 +3089,59 @@ const App = {
         const theme = installForm.theme.value;
         const sessionDurationDays = Math.max(1, Utils.safeNum(installForm.sessionDurationDays.value, 7));
 
+        // Clear and show log panel
+        const logEl = document.getElementById('install-log');
+        if (logEl) { logEl.innerHTML = ''; logEl.style.display = 'block'; }
+        this.installLog('Install started.');
+        this.installLog(`Server mode: ${this.isFirebaseMode() ? 'firebase' : 'local'}`);
+
         if (!username || !firstName || !lastName) return this.fail('Complete all required fields.');
         if (!Utils.validEmail(username)) return this.fail('Enter a valid email address.');
         if (!Utils.validPassword(password)) return this.fail('Password must include 8+ chars, a letter, a number and a symbol.');
         if (password !== confirmPassword) return this.fail('Passwords do not match.');
+
+        this.installLog('Checking for existing user…');
         const exists = await Data.adapter.getUserByUsername(username);
         if (exists) return this.fail('Email already exists.');
+        this.installLog('No existing user found.');
 
         const hash = this.isFirebaseMode() ? null : await Security.createPasswordRecord(password);
         const masterUserId = Utils.id();
         let firebaseProvision = null;
         if (this.isFirebaseMode()) {
+          this.installLog('Firebase mode: provisioning master account…');
           try {
             firebaseProvision = await this._provisionFirebaseMaster(username, password, masterUserId);
+            this.installLog(`Firebase master account created. UID: ${firebaseProvision?.uid || '(none)'}`, 'ok');
           } catch (err) {
+            this.installLog(`Firebase provision error (${err.code || 'unknown'}): ${err.message || err}`, 'error');
             return this.fail(`Firebase install failed: ${err.message || err}`);
           }
           // Sign the master admin into the main tenlb-app Firebase Auth session
           // FirestoreAdapter may not be initialised yet on a fresh install, so
           // ensure it is before calling signInWithEmail.
+          this.installLog('Initialising FirestoreAdapter for sign-in…');
           if (!FirestoreAdapter.isReady()) {
-            await FirestoreAdapter.init(RuntimeConfig.firebase, 'default');
+            try {
+              await FirestoreAdapter.init(RuntimeConfig.firebase, 'default');
+              this.installLog('FirestoreAdapter initialised.', 'ok');
+            } catch (err) {
+              this.installLog(`FirestoreAdapter init error: ${err.message || err}`, 'error');
+            }
+          } else {
+            this.installLog('FirestoreAdapter already ready.');
           }
+          this.installLog(`Signing in as ${firebaseProvision?.email || username}…`);
           try {
             const email = firebaseProvision?.email || username;
             await FirestoreAdapter.signInWithEmail(email, password);
+            this.installLog('Firebase sign-in successful.', 'ok');
           } catch (err) {
+            this.installLog(`Firebase sign-in error (${err.code || 'unknown'}): ${err.message || err}`, 'error');
             return this.fail(`Firebase sign-in after install failed: ${err.message || err}`);
           }
         }
+        this.installLog('Creating local master user record…');
         await Data.adapter.createUser({
           id: masterUserId,
           username,
@@ -3137,7 +3155,9 @@ const App = {
           firebaseUid: firebaseProvision?.uid || null,
           lastLoginAt: null
         });
+        this.installLog('Master user record created.', 'ok');
 
+        this.installLog('Saving app settings…');
         this.state.appSettings = {
           ...this.state.appSettings,
           installed: true,
@@ -3150,11 +3170,16 @@ const App = {
           updatedAt: new Date().toISOString()
         };
         await Data.adapter.saveAppSettings(this.state.appSettings);
+        this.installLog('App settings saved.', 'ok');
+
+        this.installLog('Loading settings and refreshing…');
         await this.loadSettings();
         await this.refresh();
 
+        this.installLog('Logging in as master user…');
         const user = await Data.adapter.getUserByUsername(username);
         await this.loginAs(user);
+        this.installLog('Login successful. Redirecting…', 'ok');
         this.setMessage('Server installed successfully.');
         this.navigate('overview', { keepFlash: true, replace: true });
       });
@@ -3752,7 +3777,17 @@ const App = {
     }
   },
 
-  fail(msg) { this.setMessage('', msg); this.renderSnackbar(); }
+  fail(msg) { this.setMessage('', msg); this.renderSnackbar(); },
+
+  installLog(msg, type = 'info') {
+    const el = document.getElementById('install-log');
+    if (!el) return;
+    el.style.display = 'block';
+    const ts = new Date().toISOString().replace('T', ' ').replace('Z', '').slice(0, 23);
+    const color = type === 'error' ? '#f87171' : type === 'ok' ? '#4ade80' : type === 'warn' ? '#facc15' : '#94a3b8';
+    el.innerHTML += `<span style="color:${color}">[${ts}] ${Utils.escAttr(msg)}</span>\n`;
+    el.scrollTop = el.scrollHeight;
+  }
 };
 
 App.init().catch((e) => {
