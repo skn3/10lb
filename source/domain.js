@@ -38,7 +38,12 @@ export const Domain = {
     const participants = this.roundUsers(round, users);
     if (!participants.length) return 1;
     const maxWeek = Math.max(1, ...subs.map((s) => s.weekNumber));
-    const weekComplete = (w) => this.isWeekComplete(round, users, subs, w);
+    // If the round tracks completedWeeks, a week is only done when the admin
+    // explicitly finishes it. Otherwise fall back to all-submissions complete.
+    const hasCompletedWeeks = Array.isArray(round.completedWeeks);
+    const weekComplete = (w) => hasCompletedWeeks
+      ? this.isWeekFinished(round, w)
+      : this.isWeekComplete(round, users, subs, w);
     let week = 1;
     for (let w = 1; w <= round.weeksCount; w += 1) {
       week = w;
@@ -51,6 +56,9 @@ export const Domain = {
       if (this.isForfeit(subs, u.id, week)) return true;
       return !!this.submissionFor(subs, week, u.id);
     });
+  },
+  isWeekFinished(round, week) {
+    return Array.isArray(round.completedWeeks) && round.completedWeeks.includes(week);
   },
   weekView(round, users, subs, week) {
     const participants = this.roundUsers(round, users);
