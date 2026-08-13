@@ -25,6 +25,7 @@ export const App = {
     snackbarRoot: null
   },
   messageTimer: null,
+  stickyOffsetTimer: null,
   state: {
     route: 'overview',
     message: '',
@@ -265,7 +266,10 @@ export const App = {
       this._applyRouteFromHash();
       this.render();
     });
-    window.addEventListener('resize', () => this.updateStickyOffsets());
+    window.addEventListener('resize', () => {
+      if (this.stickyOffsetTimer) clearTimeout(this.stickyOffsetTimer);
+      this.stickyOffsetTimer = setTimeout(() => this.updateStickyOffsets(), 80);
+    });
 
     // Plugin-specific startup side effects (e.g. starting Firestore sync).
     await this.plugin.onInit();
