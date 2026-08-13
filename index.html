@@ -1746,27 +1746,42 @@ const App = {
 
   async _provisionFirebaseMaster(username, password, localUserId) {
     if (!this.isFirebaseMode()) return null;
+    this.installLog('Loading Firebase SDK…');
     await this._loadFirebaseSDK();
     const installName = 'tenlb-install';
     let app;
     try {
       app = window.firebase.app(installName);
+      this.installLog('Re-using existing tenlb-install Firebase app.');
     } catch {
       app = window.firebase.initializeApp(RuntimeConfig.firebase, installName);
+      this.installLog('Initialised tenlb-install Firebase app.');
     }
     const auth = app.auth();
     const email = String(username).includes('@') ? String(username) : `${username}@tenlb.local`;
+    this.installLog(`Creating Firebase Auth account for ${email}…`);
     const cred = await auth.createUserWithEmailAndPassword(email, password);
     const uid = cred?.user?.uid || null;
+    this.installLog(`Firebase Auth account created. UID: ${uid || '(none)'}`, uid ? 'ok' : 'warn');
+    // Force token refresh so the Firestore request carries a valid auth token immediately.
+    if (cred?.user) {
+      this.installLog('Refreshing auth token before Firestore writes…');
+      await cred.user.getIdToken(true);
+      this.installLog('Auth token ready.', 'ok');
+    }
     const db = app.firestore();
     if (uid) {
+      this.installLog('Writing admin record to Firestore (challenges/default/admins)…');
       await db.collection('challenges').doc('default').collection('admins').doc(uid)
         .set({ grantedAt: new Date().toISOString(), localUserId, isAdmin: true, isMaster: true }, { merge: true });
+      this.installLog('Admin record written.', 'ok');
+      this.installLog('Writing challenge root document (challenges/default)…');
       await db.collection('challenges').doc('default').set({
         installedAt: new Date().toISOString(),
         installedBy: localUserId,
         mode: 'firebase'
       }, { merge: true });
+      this.installLog('Challenge document written.', 'ok');
     }
     return { uid, email };
   },
