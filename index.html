@@ -1782,16 +1782,23 @@ const App = {
   },
 
   async testFirebaseConnection(firebaseConfig) {
+    let tempApp;
     try {
       await this._loadFirebaseSDK();
       // Use a temporary named app to test connectivity without touching the main session
       const testName = `tenlb-test-${Date.now()}`;
-      const tempApp = window.firebase.initializeApp(firebaseConfig, testName);
+      tempApp = window.firebase.initializeApp(firebaseConfig, testName);
       const tempDb = tempApp.firestore();
       await tempDb.collection('challenges').doc('default').get();
       await tempApp.delete();
       return { ok: true };
     } catch (err) {
+      // permission-denied means Firestore is reachable and rules are enforced correctly.
+      // An unauthenticated read is expected to be denied on a secured project.
+      if (err.code === 'permission-denied') {
+        if (tempApp) { try { await tempApp.delete(); } catch (_) {} }
+        return { ok: true };
+      }
       return { ok: false, error: err.message || String(err) };
     }
   },
