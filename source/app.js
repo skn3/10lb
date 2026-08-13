@@ -2444,6 +2444,27 @@ export const App = {
       });
     }
 
+    const editUserForm = document.getElementById('edit-user-form');
+    if (editUserForm && this.state.editingUserId) {
+      this.bindAsyncFormSubmit(editUserForm, async () => {
+        const user = this.state.users.find((entry) => entry.id === this.state.editingUserId);
+        if (!user) return this.fail('User not found.');
+        const firstName = editUserForm.firstName.value.trim();
+        const lastName = editUserForm.lastName.value.trim();
+        const ok = await this._saveWithConflictResolver('User', { ...user, firstName, lastName }, (payload) => Data.adapter.updateUser(payload));
+        if (!ok) return;
+        this.state.editingUserId = null;
+        await this.refresh();
+        this.setMessage('User update saved.');
+        this.render();
+      });
+    }
+    const cancelEditUser = document.getElementById('btn-cancel-edit-user');
+    if (cancelEditUser) cancelEditUser.onclick = () => {
+      this.state.editingUserId = null;
+      this.render();
+    };
+
     const resetForm = document.getElementById('server-reset-form');
     if (resetForm) {
       this.bindAsyncFormSubmit(resetForm, async () => {
@@ -2458,27 +2479,6 @@ export const App = {
           } catch {
             return this.fail('Invalid master password.');
           }
-
-          const editUserForm = document.getElementById('edit-user-form');
-          if (editUserForm && this.state.editingUserId) {
-            this.bindAsyncFormSubmit(editUserForm, async () => {
-              const user = this.state.users.find((entry) => entry.id === this.state.editingUserId);
-              if (!user) return this.fail('User not found.');
-              const firstName = editUserForm.firstName.value.trim();
-              const lastName = editUserForm.lastName.value.trim();
-              const ok = await this._saveWithConflictResolver('User', { ...user, firstName, lastName }, (payload) => Data.adapter.updateUser(payload));
-              if (!ok) return;
-              this.state.editingUserId = null;
-              await this.refresh();
-              this.setMessage('User update saved.');
-              this.render();
-            });
-          }
-          const cancelEditUser = document.getElementById('btn-cancel-edit-user');
-          if (cancelEditUser) cancelEditUser.onclick = () => {
-            this.state.editingUserId = null;
-            this.render();
-          };
         } else {
           const ok = await Security.verifyPassword(resetForm.password.value, this.state.currentUser.password);
           if (!ok) return this.fail('Invalid master password.');
