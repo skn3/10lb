@@ -224,6 +224,25 @@ Route guards are implemented in `plugin.guardRoute()` and `plugin.canAccess()`. 
 
 All form submissions are intercepted with `App.bindAsyncFormSubmit()` to prevent native URL redirects. Forms use `action="#"` and all validation is JavaScript-only. This is required for GitHub Pages static hosting.
 
+When referring to **"all forms"**, that means **every form in the app**. Any change to shared form behaviour must be applied consistently across the full set of forms on the website.
+
+Current form inventory:
+- `install-form` — install server
+- `login-form` — login
+- `join-form` — invite registration
+- `edit-user-form` — edit user
+- `create-form` — start new round
+- `edit-form` — edit round
+- `delete-form` — delete round
+- `submit-form` — submit weight / holiday / forfeit
+- `user-settings-form` — user settings
+- `user-password-form` — user password
+- `server-settings-form` — server settings
+- `server-reset-form` — server reset
+- `firebase-config-form` — firebase connection test
+
+If you add, edit, remove, rename, or replace a form, also update this form inventory immediately.
+
 ---
 
 ## User Types
