@@ -23,16 +23,5 @@ export let RuntimeConfig = {
 };
 
 export async function loadRuntimeConfig() {
-  RuntimeConfig = {
-    serverMode: RuntimeConfig.serverMode === 'firebase' ? 'firebase' : 'offline',
-    firebase: {
-      apiKey: String(RuntimeConfig.firebase?.apiKey || ''),
-      authDomain: String(RuntimeConfig.firebase?.authDomain || ''),
-      projectId: String(RuntimeConfig.firebase?.projectId || ''),
-      storageBucket: String(RuntimeConfig.firebase?.storageBucket || ''),
-      messagingSenderId: String(RuntimeConfig.firebase?.messagingSenderId || ''),
-      appId: String(RuntimeConfig.firebase?.appId || '')
-    }
-  };
   return RuntimeConfig;
 }
