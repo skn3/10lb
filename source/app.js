@@ -494,7 +494,7 @@ export const App = {
     const nb = this._navBurger;
     if (!nb) return;
     if (nb.ro) nb.ro.disconnect();
-    nb.burger?.removeEventListener('click', nb.onBurgerClick);
+    if (nb.burger && !this.react.enabled) nb.burger.removeEventListener('click', nb.onBurgerClick);
     this._navBurger = null;
   },
 
@@ -561,12 +561,9 @@ export const App = {
       if (nav.classList.contains('is-open')) this._closeNavMenu(nb);
       else this._openNavMenu(nb);
     };
-    nb.ro = new ResizeObserver(() => {
-      if (nav.classList.contains('is-open')) this._closeNavMenu(nb);
-      else this._checkNavOverflow();
-    });
+    nb.ro = new ResizeObserver(() => this._checkNavOverflow());
     nb.ro.observe(nav);
-    burger.addEventListener('click', nb.onBurgerClick);
+    if (!this.react.enabled) burger.addEventListener('click', nb.onBurgerClick);
     this._navBurger = nb;
     this._checkNavOverflow();
   },
@@ -667,7 +664,7 @@ export const App = {
           }
         }, e('span', { className: 'material-symbols-rounded', 'aria-hidden': 'true' }, item.icon), e('span', null, item.label)))
       ),
-      e('button', { className: 'menu-burger', type: 'button', 'aria-label': 'Open menu', 'aria-expanded': 'false' },
+      e('button', { className: 'menu-burger', type: 'button', 'aria-label': 'Open menu', 'aria-expanded': 'false', onClick: () => this._navBurger?.onBurgerClick?.() },
         e('span', { className: 'material-symbols-rounded', 'aria-hidden': 'true' }, 'menu')
       )
     )));
