@@ -1057,6 +1057,12 @@ const FirestoreAdapter = (() => {
       await docRef(entityType, id).delete();
     },
 
+    async getChallengeDoc() {
+      if (!_db) throw new Error('FirestoreAdapter not initialised');
+      const snap = await _db.collection('challenges').doc(_challengeId).get();
+      return snap.exists ? snap.data() : null;
+    },
+
     subscribe(entityType, onData) {
       if (!_db) return () => {};
       return colRef(entityType).onSnapshot((snap) => {
@@ -1088,6 +1094,196 @@ const Data = {
 
   isOnline() { return this.mode === 'online'; }
 };
+
+// =============================================================================
+// SERVER PLUGIN — Abstract base class + mode-specific implementations.
+//
+// A ServerPlugin encapsulates all behaviour that differs between offline
+// (IndexedDB-only) and firebase (Firestore-backed) server modes.  The App
+// object holds a single `plugin` instance and delegates the following
+// concerns to it:
+//
+//   • isInstalled()    — whether the app has been provisioned
+//   • defaultRoute()   — where to send the user when no specific route exists
+//   • guardRoute()     — resolve the safe route for a requested route
+//   • canAccess()      — whether a route is accessible in current state
+//   • restoreSession() — restore an existing session on page load
+//   • onLogin(user)    — called after a successful login (creates session/token)
+//   • onLogout()       — called before logout (clears session/token)
+//   • canInstall()     — returns true when installation is permitted
+//   • onInit()         — called at the end of App.init() for async side effects
+// =============================================================================
+
+class ServerPlugin {
+  constructor(app) { this._app = app; }
+  isInstalled()           { throw new Error('ServerPlugin.isInstalled is abstract'); }
+  defaultRoute()          { throw new Error('ServerPlugin.defaultRoute is abstract'); }
+  guardRoute(requested)   { throw new Error('ServerPlugin.guardRoute is abstract'); }
+  canAccess(route)        { throw new Error('ServerPlugin.canAccess is abstract'); }
+  async restoreSession()  { throw new Error('ServerPlugin.restoreSession is abstract'); }
+  async onLogin(user)     { throw new Error('ServerPlugin.onLogin is abstract'); }
+  async onLogout()        { throw new Error('ServerPlugin.onLogout is abstract'); }
+  async canInstall()      { throw new Error('ServerPlugin.canInstall is abstract'); }
+  async onInit()          {}
+}
+
+// ---------------------------------------------------------------------------
+// Offline plugin — all data lives in IndexedDB; sessions tracked via cookie.
+// The app must be explicitly installed before any other route is reachable.
+// ---------------------------------------------------------------------------
+class OfflinePlugin extends ServerPlugin {
+  isInstalled() { return !!this._app.state.appSettings?.installed; }
+
+  defaultRoute() {
+    if (!this.isInstalled()) return 'install';
+    if (!this._app.isAuthenticated()) return 'login';
+    return 'overview';
+  }
+
+  guardRoute(requested) {
+    if (!this.isInstalled()) return requested === 'install' ? 'install' : 'denied';
+    if (!this._app.isAuthenticated()) return 'login';
+    if (['install', 'login', 'join'].includes(requested)) return 'overview';
+    return this.canAccess(requested) ? requested : 'denied';
+  }
+
+  canAccess(route) {
+    route = route || 'overview';
+    if (!this.isInstalled()) return route === 'install';
+    if (!this._app.isAuthenticated()) return route === 'login';
+    if (['overview', 'rounds', 'submit', 'settings'].includes(route)) return true;
+    return this._app.isAdmin();
+  }
+
+  async restoreSession() {
+    const token = Utils.getCookie('tenlb_session');
+    if (!token) return;
+    const session = await Data.adapter.getSession(token);
+    if (!session) { Utils.clearCookie('tenlb_session'); return; }
+    if (new Date(session.expiresAt).getTime() < Date.now()) {
+      await Data.adapter.deleteSession(token);
+      Utils.clearCookie('tenlb_session');
+      this._app.setMessage('', 'Your session expired. Please log in again.');
+      return;
+    }
+    const user = await Data.adapter.getUserById(session.userId);
+    if (!user) { await Data.adapter.deleteSession(token); Utils.clearCookie('tenlb_session'); return; }
+    this._app.state.currentUser = user;
+    this._app.state.sessionToken = token;
+    await Data.adapter.touchSession(token, this._app.state.appSettings.sessionDurationDays || 7);
+    Utils.setCookie('tenlb_session', token, this._app.state.appSettings.sessionDurationDays || 7);
+  }
+
+  async onLogin(user) {
+    const token = Security.sessionToken();
+    await Data.adapter.createSession(token, user.id, this._app.state.appSettings.sessionDurationDays || 7);
+    this._app.state.sessionToken = token;
+    Utils.setCookie('tenlb_session', token, this._app.state.appSettings.sessionDurationDays || 7);
+  }
+
+  async onLogout() {
+    if (this._app.state.sessionToken) await Data.adapter.deleteSession(this._app.state.sessionToken);
+    Utils.clearCookie('tenlb_session');
+  }
+
+  async canInstall() { return !this.isInstalled(); }
+}
+
+// ---------------------------------------------------------------------------
+// Firebase plugin — data is backed by Firestore with IndexedDB as a local
+// cache; authentication is handled by Firebase Auth.
+//
+// "Installed" is implied: if firebase is configured, the server exists.
+// There is no local IndexedDB flag for installed state; installation is only
+// checked when the install form is submitted to prevent a re-install.
+//
+// Multiple browsers can be open simultaneously — no per-browser installed
+// state is stored in IndexedDB.
+// ---------------------------------------------------------------------------
+class FirebasePlugin extends ServerPlugin {
+  // Firebase mode: installed is always implied by the presence of firebase config.
+  isInstalled() { return true; }
+
+  defaultRoute() {
+    if (!this._app.isAuthenticated()) return this._app.state.pendingInviteCode ? 'join' : 'login';
+    return 'overview';
+  }
+
+  guardRoute(requested) {
+    if (!this._app.isAuthenticated()) {
+      // Allow install and join pages when not yet authenticated.
+      if (['install', 'join'].includes(requested)) return requested;
+      return 'login';
+    }
+    // Once authenticated, login/join redirect to overview; install is locked.
+    if (['login', 'join', 'install'].includes(requested)) return 'overview';
+    return this.canAccess(requested) ? requested : 'denied';
+  }
+
+  canAccess(route) {
+    route = route || 'overview';
+    if (!this._app.isAuthenticated()) return ['login', 'join', 'install'].includes(route);
+    if (['overview', 'rounds', 'submit', 'settings'].includes(route)) return true;
+    if (route === 'install') return false; // locked once authenticated
+    return this._app.isAdmin();
+  }
+
+  async restoreSession() {
+    if (!FirestoreAdapter.isReady()) {
+      try {
+        await this._app._loadFirebaseSDK();
+        await FirestoreAdapter.init(RuntimeConfig.firebase, 'default');
+      } catch (e) {
+        console.warn('Firebase SDK init failed during session restore:', e.message);
+        return;
+      }
+    }
+    const fbUser = await FirestoreAdapter.getCurrentFirebaseUser();
+    if (!fbUser || fbUser.isAnonymous) return;
+    const user = await Data.adapter.getUserByFirebaseUid(fbUser.uid);
+    if (!user) return;
+    this._app.state.currentUser = user;
+    await this._app._upsertFirebaseSession(user);
+  }
+
+  async onLogin(user) {
+    this._app.state.sessionToken = null;
+    await this._app._ensureFirebaseAuthenticatedState(user);
+  }
+
+  async onLogout() {
+    await this._app._deleteFirebaseSession();
+    if (SyncEngine.isRunning()) await SyncEngine.stop();
+    if (FirestoreAdapter.isReady()) await FirestoreAdapter.signOut();
+  }
+
+  async canInstall() {
+    // Query Firestore to detect an existing install and block re-installation.
+    // This is the ONLY place firebase mode checks installed state.
+    try {
+      if (!FirestoreAdapter.isReady()) {
+        await this._app._loadFirebaseSDK();
+        await FirestoreAdapter.init(RuntimeConfig.firebase, 'default');
+      }
+      const doc = await FirestoreAdapter.getChallengeDoc();
+      if (doc?.installedAt) return false; // already installed
+    } catch (e) {
+      console.warn('canInstall Firestore check failed, allowing install:', e.message);
+    }
+    return true;
+  }
+
+  async onInit() {
+    // Start Firestore sync if firebase config is complete.
+    if (RuntimeConfig.firebase?.apiKey && RuntimeConfig.firebase?.authDomain && RuntimeConfig.firebase?.projectId) {
+      this._app._initOnlineMode(RuntimeConfig.firebase).catch((err) => {
+        console.warn('Online Mode could not resume:', err.message);
+      });
+    } else {
+      this._app.setMessage('', 'config.json is set to firebase mode but firebase config is incomplete. Falling back to local mode.');
+    }
+  }
+}
 
 // =============================================================================
 // SYNC ENGINE
@@ -1347,6 +1543,7 @@ const Domain = {
 };
 
 const App = {
+  plugin: null, // set in App.init() — OfflinePlugin or FirebasePlugin
   react: {
     enabled: false,
     navRoot: null,
@@ -1386,7 +1583,7 @@ const App = {
     }
   },
 
-  isInstalled() { return !!this.state.appSettings?.installed; },
+  isInstalled() { return this.plugin ? this.plugin.isInstalled() : !!this.state.appSettings?.installed; },
   isAuthenticated() { return !!this.state.currentUser; },
   isAdmin(user = this.state.currentUser) { return !!(user && (user.isAdmin || user.isMaster)); },
   isMaster(user = this.state.currentUser) { return !!(user && user.isMaster); },
@@ -1519,20 +1716,12 @@ const App = {
   },
 
   _defaultRoute() {
-    if (!this.isInstalled()) return 'install';
-    if (!this.isAuthenticated()) return (this.isFirebaseMode() && this.state.pendingInviteCode) ? 'join' : 'login';
-    return 'overview';
+    return this.plugin ? this.plugin.defaultRoute() : 'overview';
   },
 
   _guardRoute(route) {
     const requested = this._sanitizeRoute(route);
-    if (!this.isInstalled()) return requested === 'install' ? 'install' : 'denied';
-    if (!this.isAuthenticated()) {
-      if (requested === 'join' && this.isFirebaseMode()) return 'join';
-      return 'login';
-    }
-    if (requested === 'install' || requested === 'login' || requested === 'join') return 'overview';
-    return this.canAccess(requested) ? requested : 'denied';
+    return this.plugin ? this.plugin.guardRoute(requested) : requested;
   },
 
   _applyRouteFromHash() {
@@ -1540,7 +1729,7 @@ const App = {
     const invite = parsed.params.get('invite');
     if (invite) this.state.pendingInviteCode = invite.toUpperCase();
     const requested = parsed.route || this._defaultRoute();
-    if (this.isInstalled() && !this.isAuthenticated() && !['login', 'join'].includes(requested)) {
+    if (this.isInstalled() && !this.isAuthenticated() && !['login', 'join', 'install'].includes(requested)) {
       this.state.redirectAfterLogin = requested;
     }
     const resolved = this._guardRoute(requested);
@@ -1582,6 +1771,9 @@ const App = {
     this.setupPwa();
     this.setupReact();
 
+    // Instantiate the mode plugin — all mode-specific behaviour is delegated here.
+    this.plugin = RuntimeConfig.serverMode === 'firebase' ? new FirebasePlugin(this) : new OfflinePlugin(this);
+
     // Import invite code from query once, then move to hash routing
     const urlParams = new URLSearchParams(window.location.search);
     const inviteCode = (urlParams.get('invite') || '').trim().toUpperCase();
@@ -1590,7 +1782,7 @@ const App = {
       history.replaceState(null, '', `${window.location.pathname}${window.location.hash}`);
     }
 
-    await this.restoreSessionFromCookie();
+    await this.plugin.restoreSession();
     await this.refresh();
     this._applyRouteFromHash();
     this.applyTheme();
@@ -1601,17 +1793,8 @@ const App = {
       this.render();
     });
 
-    // Resume Online Mode if it was active on last session
-    if (Data.mode === 'online') {
-      if (!RuntimeConfig.firebase?.apiKey || !RuntimeConfig.firebase?.authDomain || !RuntimeConfig.firebase?.projectId) {
-        Data.mode = 'local';
-        this.setMessage('', 'config.json is set to firebase mode but firebase config is incomplete. Falling back to local mode.');
-      } else {
-        this._initOnlineMode(RuntimeConfig.firebase).catch((err) => {
-        console.warn('Online Mode could not resume:', err.message);
-        });
-      }
-    }
+    // Plugin-specific startup side effects (e.g. starting Firestore sync).
+    await this.plugin.onInit();
 
     // Listen for remote changes to refresh UI
     window.addEventListener('tenlb:remotechange', () => this.refresh().then(() => this.render()));
@@ -1632,6 +1815,9 @@ const App = {
   },
 
   async restoreSessionFromCookie() {
+    // Kept for compatibility; delegates to the active plugin.
+    if (this.plugin) return this.plugin.restoreSession();
+    // Legacy fallback (plugin not yet initialised — should not occur in normal flow).
     if (this.isFirebaseMode()) {
       if (!FirestoreAdapter.isReady()) {
         try {
@@ -1650,14 +1836,10 @@ const App = {
       await this._upsertFirebaseSession(user);
       return;
     }
-    // Offline mode: cookie + IndexedDB session
     const token = Utils.getCookie('tenlb_session');
     if (!token) return;
     const session = await Data.adapter.getSession(token);
-    if (!session) {
-      Utils.clearCookie('tenlb_session');
-      return;
-    }
+    if (!session) { Utils.clearCookie('tenlb_session'); return; }
     if (new Date(session.expiresAt).getTime() < Date.now()) {
       await Data.adapter.deleteSession(token);
       Utils.clearCookie('tenlb_session');
@@ -1665,11 +1847,7 @@ const App = {
       return;
     }
     const user = await Data.adapter.getUserById(session.userId);
-    if (!user) {
-      await Data.adapter.deleteSession(token);
-      Utils.clearCookie('tenlb_session');
-      return;
-    }
+    if (!user) { await Data.adapter.deleteSession(token); Utils.clearCookie('tenlb_session'); return; }
     this.state.currentUser = user;
     this.state.sessionToken = token;
     await Data.adapter.touchSession(token, this.state.appSettings.sessionDurationDays || 7);
@@ -1680,26 +1858,11 @@ const App = {
     const updated = { ...user, lastLoginAt: new Date().toISOString() };
     await this._saveWithConflictResolver('User', updated, (payload) => Data.adapter.updateUser(payload));
     this.state.currentUser = updated;
-    if (this.isFirebaseMode()) {
-      this.state.sessionToken = null;
-    } else {
-      const token = Security.sessionToken();
-      await Data.adapter.createSession(token, user.id, this.state.appSettings.sessionDurationDays || 7);
-      this.state.sessionToken = token;
-      Utils.setCookie('tenlb_session', token, this.state.appSettings.sessionDurationDays || 7);
-    }
-    if (this.isFirebaseMode()) await this._ensureFirebaseAuthenticatedState(updated);
+    await this.plugin.onLogin(updated);
   },
 
   async logout() {
-    if (this.isFirebaseMode()) {
-      await this._deleteFirebaseSession();
-      if (SyncEngine.isRunning()) await SyncEngine.stop();
-      if (FirestoreAdapter.isReady()) await FirestoreAdapter.signOut();
-    } else {
-      if (this.state.sessionToken) await Data.adapter.deleteSession(this.state.sessionToken);
-      Utils.clearCookie('tenlb_session');
-    }
+    await this.plugin.onLogout();
     this.state.currentUser = null;
     this.state.sessionToken = null;
     this.state.pendingInviteCode = '';
@@ -1831,6 +1994,7 @@ const App = {
   },
 
   canAccess(route) {
+    if (this.plugin) return this.plugin.canAccess(route);
     route = route || 'overview';
     if (!this.isInstalled()) return route === 'install';
     if (!this.isAuthenticated()) return route === 'login' || (route === 'join' && this.isFirebaseMode());
@@ -2282,8 +2446,11 @@ const App = {
   },
 
   resolveScreen() {
+    // Install route is always rendered when the guard has allowed it, regardless
+    // of isInstalled() — this is necessary for firebase mode where isInstalled()
+    // is always true but the install page must still be reachable before setup.
+    if (this.state.route === 'install') return this.renderInstall();
     if (!this.isInstalled()) {
-      if (this.state.route === 'install') return this.renderInstall();
       if (this.state.route === 'denied') return this.renderDenied();
       return this.renderJoin();
     }
@@ -3092,7 +3259,8 @@ const App = {
     const installForm = document.getElementById('install-form');
     if (installForm) {
       this.bindAsyncFormSubmit(installForm, async () => {
-        if (this.isInstalled()) return this.fail('Installation is locked.');
+        const installAllowed = await this.plugin.canInstall();
+        if (!installAllowed) return this.fail('Installation is locked. This server has already been configured.');
         const serverName = installForm.serverName.value.trim() || '10lb Challenge';
         const username = installForm.username.value.trim();
         const password = installForm.password.value;
