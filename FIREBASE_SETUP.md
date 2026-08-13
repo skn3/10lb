@@ -2,141 +2,86 @@
 
 ## Overview
 
-The 10lb Challenge application works **completely offline without Firebase**. Firebase is
-entirely optional and only used when you explicitly enable Online Mode.
+The application supports two runtime auth modes:
 
-This guide covers setting up Firebase for the optional cloud synchronisation feature.
+- **Offline** — auth is fully local. The master account email, password hash, and sessions live in IndexedDB.
+- **Firebase** — Firebase Email/Password is the real auth provider. Firestore stores shared app data plus invite/session records used by the admin UI.
 
----
+## Important security model
 
-## Important: Security model
-
-The application uses its own PBKDF2 password-based login system. Firebase is used
-only for:
-
-1. **Firestore** — shared cloud storage for challenge data.
-2. **Firebase Anonymous Auth** — gives Firestore Security Rules a verifiable identity
-   so that access control can be enforced server-side.
-
-**Password hashes are never sent to Firebase.** They remain in IndexedDB only.
-
-### Client-side Firebase configuration is not a secret
-
-The Firebase API key, project ID, and other config values in the Settings → Storage
-& Sync tab are standard **web client configuration**. They are safe to store locally
-and do not grant admin access to your Firebase project.
-
-**Never put a Firebase service-account private key or Admin SDK credential into this
-application.** Those are server-side secrets and have no place in a browser application.
-
----
+- Firebase **web config values are not secrets**. They are safe to ship in `config.json`.
+- **Do not** put a Firebase service-account key or Admin SDK credential into this repository or the browser app.
+- Offline password hashes stay local in IndexedDB. Firestore must not store them.
 
 ## Step 1 — Create a Firebase project
 
 1. Go to <https://console.firebase.google.com>.
-2. Click **Add project**.
-3. Give it a name (e.g. `10lb-challenge`).
-4. Disable Google Analytics if you don't need it.
-5. Click **Create project**.
-
----
+2. Create a project.
+3. Disable Google Analytics unless you need it.
 
 ## Step 2 — Enable Firestore
 
-1. In the Firebase console, go to **Build → Firestore Database**.
-2. Click **Create database**.
-3. Choose **Start in production mode** (the security rules in this repo enforce access).
-4. Choose a region close to your users.
+1. Open **Build → Firestore Database**.
+2. Create the database in production mode.
+3. Choose a region near your users.
 
----
+## Step 3 — Enable Email/Password Authentication
 
-## Step 3 — Enable Anonymous Authentication
-
-Anonymous Auth allows each browser to get a Firebase UID without requiring a login,
-so Firestore Security Rules can enforce access control.
-
-1. In the Firebase console, go to **Build → Authentication**.
+1. Open **Build → Authentication**.
 2. Click **Get started**.
-3. Under **Sign-in providers**, enable **Anonymous**.
+3. Under **Sign-in providers**, enable **Email/Password**.
 
----
+This mode is required for:
+- master-account install
+- admin/user login
+- invite-based account activation
 
 ## Step 4 — Deploy Firestore Security Rules
 
-The security rules are in `firestore.rules` in this repository.
+The security rules live in `firestore.rules`.
 
 ### Using the Firebase CLI
 
 ```bash
 npm install -g firebase-tools
 firebase login
-firebase init firestore   # select your project, use existing firestore.rules
+firebase init firestore
 firebase deploy --only firestore:rules
 ```
 
-### Manually via the console
+### Via the Firebase console
 
-1. Go to **Firestore → Rules**.
-2. Copy the contents of `firestore.rules` and paste them into the editor.
-3. Click **Publish**.
-
----
+1. Open **Firestore → Rules**.
+2. Paste in the contents of `firestore.rules`.
+3. Publish the rules.
 
 ## Step 5 — Deploy Firestore Indexes
 
-The composite indexes are in `firestore.indexes.json`.
+The composite indexes live in `firestore.indexes.json`.
 
 ```bash
 firebase deploy --only firestore:indexes
 ```
 
-Or create them manually in the Firebase console under **Firestore → Indexes**.
+## Step 6 — Understand bootstrap behavior
 
----
+In `serverMode: "firebase"`:
 
-## Step 6 — Create admin entries in Firestore
+1. The install screen creates the master Firebase Auth account.
+2. The app signs that user in immediately.
+3. The install flow writes the master admin/user records and completes setup.
 
-When Online Mode is first enabled, the master admin's Firebase UID must be added to
-Firestore so that Firestore Security Rules grant admin access.
-
-**During initial sync**, the application automatically writes the authenticated user's
-Firebase UID into the `/challenges/default/admins/{firebaseUid}` document if they are
-a master admin. This happens automatically — no manual setup needed for the first
-master admin.
-
-For additional admins, you can also add entries manually in the Firebase console:
-
-```
-Collection: challenges/default/admins
-Document ID: {firebaseUid of the admin's browser session}
-Fields: { grantedAt: "2026-08-11T00:00:00Z" }
-```
-
----
+The first signed-in master user bootstraps the initial admin record in Firestore. After that, admin access is controlled by the `/admins` collection and the deployed rules.
 
 ## Step 7 — Get your Firebase web configuration
 
-1. In the Firebase console, go to **Project settings** (gear icon).
-2. Under **Your apps**, click **Add app → Web**.
-3. Register the app (any nickname, e.g. `10lb-web`).
-4. Copy the `firebaseConfig` object — it looks like:
+1. Open **Project settings**.
+2. Add a **Web app**.
+3. Copy the `firebaseConfig` values.
 
-```js
-{
-  apiKey: "AIzaSy...",
-  authDomain: "your-project.firebaseapp.com",
-  projectId: "your-project",
-  storageBucket: "your-project.appspot.com",
-  messagingSenderId: "123456789",
-  appId: "1:123456789:web:abc123"
-}
-```
+## Step 8 — Deploy `config.json`
 
----
-
-## Step 8 — Deploy runtime config.json
-
-Create `/config.json` in your deployed static files and set:
+Create `/config.json` beside the static app files:
 
 ```json
 {
@@ -152,63 +97,48 @@ Create `/config.json` in your deployed static files and set:
 }
 ```
 
-The app reads this file on startup. Firebase settings are now read-only in UI.
-
----
-
 ## Firestore data structure
 
-```
+```text
 /challenges/
   default/
     admins/
-      {firebaseUid}   → { grantedAt }
+      {firebaseUid}
     users/
-      {userId}        → User record (NO password field)
+      {userId}
+    invites/
+      {inviteCode}
+    sessions/
+      {sessionId}
     rounds/
-      {roundId}       → Round record
+      {roundId}
     submissions/
-      {submissionId}  → Submission record
+      {submissionId}
 ```
 
-All records include sync metadata:
-- `id` — UUID (same as local IndexedDB id)
-- `version` — incrementing integer for optimistic concurrency
-- `createdAt`, `updatedAt` — ISO 8601 UTC timestamps
-- `createdBy`, `updatedBy` — local userId of the creator/last editor
-- `clientId` — browser installation ID
-- `deletedAt` — null if active, ISO timestamp if soft-deleted
-- `firebaseUid` — (on users) the Firebase Anonymous Auth UID for this user's device
+### Notes
 
----
+- `users` holds profile/account metadata used by the app UI.
+- `invites` holds pending and consumed invite records.
+- `sessions` holds active Firebase-backed session records for admin visibility.
+- `password` must never be written to Firestore.
 
-## Conflict resolution strategy
+## Invite flow
 
-| Scenario | Resolution |
-|---|---|
-| Two devices create different records | Both records coexist (different UUIDs) |
-| Same record, remote version higher | Remote wins |
-| Same record, local version higher | Local wins (uploaded on next sync) |
-| Same version, different content | Latest `updatedAt` wins; ties broken by `min(clientId)` |
-| Tombstone vs update | Tombstone (`deletedAt`) wins if its `updatedAt` ≥ the update's `updatedAt` |
-| Two admins edit same round | Version conflict detected; later write wins by `updatedAt` |
+In Firebase mode:
 
----
-
-## Disabling Online Mode
-
-Set `serverMode` to `"offline"` in `config.json` and redeploy.
-
----
+1. An admin creates an invite.
+2. The invite link opens `#/join`.
+3. The invited user enters email and password.
+4. The app creates the Firebase Auth account and marks the invite as used.
+5. The new user is signed in immediately.
 
 ## Troubleshooting
 
 | Problem | Solution |
 |---|---|
-| Test Connection fails | Check API key, project ID, and that Anonymous Auth is enabled |
+| Login fails | Confirm Email/Password auth is enabled |
+| Invite link says invalid | Check the Firestore invite record exists and has not been used |
 | Rules rejected error | Re-deploy `firestore.rules` |
-| Sync stuck in error | Click "↻ Retry sync" in the Storage & Sync settings |
-| App crashes on startup | Firebase config is invalid; open browser console and check the error |
-
-The app **never crashes in Local Mode** due to Firebase problems. If Online Mode
-fails during startup, it falls back to Local Mode automatically.
+| Test Connection fails | Check API key, auth domain, and project ID |
+| App falls back to offline behavior | Verify `config.json` is deployed and readable |

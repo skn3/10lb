@@ -2,7 +2,7 @@
 
 ## Runtime configuration
 
-The app now reads `/config.json` at startup. This file must be deployed with the static files.
+The app reads `/config.json` at startup. This file must be deployed with the static files.
 
 ```json
 {
@@ -18,8 +18,8 @@ The app now reads `/config.json` at startup. This file must be deployed with the
 }
 ```
 
-- `serverMode: "offline"` → no invites, no Firebase UI/actions, participant-focused local operation.
-- `serverMode: "firebase"` → online mode with Firebase sync and invite-based onboarding.
+- `serverMode: "offline"` → local-only operation. The master account is stored in IndexedDB, passwords are verified locally, and sessions use the `tenlb_session` cookie plus IndexedDB session records.
+- `serverMode: "firebase"` → Firebase Email/Password is the real auth provider. Firestore stores users, invites, and active session records for the admin UI.
 
 Server mode and Firebase values are read-only in the app UI and cannot be edited from settings.
 
@@ -41,6 +41,6 @@ Supported account types:
 - `master` (single account)
 - `admin`
 - `user`
-- `participant` (non-login)
+- `participant` (non-login until invited in Firebase mode)
 
 Users and invites are managed in a unified Users screen with filter, sort, and search controls.
