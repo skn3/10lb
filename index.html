@@ -1804,7 +1804,7 @@ const App = {
       const tempApp = window.firebase.initializeApp(firebaseConfig, testName);
       const tempDb = tempApp.firestore();
       await tempDb.collection('challenges').doc('default').get();
-      await tempApp.delete();
+      try { await tempApp.delete(); } catch (_) {}
       return { ok: true };
     } catch (err) {
       return { ok: false, error: err.message || String(err) };
@@ -3800,7 +3800,7 @@ const App = {
     el.style.display = 'block';
     const ts = new Date().toISOString().replace('T', ' ').replace('Z', '').slice(0, 23);
     const color = type === 'error' ? '#f87171' : type === 'ok' ? '#4ade80' : type === 'warn' ? '#facc15' : '#94a3b8';
-    el.innerHTML += `<span style="color:${color}">[${ts}] ${Utils.escAttr(msg)}</span>\n`;
+    el.innerHTML += `<span style="color:${color}">[${ts}] ${Utils.esc(msg)}</span>\n`;
     el.scrollTop = el.scrollHeight;
   }
 };
