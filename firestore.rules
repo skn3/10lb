@@ -31,6 +31,13 @@ service cloud.firestore {
       return exists(/databases/$(database)/documents/challenges/$(challengeId));
     }
 
+    // True only after the challenge doc has been fully installed (has an installedAt field).
+    // A doc that exists but has no installedAt is a partial/orphaned bootstrap record.
+    function isInstalledChallenge(challengeId) {
+      return challengeExists(challengeId)
+        && 'installedAt' in get(/databases/$(database)/documents/challenges/$(challengeId)).data;
+    }
+
     function isAdmin(challengeId) {
       return isSignedIn()
         && exists(/databases/$(database)/documents/challenges/$(challengeId)/admins/$(request.auth.uid));
@@ -54,15 +61,27 @@ service cloud.firestore {
     match /challenges/{challengeId} {
       allow read: if isSignedIn();
       allow create: if isSignedIn() && !challengeExists(challengeId);
-      allow update: if isAdmin(challengeId);
+      // Allow update by an admin, OR by the bootstrapping master before installedAt is set.
+      allow update: if isAdmin(challengeId)
+        || (
+          isSignedIn()
+          && !isInstalledChallenge(challengeId)
+          && exists(/databases/$(database)/documents/challenges/$(challengeId)/admins/$(request.auth.uid))
+          && get(/databases/$(database)/documents/challenges/$(challengeId)/admins/$(request.auth.uid)).data.isMaster == true
+        );
 
       match /admins/{uid} {
         allow read: if isSignedIn();
         allow create: if isSignedIn() && (
           isAdmin(challengeId)
-          || (!challengeExists(challengeId)
+          // Bootstrap: allow the very first master to claim admin even if a partial
+          // challenge doc already exists (e.g. from a previous failed install attempt),
+          // as long as the challenge has never been fully installed (no installedAt).
+          || (
+            !isInstalledChallenge(challengeId)
             && uid == request.auth.uid
-            && request.resource.data.isMaster == true)
+            && request.resource.data.isMaster == true
+          )
         );
         allow update, delete: if isAdmin(challengeId);
       }
