@@ -11,7 +11,7 @@ export const Data = {
   async init() {
     this.adapter = OfflineAdapter;
     await this.adapter.init();
-    // Runtime mode is controlled by deployed config.json
+    // Runtime mode is controlled by config.js
     const meta = await this.adapter.getDeviceMeta();
     this.mode = RuntimeConfig.serverMode === 'firebase' ? 'online' : 'local';
     if ((meta.storageMode || 'local') !== this.mode) {
