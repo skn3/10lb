@@ -26,12 +26,12 @@ export const MenuBar = {
       const isActive = activeRoute === item.key;
       return `<a href="${Utils.escAttr(href)}" class="menu-item${isActive ? ' active' : ''}" role="menuitem" data-route="${Utils.escAttr(item.key)}" aria-current="${isActive ? 'page' : 'false'}">` +
         `<span class="material-symbols-rounded" aria-hidden="true">${Utils.esc(item.icon)}</span>` +
-        `<span>${Utils.esc(item.label)}</span></a>`;
+        `<span class="menu-item-label">${Utils.esc(item.label)}</span></a>`;
     }).join('');
     return `<div class="nav-inner">` +
       `<div class="menu-header">` +
-      `<span class="menu-title" data-menu-title>Menu</span>` +
-      `<button class="menu-burger" type="button" aria-label="Expand menu" aria-expanded="false" title="Expand menu">` +
+      `<span class="menu-active-indicator" data-menu-active aria-hidden="true"></span>` +
+      `<button class="menu-burger" type="button" aria-label="Expand menu" aria-expanded="false" title="Expand menu" data-icon-skip="1">` +
       `<span class="menu-burger-glyph" aria-hidden="true">☰</span><span class="menu-burger-label">Menu</span></button>` +
       `</div>` +
       `<div class="menu-track" role="menubar">${links}</div>` +
@@ -55,13 +55,14 @@ export const MenuBar = {
     const { onNavigate, onBurgerClick } = opts;
     return e('div', { className: 'nav-inner' },
       e('div', { className: 'menu-header' },
-        e('span', { className: 'menu-title', 'data-menu-title': '1' }, 'Menu'),
+        e('span', { className: 'menu-active-indicator', 'data-menu-active': '1', 'aria-hidden': 'true' }),
         e('button', {
           className: 'menu-burger',
           type: 'button',
           'aria-label': 'Expand menu',
           'aria-expanded': 'false',
           title: 'Expand menu',
+          'data-icon-skip': '1',
           onClick: onBurgerClick || undefined
         },
         e('span', { className: 'menu-burger-glyph', 'aria-hidden': 'true' }, '☰'),
@@ -78,7 +79,7 @@ export const MenuBar = {
             onClick: (event) => { event.preventDefault(); if (onNavigate) onNavigate(item.key); }
           },
           e('span', { className: 'material-symbols-rounded', 'aria-hidden': 'true' }, item.icon),
-          e('span', null, item.label))
+          e('span', { className: 'menu-item-label' }, item.label))
         )
       )
     );
