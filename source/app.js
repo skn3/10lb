@@ -129,6 +129,19 @@ export const App = {
     if (!this.isFirebaseMode() || !FirestoreAdapter.isReady()) return;
     await FirestoreAdapter.removeRecord('invites', inviteId);
   },
+  // Resolve a local user by Firebase UID, querying Firestore as authoritative
+  // source if the record is absent from the IndexedDB cache.
+  async _resolveFirebaseUser(uid) {
+    let user = await Data.adapter.getUserByFirebaseUid(uid);
+    if (!user) {
+      const remoteUsers = await FirestoreAdapter.queryRecords('users', 'firebaseUid', uid);
+      if (remoteUsers.length > 0) {
+        await Data.adapter.mergeRemoteRecord('users', remoteUsers[0]);
+        user = await Data.adapter.getUserByFirebaseUid(uid);
+      }
+    }
+    return user || null;
+  },
   async _registerFirebaseAdmin(user = this.state.currentUser) {
     if (!this.isFirebaseMode() || !user || !FirestoreAdapter.isReady() || !(user.isAdmin || user.isMaster)) return;
     const uid = FirestoreAdapter.getUid();
@@ -333,7 +346,7 @@ export const App = {
       }
       const fbUser = await FirestoreAdapter.getCurrentFirebaseUser();
       if (!fbUser || fbUser.isAnonymous) return;
-      const user = await Data.adapter.getUserByFirebaseUid(fbUser.uid);
+      const user = await this._resolveFirebaseUser(fbUser.uid);
       if (!user) return;
       this.state.currentUser = user;
       await this._upsertFirebaseSession(user);
@@ -1985,7 +1998,18 @@ export const App = {
         if (!invite) return this.fail('Invite code not found or invalid.');
         if (invite.usedAt) return this.fail('This invite code has already been used.');
 
-        const existsByEmail = await Data.adapter.getUserByUsername(email);
+        let existsByEmail;
+        if (this.isFirebaseMode()) {
+          try {
+            const remoteMatches = await FirestoreAdapter.queryRecords('users', 'username', email);
+            existsByEmail = remoteMatches.find((u) => !u.deletedAt) || null;
+          } catch (e) {
+            console.warn('Could not check email uniqueness via Firestore:', e.message);
+            return this.fail('Could not verify email availability. Please check your connection and try again.');
+          }
+        } else {
+          existsByEmail = await Data.adapter.getUserByUsername(email);
+        }
         if (existsByEmail) return this.fail('An account with this email already exists.');
 
         // Create the Firebase Auth account first
@@ -2296,20 +2320,14 @@ export const App = {
             return this.fail('Invalid email or password.');
           }
           if (!fbUser) return this.fail('Invalid email or password.');
-          let user = await Data.adapter.getUserByFirebaseUid(fbUser.uid);
-          if (!user) {
-            // User record may not be in IndexedDB yet on a fresh device — pull from Firestore.
-            try {
-              const remoteUsers = await FirestoreAdapter.downloadAll('users');
-              for (const record of remoteUsers) {
-                await Data.adapter.mergeRemoteRecord('users', record);
-              }
-              user = await Data.adapter.getUserByFirebaseUid(fbUser.uid);
-            } catch (e) {
-              console.warn('Could not fetch users from Firestore during login:', e.message);
-            }
+          let user;
+          try {
+            user = await this._resolveFirebaseUser(fbUser.uid);
+          } catch (e) {
+            console.warn('Could not resolve user account after Firebase sign-in:', e.message);
+            return this.fail('Could not load account. Please check your connection and try again.');
           }
-          if (!user) return this.fail('No local account found for this Firebase user. Please contact the admin.');
+          if (!user) return this.fail('No account found for this Firebase user. Please contact the admin.');
           if (user.userType === 'participant' || user.canLogin === false) return this.fail('This account cannot log in.');
           await this.loginAs(user);
           await this.refresh();
