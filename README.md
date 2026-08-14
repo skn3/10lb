@@ -47,7 +47,7 @@ Server mode and Firebase values are read-only in the app UI and cannot be edited
 
 ## Routing and forms
 
-- The app uses hash routing for all in-app navigation (`#/login`, `#/join`, `#/overview`, etc.) so it works on GitHub Pages static hosting.
+- The app uses hash routing for all in-app navigation (`#/login`, `#/join`, `#/overview`, `#/create_participant`, `#/user?id=...`, etc.) so it works on GitHub Pages static hosting.
 - All form submissions are handled in JavaScript and prevented from native URL redirects.
 
 ## User types
@@ -59,4 +59,4 @@ Supported account types:
 - `user`
 - `participant` (non-login until invited in Firebase mode)
 
-Users and invites are managed in a unified Users screen with filter, sort, and search controls.
+Users and invites are managed from the Users screen, with dedicated admin pages for creating participants and managing individual users.

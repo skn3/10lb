@@ -45,7 +45,7 @@ export const App = {
     sessionToken: null,
     redirectAfterLogin: 'overview',
     selectedUsers: [],
-    editingUserId: null,
+    selectedUserId: null,
     syncMeta: null,        // device/sync metadata (from getDeviceMeta)
     inviteDetail: null,    // current invite being viewed
     pendingInviteCode: '', // invite code from hash route/query import
@@ -73,6 +73,24 @@ export const App = {
   },
   activeSessionsForUser(userId) {
     return this.state.sessions.filter((session) => session?.userId === userId);
+  },
+  selectedUser() {
+    return this.state.users.find((user) => user.id === this.state.selectedUserId) || null;
+  },
+  userLoginLabel(user) {
+    if (!user) return '';
+    if (user.username) return user.username;
+    return user.canLogin !== false ? 'No login email' : 'Participant only';
+  },
+  managedUserTypeOptions(user) {
+    if (!user) return [];
+    if (user.isMaster || user.userType === 'master') return [{ value: 'master', label: 'Master' }];
+    const hasLocalLogin = !!user.password && Utils.validEmail(user.username || '');
+    const hasFirebaseLogin = !!user.firebaseUid;
+    const canPromote = user.userType !== 'participant' || hasLocalLogin || hasFirebaseLogin;
+    const options = [{ value: 'participant', label: 'Participant' }];
+    if (canPromote) options.push({ value: 'user', label: 'User' }, { value: 'admin', label: 'Admin' });
+    return options;
   },
   async _loadVisibleInvites() {
     if (!this.isFirebaseMode()) return Data.adapter.listInvites();
@@ -110,6 +128,50 @@ export const App = {
   async _deleteFirebaseInvite(inviteId) {
     if (!this.isFirebaseMode() || !FirestoreAdapter.isReady()) return;
     await FirestoreAdapter.removeRecord('invites', inviteId);
+  },
+  // Resolve a local user by Firebase UID, querying Firestore as authoritative
+  // source if the record is absent from the IndexedDB cache.
+  // Also supports legacy users that were created before firebaseUid was set by
+  // falling back to username/email matching.
+  async _resolveFirebaseUser(firebaseUserOrUid) {
+    const uid = typeof firebaseUserOrUid === 'string'
+      ? firebaseUserOrUid
+      : (firebaseUserOrUid?.uid || null);
+    const email = typeof firebaseUserOrUid === 'string'
+      ? null
+      : String(firebaseUserOrUid?.email || '').trim().toLowerCase();
+    if (!uid) return null;
+
+    let user = await Data.adapter.getUserByFirebaseUid(uid);
+    if (!user) {
+      const remoteUsers = await FirestoreAdapter.queryRecords('users', 'firebaseUid', uid);
+      if (remoteUsers.length > 0) {
+        await Data.adapter.mergeRemoteRecord('users', remoteUsers[0]);
+        user = await Data.adapter.getUserByFirebaseUid(uid);
+      }
+    }
+    if (user) return user;
+
+    if (!email) return null;
+
+    user = await Data.adapter.getUserByUsername(email);
+    if (user) return user;
+
+    const remoteByEmail = await FirestoreAdapter.queryRecords('users', 'username', email);
+    const match = remoteByEmail[0];
+    if (!match) return null;
+
+    const hydrated = match.firebaseUid === uid
+      ? match
+      : {
+          ...match,
+          firebaseUid: uid,
+          version: (match.version || 1) + 1,
+          updatedAt: new Date().toISOString()
+        };
+
+    await Data.adapter.mergeRemoteRecord('users', hydrated);
+    return await Data.adapter.getUserByFirebaseUid(uid);
   },
   async _registerFirebaseAdmin(user = this.state.currentUser) {
     if (!this.isFirebaseMode() || !user || !FirestoreAdapter.isReady() || !(user.isAdmin || user.isMaster)) return;
@@ -166,7 +228,7 @@ export const App = {
   _sanitizeRoute(route) {
     const value = String(route || '').replace(/^\/+/, '').trim();
     const normalized = value || 'overview';
-    const allowed = new Set(['install', 'denied', 'login', 'join', 'overview', 'rounds', 'create', 'edit', 'delete', 'submit', 'users', 'settings', 'invite-detail', 'finish-week']);
+    const allowed = new Set(['install', 'denied', 'login', 'join', 'overview', 'rounds', 'create', 'create_participant', 'edit', 'delete', 'submit', 'users', 'user', 'settings', 'invite-detail', 'finish-week']);
     return allowed.has(normalized) ? normalized : 'overview';
   },
 
@@ -176,6 +238,10 @@ export const App = {
     if (target === 'join') {
       const invite = (options.inviteCode || this.state.pendingInviteCode || '').trim().toUpperCase();
       if (invite) params.set('invite', invite);
+    }
+    if (target === 'user') {
+      const userId = String(options.userId || this.state.selectedUserId || '').trim();
+      if (userId) params.set('id', userId);
     }
     const q = params.toString();
     return `#/${target}${q ? `?${q}` : ''}`;
@@ -202,7 +268,9 @@ export const App = {
   _applyRouteFromHash() {
     const parsed = this._readHashRoute();
     const invite = parsed.params.get('invite');
+    const selectedUserId = parsed.route === 'user' ? String(parsed.params.get('id') || '').trim() : '';
     if (invite) this.state.pendingInviteCode = invite.toUpperCase();
+    this.state.selectedUserId = selectedUserId || null;
     const requested = parsed.route || this._defaultRoute();
     if (this.isInstalled() && !this.isAuthenticated() && !['login', 'join', 'install'].includes(requested)) {
       this.state.redirectAfterLogin = requested;
@@ -309,7 +377,7 @@ export const App = {
       }
       const fbUser = await FirestoreAdapter.getCurrentFirebaseUser();
       if (!fbUser || fbUser.isAnonymous) return;
-      const user = await Data.adapter.getUserByFirebaseUid(fbUser.uid);
+      const user = await this._resolveFirebaseUser(fbUser);
       if (!user) return;
       this.state.currentUser = user;
       await this._upsertFirebaseSession(user);
@@ -345,6 +413,7 @@ export const App = {
     this.state.currentUser = null;
     this.state.sessionToken = null;
     this.state.pendingInviteCode = '';
+    this.state.selectedUserId = null;
     this.state.redirectAfterLogin = 'overview';
     this.navigate(this._defaultRoute(), { replace: true });
   },
@@ -488,180 +557,96 @@ export const App = {
   _syncNavVisibility(nav, hasItems) {
     if (!nav) return;
     nav.classList.toggle('has-items', !!hasItems);
-    if (!hasItems) nav.classList.remove('is-dragging');
   },
 
-  _stopNavTween() {
-    if (!this._navMotion?.raf) return;
-    cancelAnimationFrame(this._navMotion.raf);
-    this._navMotion.raf = null;
+
+  _teardownNavBurger() {
+    const nb = this._navBurger;
+    if (!nb) return;
+    if (nb.ro) nb.ro.disconnect();
+    if (nb._onTransitionEnd) nb.nav?.removeEventListener('transitionend', nb._onTransitionEnd);
+    if (nb.burger && !this.react.enabled) nb.burger.removeEventListener('click', nb.onBurgerClick);
+    this._navBurger = null;
   },
 
-  _setNavOffset(offset) {
-    const navMotion = this._navMotion;
-    if (!navMotion?.track) return;
-    navMotion.offset = offset;
-    navMotion.track.style.transform = `translate3d(${offset}px,0,0)`;
-  },
-
-  _applyNavRubber(offset) {
-    const navMotion = this._navMotion;
-    if (!navMotion) return offset;
-    if (offset > navMotion.maxOffset) return navMotion.maxOffset + ((offset - navMotion.maxOffset) * 0.35);
-    if (offset < navMotion.minOffset) return navMotion.minOffset + ((offset - navMotion.minOffset) * 0.35);
-    return offset;
-  },
-
-  _measureNavBounds() {
-    const navMotion = this._navMotion;
-    if (!navMotion?.nav || !navMotion.track) return;
-    const viewportWidth = navMotion.nav.clientWidth || 0;
-    const trackWidth = navMotion.track.scrollWidth || 0;
-    navMotion.maxOffset = 0;
-    navMotion.minOffset = Math.min(0, viewportWidth - trackWidth);
-    if (navMotion.minOffset === 0) {
-      this._setNavOffset(0);
-      navMotion.velocity = 0;
+  _checkNavOverflow() {
+    const nb = this._navBurger;
+    if (!nb?.nav || !nb.track) return;
+    if (nb.nav.classList.contains('is-open')) {
+      nb.nav.classList.add('needs-burger');
       return;
     }
-    if (navMotion.offset > navMotion.maxOffset) this._setNavOffset(navMotion.maxOffset);
-    if (navMotion.offset < navMotion.minOffset) this._setNavOffset(navMotion.minOffset);
+    nb.nav.classList.toggle('needs-burger', nb.track.scrollWidth > nb.track.clientWidth + 2);
   },
 
-  _startNavInertia() {
-    const navMotion = this._navMotion;
-    if (!navMotion) return;
-    this._stopNavTween();
-    let lastTs = performance.now();
-    const tick = (ts) => {
-      const dt = Math.min(32, Math.max(8, ts - lastTs));
-      lastTs = ts;
-      const spring = 0.14;
-      const damping = 0.9;
-      const friction = 0.95;
-      let next = navMotion.offset + (navMotion.velocity * dt);
-      if (next > navMotion.maxOffset) {
-        const over = navMotion.maxOffset - next;
-        navMotion.velocity += over * spring;
-      } else if (next < navMotion.minOffset) {
-        const over = navMotion.minOffset - next;
-        navMotion.velocity += over * spring;
-      }
-      navMotion.velocity *= (next > navMotion.maxOffset || next < navMotion.minOffset) ? damping : friction;
-      if (Math.abs(navMotion.velocity) > 2.2) navMotion.velocity = Math.sign(navMotion.velocity) * 2.2;
-      next = navMotion.offset + (navMotion.velocity * dt);
-      if (Math.abs(navMotion.velocity) < 0.01) {
-        if (next > navMotion.maxOffset) next = navMotion.maxOffset;
-        if (next < navMotion.minOffset) next = navMotion.minOffset;
-      }
-      this._setNavOffset(next);
-      const inBounds = next <= navMotion.maxOffset + 0.5 && next >= navMotion.minOffset - 0.5;
-      if (Math.abs(navMotion.velocity) < 0.01 && inBounds) {
-        navMotion.velocity = 0;
-        navMotion.raf = null;
-        return;
-      }
-      navMotion.raf = requestAnimationFrame(tick);
+  _openNavMenu(nb) {
+    const nav = nb.nav;
+    if (nb._onTransitionEnd) nav.removeEventListener('transitionend', nb._onTransitionEnd);
+    nb.collapsedHeight = nav.offsetHeight;
+    nav.classList.add('is-open');
+    nav.style.height = nb.collapsedHeight + 'px';
+    void nav.offsetHeight;
+    nav.style.height = nav.scrollHeight + 'px';
+    nb._onTransitionEnd = () => {
+      nav.style.height = '';
+      nav.removeEventListener('transitionend', nb._onTransitionEnd);
+      nb._onTransitionEnd = null;
     };
-    navMotion.raf = requestAnimationFrame(tick);
+    nav.addEventListener('transitionend', nb._onTransitionEnd);
+    nb.burger.querySelector('.material-symbols-rounded').textContent = 'close';
+    nb.burger.setAttribute('aria-label', 'Close menu');
+    nb.burger.setAttribute('aria-expanded', 'true');
+    this._checkNavOverflow();
   },
 
-  _teardownNavMotion() {
-    const navMotion = this._navMotion;
-    if (!navMotion) return;
-    this._stopNavTween();
-    navMotion.nav?.removeEventListener('pointerdown', navMotion.onPointerDown);
-    window.removeEventListener('pointermove', navMotion.onPointerMove);
-    window.removeEventListener('pointerup', navMotion.onPointerUp);
-    window.removeEventListener('pointercancel', navMotion.onPointerUp);
-    window.removeEventListener('resize', navMotion.onResize);
-    navMotion.nav?.removeEventListener('click', navMotion.onClickCapture, true);
-    this._navMotion = null;
+  _closeNavMenu(nb) {
+    const nav = nb.nav;
+    if (nb._onTransitionEnd) nav.removeEventListener('transitionend', nb._onTransitionEnd);
+    const currentH = nav.offsetHeight;
+    const collapsedH = nb.collapsedHeight || currentH;
+    nav.style.height = currentH + 'px';
+    nav.classList.remove('is-open');
+    this._checkNavOverflow();
+    void nav.offsetHeight;
+    nav.style.height = collapsedH + 'px';
+    nb._onTransitionEnd = () => {
+      nav.style.height = '';
+      nav.removeEventListener('transitionend', nb._onTransitionEnd);
+      nb._onTransitionEnd = null;
+    };
+    nav.addEventListener('transitionend', nb._onTransitionEnd);
+    nb.burger.querySelector('.material-symbols-rounded').textContent = 'menu';
+    nb.burger.setAttribute('aria-label', 'Open menu');
+    nb.burger.setAttribute('aria-expanded', 'false');
   },
 
-  _ensureNavMotion() {
+  _setupNavBurger() {
     const nav = document.getElementById('nav');
     if (!nav || !nav.classList.contains('has-items')) {
-      this._teardownNavMotion();
+      this._teardownNavBurger();
       return;
     }
     const track = nav.querySelector('.menu-track');
-    if (!track) {
-      this._teardownNavMotion();
+    const burger = nav.querySelector('.menu-burger');
+    if (!track || !burger) {
+      this._teardownNavBurger();
       return;
     }
-    if (this._navMotion?.nav === nav && this._navMotion?.track === track) {
-      this._measureNavBounds();
+    if (this._navBurger?.nav === nav && this._navBurger?.track === track) {
+      this._checkNavOverflow();
       return;
     }
-    this._teardownNavMotion();
-    const navMotion = {
-      nav,
-      track,
-      dragging: false,
-      pointerId: null,
-      startX: 0,
-      startOffset: 0,
-      lastX: 0,
-      lastTs: 0,
-      velocity: 0,
-      offset: 0,
-      minOffset: 0,
-      maxOffset: 0,
-      moved: false,
-      suppressClickUntil: 0,
-      raf: null
+    this._teardownNavBurger();
+    const nb = { nav, track, burger, collapsedHeight: 0 };
+    nb.onBurgerClick = () => {
+      if (nav.classList.contains('is-open')) this._closeNavMenu(nb);
+      else this._openNavMenu(nb);
     };
-    navMotion.onPointerDown = (event) => {
-      if (event.button != null && event.button !== 0) return;
-      this._stopNavTween();
-      navMotion.dragging = true;
-      navMotion.pointerId = event.pointerId;
-      navMotion.startX = event.clientX;
-      navMotion.startOffset = navMotion.offset;
-      navMotion.lastX = event.clientX;
-      navMotion.lastTs = event.timeStamp;
-      navMotion.velocity = 0;
-      navMotion.moved = false;
-      nav.classList.add('is-dragging');
-      if (event.target?.setPointerCapture) event.target.setPointerCapture(event.pointerId);
-    };
-    navMotion.onPointerMove = (event) => {
-      if (!navMotion.dragging || navMotion.pointerId !== event.pointerId) return;
-      const dx = event.clientX - navMotion.startX;
-      if (Math.abs(dx) > 4) navMotion.moved = true;
-      const rawOffset = navMotion.startOffset + dx;
-      this._setNavOffset(this._applyNavRubber(rawOffset));
-      const dt = Math.max(1, event.timeStamp - navMotion.lastTs);
-      const vx = (event.clientX - navMotion.lastX) / dt;
-      navMotion.velocity = (navMotion.velocity * 0.7) + (vx * 0.3);
-      if (Math.abs(navMotion.velocity) > 2.2) navMotion.velocity = Math.sign(navMotion.velocity) * 2.2;
-      navMotion.lastX = event.clientX;
-      navMotion.lastTs = event.timeStamp;
-    };
-    navMotion.onPointerUp = (event) => {
-      if (!navMotion.dragging || (event.pointerId != null && navMotion.pointerId !== event.pointerId)) return;
-      navMotion.dragging = false;
-      navMotion.pointerId = null;
-      nav.classList.remove('is-dragging');
-      if (navMotion.moved) navMotion.suppressClickUntil = Date.now() + 250;
-      this._startNavInertia();
-    };
-    navMotion.onResize = () => this._measureNavBounds();
-    navMotion.onClickCapture = (event) => {
-      if (Date.now() < navMotion.suppressClickUntil) {
-        event.preventDefault();
-        event.stopPropagation();
-      }
-    };
-    nav.addEventListener('pointerdown', navMotion.onPointerDown);
-    window.addEventListener('pointermove', navMotion.onPointerMove);
-    window.addEventListener('pointerup', navMotion.onPointerUp);
-    window.addEventListener('pointercancel', navMotion.onPointerUp);
-    window.addEventListener('resize', navMotion.onResize);
-    nav.addEventListener('click', navMotion.onClickCapture, true);
-    this._navMotion = navMotion;
-    this._measureNavBounds();
+    nb.ro = new ResizeObserver(() => this._checkNavOverflow());
+    nb.ro.observe(nav);
+    if (!this.react.enabled) burger.addEventListener('click', nb.onBurgerClick);
+    this._navBurger = nb;
+    this._checkNavOverflow();
   },
 
   _buildSyncStatus(syncMeta) {
@@ -713,7 +698,7 @@ export const App = {
     model.authRole = this.roleLabel(this.state.currentUser);
 
     if (!this.react.enabled) {
-      nav.innerHTML = `<div class="menu-track" role="menubar">${model.items.map((item) => `<a href="${this._buildHashRoute(item.key)}" class="menu-item ${this.state.route === item.key ? 'active' : ''}" role="menuitem" data-route="${item.key}" aria-current="${this.state.route === item.key ? 'page' : 'false'}"><span class="material-symbols-rounded" aria-hidden="true">${item.icon}</span><span>${Utils.esc(item.label)}</span></a>`).join('')}</div>`;
+      nav.innerHTML = `<div class="nav-inner"><div class="menu-track" role="menubar">${model.items.map((item) => `<a href="${this._buildHashRoute(item.key)}" class="menu-item ${this.state.route === item.key ? 'active' : ''}" role="menuitem" data-route="${item.key}" aria-current="${this.state.route === item.key ? 'page' : 'false'}"><span class="material-symbols-rounded" aria-hidden="true">${item.icon}</span><span>${Utils.esc(item.label)}</span></a>`).join('')}</div><button class="menu-burger" type="button" aria-label="Open menu" aria-expanded="false"><span class="material-symbols-rounded" aria-hidden="true">menu</span></button></div>`;
       nav.onclick = (e) => {
         const b = e.target.closest('[data-route]');
         if (!b) return;
@@ -746,18 +731,23 @@ export const App = {
     const syncBar = document.getElementById('sync-bar');
     if (syncBar) syncBar.style.display = navModel.syncVisible ? 'block' : 'none';
     this._syncNavVisibility(document.getElementById('nav'), navModel.items.length > 0);
-    this.react.navRoot.render(e(HashRouter, null, e('div', { className: 'menu-track', role: 'menubar' },
-      ...navModel.items.map((item) => e(Link, {
-        key: item.key,
-        to: `/${item.key}`,
-        className: `menu-item ${this.state.route === item.key ? 'active' : ''}`,
-        role: 'menuitem',
-        'aria-current': this.state.route === item.key ? 'page' : 'false',
-        onClick: (event) => {
-          event.preventDefault();
-          this.navigate(item.key);
-        }
-      }, e('span', { className: 'material-symbols-rounded', 'aria-hidden': 'true' }, item.icon), e('span', null, item.label)))
+    this.react.navRoot.render(e(HashRouter, null, e('div', { className: 'nav-inner' },
+      e('div', { className: 'menu-track', role: 'menubar' },
+        ...navModel.items.map((item) => e(Link, {
+          key: item.key,
+          to: `/${item.key}`,
+          className: `menu-item ${this.state.route === item.key ? 'active' : ''}`,
+          role: 'menuitem',
+          'aria-current': this.state.route === item.key ? 'page' : 'false',
+          onClick: (event) => {
+            event.preventDefault();
+            this.navigate(item.key);
+          }
+        }, e('span', { className: 'material-symbols-rounded', 'aria-hidden': 'true' }, item.icon), e('span', null, item.label)))
+      ),
+      e('button', { className: 'menu-burger', type: 'button', 'aria-label': 'Open menu', 'aria-expanded': 'false', onClick: () => this._navBurger?.onBurgerClick?.() },
+        e('span', { className: 'material-symbols-rounded', 'aria-hidden': 'true' }, 'menu')
+      )
     )));
     this.react.authRoot.render(navModel.authName
       ? e(React.Fragment, null,
@@ -927,10 +917,12 @@ export const App = {
         overview: 'home',
         rounds: 'list_alt',
         create: 'add_circle',
+        create_participant: 'person_add',
         edit: 'edit',
         delete: 'delete',
         submit: 'publish',
         users: 'groups',
+        user: 'person',
         settings: 'settings',
         'invite-detail': 'qr_code',
         login: 'login',
@@ -955,7 +947,9 @@ export const App = {
         'install-form': 'install_desktop',
         'login-form': 'login',
         'join-form': 'person_add',
+        'create-participant-form': 'person_add',
         'edit-user-form': 'save',
+        'user-type-form': 'manage_accounts',
         'create-form': 'add_circle',
         'edit-form': 'save',
         'delete-form': 'delete',
@@ -1189,10 +1183,12 @@ export const App = {
       overview: () => this.renderOverview(),
       rounds: () => this.renderRoundList(),
       create: () => this.renderCreate(),
+      create_participant: () => this.renderCreateParticipant(),
       edit: () => this.renderEdit(),
       delete: () => this.renderDelete(),
       submit: () => this.renderSubmit(),
       users: () => this.renderUsers(),
+      user: () => this.renderUserAdmin(),
       settings: () => this.renderSettings(),
       'invite-detail': () => this.renderInviteDetail(),
       'finish-week': () => this.renderFinishWeek()
@@ -1226,7 +1222,7 @@ export const App = {
     const screen = this.resolveScreen();
 
     if (!this.renderWithReact(navModel, screen)) app.innerHTML = screen;
-    this._ensureNavMotion();
+    this._setupNavBurger();
     this.updateStickyOffsets();
     this.renderSnackbar();
 
@@ -1546,6 +1542,22 @@ export const App = {
       </form></div>`;
   },
 
+  renderCreateParticipant() {
+    if (!this.isAdmin()) return this.renderDenied();
+    return `<div class="card" style="max-width:640px;margin:0 auto">
+      <div class="row between" style="margin-bottom:12px">
+        <h2 style="margin:0">Create participant</h2>
+        <button class="btn secondary" type="button" data-go="users">Back to users</button>
+      </div>
+      <p class="muted">Create a participant with only a name so an admin can submit challenge weights for them.</p>
+      <form id="create-participant-form" class="grid">
+        <div><label>Participant name</label><input name="fullName" type="text" required autocomplete="name" placeholder="e.g. Jane Smith" /></div>
+        <div class="small muted">Participants cannot log in until you promote or invite them later.</div>
+        <div class="row"><button class="btn" type="submit">Create participant</button><button class="btn secondary" type="button" data-go="users">Cancel</button></div>
+      </form>
+    </div>`;
+  },
+
   renderDelete() {
     if (!this.isAdmin()) return this.renderDenied();
     const round = this.currentRound();
@@ -1780,7 +1792,7 @@ export const App = {
       const activeSessions = this.isFirebaseMode() ? this.activeSessionsForUser(u.id).length : 0;
       return `<tr>
         <td><input type="checkbox" data-bulk-user="${u.id}" ${this.state.selectedUsers.includes(u.id) ? 'checked' : ''} ${u.isMaster ? 'disabled' : ''}/></td>
-        <td>${Utils.esc(Utils.fullName(u))}<div class="small muted">${Utils.esc(u.username)}${row.invited ? ' • invited' : ''}</div></td>
+        <td>${Utils.esc(Utils.fullName(u))}<div class="small muted">${Utils.esc(this.userLoginLabel(u))}${row.invited ? ' • invited' : ''}</div></td>
         <td>${row.role}</td>
         <td>${Utils.timeAgo(u.lastLoginAt)}</td>
         ${this.isFirebaseMode() ? `<td>${activeSessions}</td>` : ''}
@@ -1788,24 +1800,11 @@ export const App = {
         <td>${Utils.money(row.totalCashWon, this.state.appSettings.currency)}</td>
         <td>${row.totalWeightDelta}${this.state.appSettings.weightFormat}</td>
         <td>${row.inCurrentRound ? 'Yes' : 'No'}</td>
-        <td><div class="row"><select data-user-action-select="${u.id}"><option value="">Actions…</option><option value="edit">Edit profile</option>${u.canLogin !== false ? '<option value="password">Reset password</option>' : ''}${(!u.isMaster && this.isFirebaseMode()) ? `<option value="toggle-admin">${u.isAdmin ? 'Make user' : 'Make admin'}</option>` : ''}${u.userType === 'participant' && this.isFirebaseMode() ? '<option value="invite-user">Invite as user</option><option value="invite-admin">Invite as admin</option>' : ''}${!u.isMaster ? '<option value="delete">Delete</option>' : ''}</select><button class="btn secondary small" data-user-action-apply="${u.id}">Apply</button></div></td>
+        <td><button class="btn secondary small" type="button" data-manage-user="${u.id}">Open</button></td>
       </tr>`;
     }).join('');
 
-    const editingUser = this.state.users.find((user) => user.id === this.state.editingUserId);
-    return `<div class="card"><div class="row between"><h2 style="margin:0">Users</h2><div class="row">${this.isFirebaseMode() ? '<button class="btn" id="btn-create-invite">Create invite</button>' : ''}<button class="btn danger" data-bulk-delete="1">Delete selected</button></div></div>
-      ${editingUser ? `<div class="card" style="margin-top:12px">
-        <h3 style="margin-top:0">Edit user</h3>
-        <form id="edit-user-form" class="grid two">
-          <div><label>First name</label><input name="firstName" type="text" required autocomplete="given-name" value="${Utils.escAttr(editingUser.firstName || '')}" /></div>
-          <div><label>Last name</label><input name="lastName" type="text" required autocomplete="family-name" value="${Utils.escAttr(editingUser.lastName || '')}" /></div>
-          <div style="grid-column:1/-1"><label>Email</label><input name="username" type="email" disabled value="${Utils.escAttr(editingUser.username || '')}" /></div>
-          <div style="grid-column:1/-1" class="row">
-            <button class="btn" type="submit">Save user</button>
-            <button class="btn secondary" type="button" id="btn-cancel-edit-user">Cancel</button>
-          </div>
-        </form>
-      </div>` : ''}
+    return `<div class="card"><div class="row between"><h2 style="margin:0">Users</h2><div class="row"><button class="btn" type="button" data-go="create_participant">Create participant</button>${this.isFirebaseMode() ? '<button class="btn" id="btn-create-invite">Create invite</button>' : ''}<button class="btn danger" data-bulk-delete="1">Delete selected</button></div></div>
       <div class="grid three" style="margin-top:8px">
         <div><label>Type</label><select id="users-filter-type"><option value="all" ${f.type==='all'?'selected':''}>All</option><option value="master" ${f.type==='master'?'selected':''}>Master</option><option value="admin" ${f.type==='admin'?'selected':''}>Admin</option><option value="user" ${f.type==='user'?'selected':''}>User</option><option value="participant" ${f.type==='participant'?'selected':''}>Participant</option>${this.isFirebaseMode() ? `<option value="invite" ${f.type==='invite'?'selected':''}>Invite</option>` : ''}</select></div>
         <div><label>Status</label><select id="users-filter-status"><option value="all" ${f.status==='all'?'selected':''}>All</option><option value="confirmed" ${f.status==='confirmed'?'selected':''}>Confirmed</option><option value="invited" ${f.status==='invited'?'selected':''}>Invited</option></select></div>
@@ -1816,6 +1815,80 @@ export const App = {
       <div style="overflow:auto;margin-top:8px">
         <table class="table"><thead><tr><th></th><th>User</th><th>Type</th><th>Last logged in</th>${this.isFirebaseMode() ? '<th>Active sessions</th>' : ''}<th>Rounds participated</th><th>Total cash won</th><th>Total weight lost/gained</th><th>In current round</th><th>Actions</th></tr></thead>
         <tbody>${rows || `<tr><td colspan="${this.isFirebaseMode() ? 10 : 9}" class="muted">No users found.</td></tr>`}</tbody></table>
+      </div>
+    </div>`;
+  },
+
+  renderUserAdmin() {
+    if (!this.isAdmin()) return this.renderDenied();
+    const user = this.selectedUser();
+    if (!user) {
+      return `<div class="card" style="max-width:640px;margin:0 auto">
+        <h2 style="margin-top:0">User not found</h2>
+        <p class="muted">The selected user no longer exists.</p>
+        <button class="btn secondary" type="button" data-go="users">Back to users</button>
+      </div>`;
+    }
+    const stats = this.userStats(user);
+    const typeOptions = this.managedUserTypeOptions(user);
+    const pendingInvites = this.isFirebaseMode() ? this.state.invites.filter((invite) => !invite.usedAt && invite.userId === user.id) : [];
+    const typeLocked = typeOptions.length === 1;
+    const canDelete = !user.isMaster && user.id !== this.state.currentUser?.id;
+    return `<div class="card" style="max-width:760px;margin:0 auto">
+      <div class="row between" style="margin-bottom:12px">
+        <div>
+          <h2 style="margin:0">${Utils.esc(Utils.fullName(user))}</h2>
+          <div class="small muted">${Utils.esc(this.roleLabel(user))} • ${Utils.esc(this.userLoginLabel(user))}</div>
+        </div>
+        <button class="btn secondary" type="button" data-go="users">Back to users</button>
+      </div>
+
+      <div class="grid two" style="margin-bottom:12px">
+        <div class="card">
+          <strong>Rounds participated</strong>
+          <div>${stats.roundsParticipated}</div>
+        </div>
+        <div class="card">
+          <strong>Current challenge</strong>
+          <div>${stats.inCurrentRound ? 'In current round' : 'Not in current round'}</div>
+        </div>
+        <div class="card">
+          <strong>Total cash won</strong>
+          <div>${Utils.money(stats.totalCashWon, this.state.appSettings.currency)}</div>
+        </div>
+        <div class="card">
+          <strong>Total weight lost/gained</strong>
+          <div>${stats.totalWeightDelta}${this.state.appSettings.weightFormat}</div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom:12px">
+        <h3 style="margin-top:0">User details</h3>
+        <form id="edit-user-form" class="grid two">
+          <div><label>First name</label><input name="firstName" type="text" required autocomplete="given-name" value="${Utils.escAttr(user.firstName || '')}" /></div>
+          <div><label>Last name</label><input name="lastName" type="text" autocomplete="family-name" value="${Utils.escAttr(user.lastName || '')}" /></div>
+          <div style="grid-column:1/-1"><label>Email / login</label><input name="username" type="text" disabled value="${Utils.escAttr(user.username || '')}" placeholder="No login email" /></div>
+          <div style="grid-column:1/-1" class="row"><button class="btn" type="submit">Save user</button></div>
+        </form>
+      </div>
+
+      <div class="card" style="margin-bottom:12px">
+        <h3 style="margin-top:0">User type</h3>
+        <form id="user-type-form" class="grid two">
+          <div><label>Type</label><select name="userType" ${typeLocked ? 'disabled' : ''}>${typeOptions.map((option) => `<option value="${option.value}" ${option.value === (user.userType || 'user') ? 'selected' : ''}>${option.label}</option>`).join('')}</select></div>
+          <div class="small muted" style="align-self:end">${user.isMaster ? 'Master type is locked.' : typeLocked ? 'This participant cannot be promoted from this page.' : 'Changing to participant removes login access.'}</div>
+          <div style="grid-column:1/-1" class="row"><button class="btn secondary" type="submit" ${typeLocked ? 'disabled' : ''}>Save type</button></div>
+        </form>
+      </div>
+
+      <div class="card">
+        <h3 style="margin-top:0">Actions</h3>
+        <div class="row" style="flex-wrap:wrap">
+          ${((!this.isFirebaseMode() && user.canLogin !== false) || (this.isFirebaseMode() && !!user.firebaseUid)) ? '<button class="btn secondary" type="button" id="btn-reset-user-password">Reset password</button>' : ''}
+          ${(this.isFirebaseMode() && user.userType === 'participant' && !user.firebaseUid) ? '<button class="btn secondary" type="button" data-user-invite="user">Invite as user</button><button class="btn secondary" type="button" data-user-invite="admin">Invite as admin</button>' : ''}
+          ${pendingInvites.map((invite) => `<button class="btn secondary" type="button" data-view-invite="${Utils.escAttr(invite.id)}">View ${Utils.esc(invite.inviteType || 'user')} invite</button>`).join('')}
+          ${canDelete ? '<button class="btn danger" type="button" id="btn-delete-user">Delete user</button>' : ''}
+        </div>
       </div>
     </div>`;
   },
@@ -1967,7 +2040,18 @@ export const App = {
         if (!invite) return this.fail('Invite code not found or invalid.');
         if (invite.usedAt) return this.fail('This invite code has already been used.');
 
-        const existsByEmail = await Data.adapter.getUserByUsername(email);
+        let existsByEmail;
+        if (this.isFirebaseMode()) {
+          try {
+            const remoteMatches = await FirestoreAdapter.queryRecords('users', 'username', email);
+            existsByEmail = remoteMatches.find((u) => !u.deletedAt) || null;
+          } catch (e) {
+            console.warn('Could not check email uniqueness via Firestore:', e.message);
+            return this.fail('Could not verify email availability. Please check your connection and try again.');
+          }
+        } else {
+          existsByEmail = await Data.adapter.getUserByUsername(email);
+        }
         if (existsByEmail) return this.fail('An account with this email already exists.');
 
         // Create the Firebase Auth account first
@@ -2039,6 +2123,32 @@ export const App = {
       e.preventDefault();
       this.navigate('join');
     };
+
+    document.querySelectorAll('[data-manage-user]').forEach((button) => button.onclick = () => {
+      this.navigate('user', { userId: button.dataset.manageUser });
+    });
+
+    const createParticipantForm = document.getElementById('create-participant-form');
+    if (createParticipantForm) {
+      this.bindAsyncFormSubmit(createParticipantForm, async () => {
+        const fullName = createParticipantForm.fullName.value.trim().replace(/\s+/g, ' ');
+        if (!fullName) return this.fail('Enter a participant name.');
+        const exists = this.state.users.find((user) => Utils.fullName(user).toLowerCase() === fullName.toLowerCase());
+        if (exists) return this.fail('A user with that name already exists.');
+        const parsed = Utils.parseName(fullName);
+        const participant = await Data.adapter.createUser({
+          firstName: parsed.firstName,
+          lastName: parsed.lastName,
+          userType: 'participant',
+          isAdmin: false,
+          isMaster: false,
+          canLogin: false
+        });
+        await this.refresh();
+        this.setMessage('Participant created.');
+        this.navigate('user', { userId: participant.id, keepFlash: true });
+      });
+    }
 
     // Invite management (admin)
     const btnCreateInvite = document.getElementById('btn-create-invite');
@@ -2251,8 +2361,14 @@ export const App = {
             return this.fail('Invalid email or password.');
           }
           if (!fbUser) return this.fail('Invalid email or password.');
-          const user = await Data.adapter.getUserByFirebaseUid(fbUser.uid);
-          if (!user) return this.fail('No local account found for this Firebase user. Please contact the admin.');
+          let user;
+          try {
+            user = await this._resolveFirebaseUser(fbUser);
+          } catch (e) {
+            console.warn('Could not resolve user account after Firebase sign-in:', e.message);
+            return this.fail('Could not load account. Please check your connection and try again.');
+          }
+          if (!user) return this.fail('No account found for this Firebase user. Please contact the admin.');
           if (user.userType === 'participant' || user.canLogin === false) return this.fail('This account cannot log in.');
           await this.loginAs(user);
           await this.refresh();
@@ -2539,99 +2655,23 @@ export const App = {
       const select = document.querySelector(`[data-user-action-select="${CSS.escape(id)}"]`);
       const action = select?.value || '';
       if (!action) return;
-      if (id.startsWith('invite:')) {
-        const inviteId = id.split(':')[1];
-        const inv = this.state.invites.find((x) => x.id === inviteId);
-        if (!inv) return;
-        if (action === 'view-invite') {
-          this.state.inviteDetail = inv;
-          this.navigate('invite-detail');
-          return;
-        }
-        if (action === 'delete-invite') {
-          if (!confirm('Delete this invite?')) return;
-          await Data.adapter.deleteInvite(inv.id);
-          await this.refresh();
-          this.setMessage('Invite deleted.');
-          return this.render();
-        }
-        return;
-      }
-
-      const user = this.state.users.find((u) => u.id === id);
-      if (!user) return;
-      if (action === 'edit') {
-        this.state.editingUserId = user.id;
-        this.render();
-        return;
-      } else if (action === 'password') {
-        if (this.isFirebaseMode()) {
-          // Firebase mode: send a password reset email via Firebase Auth
-          const email = user.username;
-          if (!email) return this.fail('No email address on record for this user.');
-          try {
-            await FirestoreAdapter.sendPasswordResetEmail(email);
-            this.setMessage(`Password reset email sent to ${email}.`);
-            this.render();
-            return;
-          } catch (err) {
-            return this.fail(`Failed to send reset email: ${err.message || err}`);
-          }
-        }
-        // Offline mode: direct password reset
-        const password = prompt(`New password for ${Utils.fullName(user)}:`);
-        if (password === null) return;
-        if (!Utils.validPassword(password)) return this.fail('Password must include 8+ chars, letter, number and symbol.');
-        const confirmPwd = prompt('Confirm new password:');
-        if (confirmPwd !== password) return this.fail('Passwords do not match.');
-        const hash = await Security.createPasswordRecord(password);
-        const ok = await this._saveWithConflictResolver('User', { ...user, password: hash }, (payload) => Data.adapter.updateUser(payload));
-        if (!ok) return;
-      } else if (action === 'toggle-admin') {
-        if (user.isMaster) return this.fail('Master role cannot be changed.');
-        if (user.id === this.state.currentUser.id && user.isAdmin) return this.fail('You cannot remove your own admin access.');
-        const nextType = user.isAdmin ? 'user' : 'admin';
-        const ok = await this._saveWithConflictResolver('User', { ...user, userType: nextType, isAdmin: !user.isAdmin, canLogin: true }, (payload) => Data.adapter.updateUser(payload));
-        if (!ok) return;
-      } else if (action === 'delete') {
-        if (user.isMaster) return this.fail('Master admin cannot be deleted.');
-        if (user.id === this.state.currentUser.id) return this.fail('You cannot delete your own account.');
-        if (!confirm(`Delete ${Utils.fullName(user)}? This cannot be undone.`)) return;
-        await Data.adapter.deleteUser(user.id);
-        this.state.selectedUsers = this.state.selectedUsers.filter((x) => x !== user.id);
-      } else if (action === 'invite-user' || action === 'invite-admin') {
-        if (!this.isFirebaseMode()) return this.fail('Invites are unavailable in offline mode.');
-        const existing = this.state.invites.find((i) => !i.usedAt && i.userId === user.id && i.inviteType === (action === 'invite-admin' ? 'admin' : 'user'));
-        const code = existing?.code || this._generateInviteCode();
-        const invite = {
-          id: existing?.id || code,
-          code,
-          userId: user.id,
-          inviteType: action === 'invite-admin' ? 'admin' : 'user',
-          createdAt: new Date().toISOString(),
-          usedAt: null,
-          usedBy: null
-        };
-        await Data.adapter.createInvite(invite);
-        await this._saveFirebaseInvite(invite);
-        const ok = await this._saveWithConflictResolver('User', {
-          ...user,
-          userType: invite.inviteType,
-          isAdmin: invite.inviteType === 'admin',
-          canLogin: true,
-          inviteCode: code,
-          invitedAt: invite.createdAt,
-          inviteAcceptedAt: null
-        }, (payload) => Data.adapter.updateUser(payload));
-        if (!ok) return;
-        this.state.inviteDetail = invite;
+      if (!id.startsWith('invite:')) return;
+      const inviteId = id.split(':')[1];
+      const inv = this.state.invites.find((x) => x.id === inviteId);
+      if (!inv) return;
+      if (action === 'view-invite') {
+        this.state.inviteDetail = inv;
         this.navigate('invite-detail');
         return;
       }
-      await this.refresh();
-      if (this.state.editingUserId && this.state.editingUserId === id && action !== 'edit') this.state.editingUserId = null;
-      this.setMessage('User update saved.');
-      this.render();
+      if (action === 'delete-invite') {
+        if (!confirm('Delete this invite?')) return;
+        await Data.adapter.deleteInvite(inv.id);
+        await this._deleteFirebaseInvite(inv.id);
+        await this.refresh();
+        this.setMessage('Invite deleted.');
+        return this.render();
+      }
     });
 
     const bulkDelete = document.querySelector('[data-bulk-delete="1"]');
@@ -2729,24 +2769,120 @@ export const App = {
     }
 
     const editUserForm = document.getElementById('edit-user-form');
-    if (editUserForm && this.state.editingUserId) {
+    if (editUserForm && this.state.selectedUserId) {
       this.bindAsyncFormSubmit(editUserForm, async () => {
-        const user = this.state.users.find((entry) => entry.id === this.state.editingUserId);
+        const user = this.selectedUser();
         if (!user) return this.fail('User not found.');
         const firstName = editUserForm.firstName.value.trim();
         const lastName = editUserForm.lastName.value.trim();
+        if (!firstName) return this.fail('First name is required.');
         const ok = await this._saveWithConflictResolver('User', { ...user, firstName, lastName }, (payload) => Data.adapter.updateUser(payload));
         if (!ok) return;
-        this.state.editingUserId = null;
         await this.refresh();
         this.setMessage('User update saved.');
         this.render();
       });
     }
-    const cancelEditUser = document.getElementById('btn-cancel-edit-user');
-    if (cancelEditUser) cancelEditUser.onclick = () => {
-      this.state.editingUserId = null;
+
+    const userTypeForm = document.getElementById('user-type-form');
+    if (userTypeForm && this.state.selectedUserId) {
+      this.bindAsyncFormSubmit(userTypeForm, async () => {
+        const user = this.selectedUser();
+        if (!user) return this.fail('User not found.');
+        const nextType = userTypeForm.userType.value;
+        const allowed = this.managedUserTypeOptions(user).map((option) => option.value);
+        if (!allowed.includes(nextType)) return this.fail('This user type cannot be set from this page.');
+        if (user.isMaster || nextType === 'master') return this.fail('Master role cannot be changed.');
+        if (user.id === this.state.currentUser.id && nextType !== 'admin') return this.fail('You cannot remove your own admin access.');
+        const ok = await this._saveWithConflictResolver('User', {
+          ...user,
+          userType: nextType,
+          isAdmin: nextType === 'admin',
+          isMaster: false,
+          canLogin: nextType !== 'participant'
+        }, (payload) => Data.adapter.updateUser(payload));
+        if (!ok) return;
+        await this.refresh();
+        this.setMessage('User type updated.');
+        this.render();
+      });
+    }
+
+    const resetUserPassword = document.getElementById('btn-reset-user-password');
+    if (resetUserPassword) resetUserPassword.onclick = async () => {
+      const user = this.selectedUser();
+      if (!user) return this.fail('User not found.');
+      if (this.isFirebaseMode()) {
+        const email = user.username;
+        if (!email) return this.fail('No email address on record for this user.');
+        try {
+          await FirestoreAdapter.sendPasswordResetEmail(email);
+          this.setMessage(`Password reset email sent to ${email}.`);
+          this.render();
+        } catch (err) {
+          this.fail(`Failed to send reset email: ${err.message || err}`);
+        }
+        return;
+      }
+      const password = prompt(`New password for ${Utils.fullName(user)}:`);
+      if (password === null) return;
+      if (!Utils.validPassword(password)) return this.fail('Password must include 8+ chars, letter, number and symbol.');
+      const confirmPwd = prompt('Confirm new password:');
+      if (confirmPwd !== password) return this.fail('Passwords do not match.');
+      const hash = await Security.createPasswordRecord(password);
+      const ok = await this._saveWithConflictResolver('User', { ...user, password: hash }, (payload) => Data.adapter.updateUser(payload));
+      if (!ok) return;
+      await this.refresh();
+      this.setMessage('Password updated.');
       this.render();
+    };
+
+    document.querySelectorAll('[data-user-invite]').forEach((button) => button.onclick = async () => {
+      const user = this.selectedUser();
+      if (!user) return this.fail('User not found.');
+      if (!this.isFirebaseMode()) return this.fail('Invites are unavailable in offline mode.');
+      const inviteType = button.dataset.userInvite;
+      const existing = this.state.invites.find((invite) => !invite.usedAt && invite.userId === user.id && invite.inviteType === inviteType);
+      const code = existing?.code || this._generateInviteCode();
+      const invite = {
+        id: existing?.id || code,
+        code,
+        userId: user.id,
+        inviteType,
+        createdAt: new Date().toISOString(),
+        usedAt: null,
+        usedBy: null
+      };
+      await Data.adapter.createInvite(invite);
+      await this._saveFirebaseInvite(invite);
+      const ok = await this._saveWithConflictResolver('User', {
+        ...user,
+        userType: inviteType,
+        isAdmin: inviteType === 'admin',
+        canLogin: true,
+        inviteCode: code,
+        invitedAt: invite.createdAt,
+        inviteAcceptedAt: null
+      }, (payload) => Data.adapter.updateUser(payload));
+      if (!ok) return;
+      await this.refresh();
+      this.state.inviteDetail = invite;
+      this.navigate('invite-detail', { keepFlash: true });
+    });
+
+    const deleteUserButton = document.getElementById('btn-delete-user');
+    if (deleteUserButton) deleteUserButton.onclick = async () => {
+      const user = this.selectedUser();
+      if (!user) return this.fail('User not found.');
+      if (user.isMaster) return this.fail('Master admin cannot be deleted.');
+      if (user.id === this.state.currentUser.id) return this.fail('You cannot delete your own account.');
+      if (!confirm(`Delete ${Utils.fullName(user)}? This cannot be undone.`)) return;
+      await Data.adapter.deleteUser(user.id);
+      this.state.selectedUsers = this.state.selectedUsers.filter((id) => id !== user.id);
+      this.state.selectedUserId = null;
+      await this.refresh();
+      this.setMessage('User deleted.');
+      this.navigate('users', { keepFlash: true, replace: true });
     };
 
     const resetForm = document.getElementById('server-reset-form');
@@ -2790,6 +2926,7 @@ export const App = {
         this.state.pendingInviteCode = '';
         this.state.redirectAfterLogin = 'overview';
         this.state.inviteDetail = null;
+        this.state.selectedUserId = null;
         this.state.selectedUsers = [];
         this.setMessage('Server reset complete.');
         history.replaceState(null, '', window.location.pathname);

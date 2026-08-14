@@ -105,6 +105,12 @@ export const FirestoreAdapter = (() => {
       return snap.exists ? snap.data() : null;
     },
 
+    async queryRecords(entityType, field, value) {
+      if (!_db) throw new Error('FirestoreAdapter not initialised');
+      const snap = await colRef(entityType).where(field, '==', value).get();
+      return snap.docs.map((d) => d.data());
+    },
+
     async removeRecord(entityType, id) {
       if (!_db) throw new Error('FirestoreAdapter not initialised');
       await docRef(entityType, id).delete();
