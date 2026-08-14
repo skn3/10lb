@@ -160,7 +160,7 @@ export const App = {
     const match = remoteByEmail[0];
     if (!match) return null;
 
-    const hydrated = match.firebaseUid
+    const hydrated = match.firebaseUid === uid
       ? match
       : {
           ...match,
