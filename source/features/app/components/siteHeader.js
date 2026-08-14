@@ -1,4 +1,4 @@
-import { Utils } from '../utils/utils.js';
+import { Utils } from '../../../shared/utils/utils.js';
 
 // =============================================================================
 // SITE HEADER — auth chip component.

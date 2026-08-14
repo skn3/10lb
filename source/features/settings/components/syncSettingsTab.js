@@ -1,6 +1,6 @@
 import { Utils } from '../../../shared/utils/utils.js';
 import { SubmitButton } from '../../../shared/components/submitButton.js';
-import { SyncButton } from '../../../shared/components/syncButton.js';
+import { SyncButton } from '../components/syncButton.js';
 import { RuntimeConfig } from '../../../config.js';
 
 // =============================================================================

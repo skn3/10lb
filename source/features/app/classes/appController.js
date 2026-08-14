@@ -8,9 +8,9 @@ import { Domain } from '../../../domain.js';
 import { OfflinePlugin } from '../../authentication/classes/offlinePlugin.js';
 import { FirebasePlugin } from '../../authentication/classes/firebasePlugin.js';
 import { AuthController } from '../../authentication/classes/authController.js';
-import { MenuBar } from '../../../shared/components/menuBar.js';
-import { Snackbar } from '../../../shared/components/snackbar.js';
-import { SiteHeader } from '../../../shared/components/siteHeader.js';
+import { MenuBar } from '../components/menuBar.js';
+import { Snackbar } from '../components/snackbar.js';
+import { SiteHeader } from '../components/siteHeader.js';
 import { WeightChart } from '../../../shared/components/weightChart.js';
 // App pages
 import { renderDeniedPage } from '../pages/deniedPage.js';
