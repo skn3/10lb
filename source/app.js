@@ -157,11 +157,20 @@ export const App = {
     if (user) return user;
 
     const remoteByEmail = await FirestoreAdapter.queryRecords('users', 'username', email);
-    const match = remoteByEmail.find((candidate) => String(candidate?.username || '').trim().toLowerCase() === email);
+    const match = remoteByEmail[0];
     if (!match) return null;
 
-    await Data.adapter.mergeRemoteRecord('users', match);
-    return Data.adapter.getUserById(match.id);
+    const hydrated = match.firebaseUid
+      ? match
+      : {
+          ...match,
+          firebaseUid: uid,
+          version: (match.version || 1) + 1,
+          updatedAt: new Date().toISOString()
+        };
+
+    await Data.adapter.mergeRemoteRecord('users', hydrated);
+    return (await Data.adapter.getUserByFirebaseUid(uid)) || (await Data.adapter.getUserById(match.id));
   },
   async _registerFirebaseAdmin(user = this.state.currentUser) {
     if (!this.isFirebaseMode() || !user || !FirestoreAdapter.isReady() || !(user.isAdmin || user.isMaster)) return;
