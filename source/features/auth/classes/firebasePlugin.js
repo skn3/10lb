@@ -1,6 +1,5 @@
 import { ServerPlugin } from './serverPlugin.js';
 import { RuntimeConfig } from '../../../config.js';
-import { Data } from '../../storage/models/data.js';
 import { FirestoreAdapter } from '../../storage/classes/firestoreAdapter.js';
 import { SyncEngine } from '../../storage/classes/syncEngine.js';
 
@@ -55,7 +54,13 @@ export class FirebasePlugin extends ServerPlugin {
     }
     const fbUser = await FirestoreAdapter.getCurrentFirebaseUser();
     if (!fbUser || fbUser.isAnonymous) return;
-    const user = await Data.adapter.getUserByFirebaseUid(fbUser.uid);
+    let user;
+    try {
+      user = await this._app._resolveFirebaseUser(fbUser.uid);
+    } catch (e) {
+      console.warn('Could not resolve user account during session restore:', e.message);
+      return;
+    }
     if (!user) return;
     this._app.state.currentUser = user;
     await this._app._upsertFirebaseSession(user);
