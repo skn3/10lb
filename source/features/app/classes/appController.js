@@ -624,12 +624,20 @@ export const App = {
   _updateNavActive(nb) {
     if (!nb?.activeIndicator) return;
     const active = nb.track?.querySelector('.menu-item.active');
-    if (!active) { nb.activeIndicator.innerHTML = ''; return; }
+    nb.activeIndicator.textContent = '';
+    if (!active) return;
     const icon = active.querySelector('.material-symbols-rounded')?.textContent?.trim() || '';
     const label = active.querySelector('.menu-item-label')?.textContent || '';
-    nb.activeIndicator.innerHTML =
-      (icon ? `<span class="material-symbols-rounded" aria-hidden="true">${Utils.esc(icon)}</span>` : '') +
-      `<span>${Utils.esc(label)}</span>`;
+    if (icon) {
+      const iconEl = document.createElement('span');
+      iconEl.className = 'material-symbols-rounded';
+      iconEl.setAttribute('aria-hidden', 'true');
+      iconEl.textContent = icon;
+      nb.activeIndicator.appendChild(iconEl);
+    }
+    const labelEl = document.createElement('span');
+    labelEl.textContent = label;
+    nb.activeIndicator.appendChild(labelEl);
   },
 
   _buildSyncStatus(syncMeta) {
