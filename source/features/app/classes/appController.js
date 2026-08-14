@@ -1,5 +1,5 @@
 import { loadRuntimeConfig, RuntimeConfig } from '../../../config.js';
-import { MenuConfig, MenuState, NavigationItems, ROUTES, SyncStatus, SyncStatusIcon } from '../../../constants.js';
+import { MenuConfig, MenuState, NavigationItems, ROUTES, SyncStatus, SyncStatusIcon, ThemeAlias } from '../../../constants.js';
 import { Utils } from '../../../shared/utils/utils.js';
 import { Device } from '../../../shared/classes/device.js';
 import { Data } from '../../storage/models/data.js';
@@ -434,7 +434,8 @@ export const App = {
   // Nav / UI helpers
   // ---------------------------------------------------------------------------
   applyTheme() {
-    document.body.setAttribute('data-theme', this.state.appSettings?.theme || 'teal');
+    const theme = this.state.appSettings?.theme || 'teal';
+    document.body.setAttribute('data-theme', ThemeAlias[theme] || theme);
   },
 
   updateStickyOffsets() {

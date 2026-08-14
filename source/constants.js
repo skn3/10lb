@@ -8,8 +8,17 @@ export const ThemeOptions = Object.freeze([
   { key: 'indigo', label: 'Indigo Glow' },
   { key: 'rose', label: 'Rose Quartz' },
   { key: 'slate', label: 'Slate Steel' },
-  { key: 'emerald', label: 'Emerald Mist' }
+  { key: 'emerald', label: 'Emerald Mist' },
+  { key: 'system', label: 'System default (legacy)' },
+  { key: 'light', label: 'Light (legacy)' },
+  { key: 'dark', label: 'Dark (legacy)' }
 ]);
+
+export const ThemeAlias = Object.freeze({
+  system: 'teal',
+  light: 'teal',
+  dark: 'slate'
+});
 
 export const ROUTES = Object.freeze([
   'install',
