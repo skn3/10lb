@@ -64,7 +64,11 @@ export class FirebasePlugin extends ServerPlugin {
     }
     if (!user) return;
     this._app.state.currentUser = user;
-    await AuthController.upsertFirebaseSession(user, this._app.state.appSettings, this._app.firebaseSessionId(user));
+    try {
+      await AuthController.upsertFirebaseSession(user, this._app.state.appSettings, this._app.firebaseSessionId(user));
+    } catch (e) {
+      console.warn('Could not upsert Firebase session during restore:', e.message);
+    }
   }
 
   async onLogin(user) {

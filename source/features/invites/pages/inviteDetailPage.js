@@ -1,6 +1,6 @@
 import { Utils } from '../../../shared/utils/utils.js';
 import { SubmitButton } from '../../../shared/components/submitButton.js';
-import { InviteQRCode } from '../../../shared/components/qrCode.js';
+import { InviteQRCode } from '../components/qrCode.js';
 import { InvitesService } from '../classes/invitesService.js';
 import { generateInviteCode } from '../utils/inviteCodeUtils.js';
 

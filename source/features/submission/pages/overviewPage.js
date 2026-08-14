@@ -2,8 +2,8 @@ import { Domain } from '../../../domain.js';
 import { Utils } from '../../../shared/utils/utils.js';
 import { SubmitButton } from '../../../shared/components/submitButton.js';
 import { SubmissionStatusPanel } from '../../../shared/components/submissionStatusPanel.js';
-import { WeekPager } from '../../../shared/components/weekPager.js';
-import { Leaderboard } from '../../../shared/components/leaderboard.js';
+import { WeekPager } from '../components/weekPager.js';
+import { Leaderboard } from '../components/leaderboard.js';
 import { WeightChart } from '../../../shared/components/weightChart.js';
 
 // =============================================================================

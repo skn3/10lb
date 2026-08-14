@@ -1,6 +1,6 @@
-import { Domain } from '../../domain.js';
-import { Utils } from '../utils/utils.js';
-import { WeightChart } from './weightChart.js';
+import { Domain } from '../../../domain.js';
+import { Utils } from '../../../shared/utils/utils.js';
+import { WeightChart } from '../../../shared/components/weightChart.js';
 
 // =============================================================================
 // LEADERBOARD — leaderboard card component.

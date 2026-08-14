@@ -1,4 +1,4 @@
-import { Utils } from '../utils/utils.js';
+import { Utils } from '../../../shared/utils/utils.js';
 
 // =============================================================================
 // MENU BAR — navigation bar component.

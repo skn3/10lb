@@ -1,6 +1,6 @@
 import { Utils } from '../../../shared/utils/utils.js';
 import { Security } from '../../../shared/classes/security.js';
-import { SyncButton } from '../../../shared/components/syncButton.js';
+import { SyncButton } from '../components/syncButton.js';
 import { SyncEngine } from '../../storage/classes/syncEngine.js';
 import { FirestoreAdapter } from '../../storage/classes/firestoreAdapter.js';
 import { AuthController } from '../../authentication/classes/authController.js';

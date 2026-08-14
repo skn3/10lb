@@ -221,17 +221,27 @@ export const AuthController = {
   async loadVisibleInvites(isFirebaseMode, currentUser, isAdmin, firestoreAdapter, offlineAdapter) {
     if (!isFirebaseMode) return offlineAdapter.listInvites();
     if (!currentUser || !isAdmin || !firestoreAdapter.isReady()) return [];
-    const invites = await firestoreAdapter.downloadAll('invites');
-    return invites
-      .filter((inv) => inv && !inv.deletedAt)
-      .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+    try {
+      const invites = await firestoreAdapter.downloadAll('invites');
+      return invites
+        .filter((inv) => inv && !inv.deletedAt)
+        .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
+    } catch (e) {
+      console.warn('Could not load invites from Firestore:', e.message);
+      return [];
+    }
   },
 
   async loadVisibleSessions(isFirebaseMode, currentUser, isAdmin, firestoreAdapter) {
     if (!isFirebaseMode || !currentUser || !isAdmin || !firestoreAdapter.isReady()) return [];
-    const sessions = await firestoreAdapter.downloadAll('sessions');
-    return sessions
-      .filter((s) => s && !s.deletedAt)
-      .sort((a, b) => new Date(b.lastSeenAt || b.startedAt || 0).getTime() - new Date(a.lastSeenAt || a.startedAt || 0).getTime());
+    try {
+      const sessions = await firestoreAdapter.downloadAll('sessions');
+      return sessions
+        .filter((s) => s && !s.deletedAt)
+        .sort((a, b) => new Date(b.lastSeenAt || b.startedAt || 0).getTime() - new Date(a.lastSeenAt || a.startedAt || 0).getTime());
+    } catch (e) {
+      console.warn('Could not load sessions from Firestore:', e.message);
+      return [];
+    }
   }
 };
