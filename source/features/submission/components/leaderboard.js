@@ -2,6 +2,7 @@ import { Domain } from '../../../domain.js';
 import { PrizeMedals } from '../../../constants.js';
 import { Utils } from '../../../shared/utils/utils.js';
 import { WeightChart } from '../../../shared/components/weightChart.js';
+import { DataTable } from '../../../shared/components/dataTable.js';
 
 // =============================================================================
 // LEADERBOARD — leaderboard card component.
@@ -29,14 +30,19 @@ export const Leaderboard = {
       '<tr><td colspan="5" class="muted">No leaderboard data yet.</td></tr>';
 
     const holidayHtml = view.holiday.length
-      ? `<h4>Holiday</h4><ul>${view.holiday.map((x) =>
-          `<li class="holiday">${Utils.esc(Utils.fullName(x.user))} (used ${x.holidaysUsed}/${round.holidaysAllowed})</li>`
-        ).join('')}</ul>`
+      ? `<h4>Holiday</h4>${DataTable.render({
+          headers: ['Name', 'Holidays used / allowed'],
+          rows: view.holiday.map((x) => [
+            Utils.esc(Utils.fullName(x.user)),
+            `${x.holidaysUsed} / ${round.holidaysAllowed}`
+          ])
+        })}`
       : '';
     const forfeitHtml = view.forfeit.length
-      ? `<h4>Forfeit</h4><ul>${view.forfeit.map((x) =>
-          `<li class="forfeit">${Utils.esc(Utils.fullName(x.user))}</li>`
-        ).join('')}</ul>`
+      ? `<h4>Forfeit</h4>${DataTable.render({
+          headers: ['Name'],
+          rows: view.forfeit.map((x) => [Utils.esc(Utils.fullName(x.user))])
+        })}`
       : '';
     const pendingHtml = view.pending.length
       ? `<h4>Pending</h4><ul>${view.pending.map((x) =>
