@@ -133,7 +133,7 @@ export function bindSettingsEvents(app) {
   const syncRetry = document.getElementById(SyncButton.BUTTON_ID);
   if (syncRetry) {
     SyncButton.bind(syncRetry, () => app._isSyncing(), async () => {
-    await StorageService.retrySyncNow();
+      await StorageService.retrySyncNow();
       await app.loadSyncMeta();
       app.render();
     });

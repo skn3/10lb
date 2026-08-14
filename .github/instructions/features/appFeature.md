@@ -65,7 +65,7 @@ export function bindXxxEvents(app) { /* binds DOM events after render */ }
 
 ### Login page (`loginPage.js`)
 - Form id: `login-form`
-- Firebase mode: calls `FirestoreAdapter.signInWithEmail()` then `AuthService.resolveFirebaseUser()`
+- Firebase mode: calls `AuthService.signInWithEmail()` then `AuthService.resolveFirebaseUser()`
 - Offline mode: calls `Security.verifyPassword()` then `app.loginAs()`
 
 ### Join page (`joinPage.js`)
