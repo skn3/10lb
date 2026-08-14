@@ -664,7 +664,7 @@ export const App = {
     };
     return {
       syncVisible: true,
-      syncText: `${statusIcons[status] || ''} ONLINE — ${statusText[status] || status}`
+      syncText: `${statusIcons[status] || ''} ONLINE — ${statusText[status] || Utils.esc(status)}`
     };
   },
 
