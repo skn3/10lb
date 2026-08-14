@@ -76,6 +76,7 @@
     .menu-burger:hover { background:color-mix(in srgb, #fff 8%, var(--brand)); }
     .menu-burger:focus-visible { outline:2px solid rgba(255,255,255,.7); outline-offset:1px; }
     nav.needs-burger .menu-burger { display:inline-flex; }
+    nav.needs-burger:not(.is-open) .menu-item:not(.active) { display:none; }
     .menu-item {
       border:1px solid color-mix(in srgb, #fff 25%, var(--brand));
       background:transparent;
@@ -177,6 +178,10 @@
     .snackbar-close:hover { color:#fff; }
     @keyframes snack-slide-in { from { transform:translateY(-8px); opacity:0.6; } to { transform:translateY(0); opacity:1; } }
     @keyframes spin { to { transform:rotate(360deg); } }
+    .sync-spin { display:inline-block; animation:spin .8s linear infinite; }
+    .sync-warn-banner { background:#fef3c7; color:#92400e; border:1px solid #fcd34d; border-radius:10px; padding:10px 14px; margin-bottom:12px; display:flex; align-items:center; gap:8px; font-size:.9rem; }
+    .sync-warn-banner .material-symbols-rounded { font-size:20px; flex-shrink:0; }
+    body.is-syncing form { pointer-events:none; opacity:0.65; }
   </style>
 </head>
 <body data-theme="teal">

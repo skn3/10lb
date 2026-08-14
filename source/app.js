@@ -654,7 +654,7 @@ export const App = {
     const mode = syncMeta.storageMode || 'local';
     if (mode !== 'online') return { syncVisible: false, syncText: '' };
     const status = syncMeta.syncStatus || 'idle';
-    const statusIcons = { idle: '', syncing: '↻', synced: '✓', pending: '⚠', error: '✗' };
+    const statusIcons = { idle: '', syncing: '<span class="sync-spin">↻</span>', synced: '✓', pending: '⚠', error: '✗' };
     const statusText = {
       idle: '',
       syncing: 'Syncing…',
@@ -666,6 +666,29 @@ export const App = {
       syncVisible: true,
       syncText: `${statusIcons[status] || ''} ONLINE — ${statusText[status] || status}`
     };
+  },
+
+  _isSyncing() {
+    return this.state.syncMeta?.storageMode === 'online' && this.state.syncMeta?.syncStatus === 'syncing';
+  },
+
+  _syncWarnBanner() {
+    if (!this._isSyncing()) return '';
+    const routeMessages = {
+      overview: 'Round and submission data is being synced. Rankings and weights may be incomplete.',
+      rounds: 'Round data is being synced. The round list may not be up to date.',
+      submit: 'Submission data is being synced. Your current standings may not reflect the latest data.',
+      create: 'Round data is being synced.',
+      edit: 'Round data is being synced.',
+      delete: 'Round data is being synced.',
+      users: 'User data is being synced. The user list may be incomplete.',
+      user: 'User data is being synced. This user\'s information may be incomplete.',
+      create_participant: 'User data is being synced.',
+      'invite-detail': 'User and invite data is being synced.',
+      settings: 'Settings are being synced. Displayed values may not be current.',
+    };
+    const msg = routeMessages[this.state.route] || 'Data sync is in progress. Some information shown may not be up to date.';
+    return `<div class="sync-warn-banner"><span class="material-symbols-rounded" aria-hidden="true">sync</span><span>${Utils.esc(msg)}</span></div>`;
   },
 
   attachNav() {
@@ -715,7 +738,7 @@ export const App = {
     model.syncText = syncStatus.syncText;
     if (syncBar && !this.react.enabled) {
       syncBar.style.display = model.syncVisible ? 'block' : 'none';
-      syncBar.textContent = model.syncVisible ? model.syncText : '';
+      syncBar.innerHTML = model.syncVisible ? model.syncText : '';
     }
     this._syncNavVisibility(nav, model.items.length > 0);
     return model;
@@ -757,7 +780,7 @@ export const App = {
         ' ',
         e('button', { className: 'btn secondary small', type: 'button', onClick: () => this.logout() }, 'Logout'))
       : null);
-    this.react.syncRoot.render(navModel.syncVisible ? navModel.syncText : null);
+    this.react.syncRoot.render(navModel.syncVisible ? e('span', { dangerouslySetInnerHTML: { __html: navModel.syncText } }) : null);
     this.react.appRoot.render(e('div', { dangerouslySetInnerHTML: { __html: screen } }));
     return true;
   },
@@ -1115,6 +1138,7 @@ export const App = {
     this.enhanceFormValidation(form);
     form.onsubmit = async (e) => {
       e.preventDefault();
+      if (this._isSyncing()) { this.fail('Sync is in progress. Please wait until sync completes before submitting.'); return; }
       if (!this.validateForm(form)) return;
       const release = this.setButtonBusy(e.submitter || form.querySelector('button[type="submit"]'), true);
       try {
@@ -1217,9 +1241,11 @@ export const App = {
     const navModel = this.attachNav();
     this.applyTheme();
     document.getElementById('server-title').textContent = this.state.appSettings?.serverName || '10lb Challenge';
+    document.body.classList.toggle('is-syncing', this._isSyncing());
 
     const app = document.getElementById('app');
-    const screen = this.resolveScreen();
+    const syncBanner = (this.isAuthenticated() && this.isInstalled()) ? this._syncWarnBanner() : '';
+    const screen = syncBanner + this.resolveScreen();
 
     if (!this.renderWithReact(navModel, screen)) app.innerHTML = screen;
     this._setupNavBurger();
