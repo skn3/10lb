@@ -1,5 +1,6 @@
 // =============================================================================
-// USER TYPE ENUM — shared across authentication, users, and invites features
+// USER TYPE ENUM — owned by the users feature; may be imported by other
+// features (authentication, invites) that need to reference user type values.
 // =============================================================================
 export const UserType = Object.freeze({
   MASTER: 'master',
