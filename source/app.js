@@ -564,6 +564,7 @@ export const App = {
     const nb = this._navBurger;
     if (!nb) return;
     if (nb.ro) nb.ro.disconnect();
+    if (nb._onTransitionEnd) nb.nav?.removeEventListener('transitionend', nb._onTransitionEnd);
     if (nb.burger && !this.react.enabled) nb.burger.removeEventListener('click', nb.onBurgerClick);
     this._navBurger = null;
   },
@@ -580,13 +581,18 @@ export const App = {
 
   _openNavMenu(nb) {
     const nav = nb.nav;
+    if (nb._onTransitionEnd) nav.removeEventListener('transitionend', nb._onTransitionEnd);
     nb.collapsedHeight = nav.offsetHeight;
     nav.classList.add('is-open');
     nav.style.height = nb.collapsedHeight + 'px';
     void nav.offsetHeight;
     nav.style.height = nav.scrollHeight + 'px';
-    const onEnd = () => { nav.style.height = ''; nav.removeEventListener('transitionend', onEnd); };
-    nav.addEventListener('transitionend', onEnd);
+    nb._onTransitionEnd = () => {
+      nav.style.height = '';
+      nav.removeEventListener('transitionend', nb._onTransitionEnd);
+      nb._onTransitionEnd = null;
+    };
+    nav.addEventListener('transitionend', nb._onTransitionEnd);
     nb.burger.querySelector('.material-symbols-rounded').textContent = 'close';
     nb.burger.setAttribute('aria-label', 'Close menu');
     nb.burger.setAttribute('aria-expanded', 'true');
@@ -595,6 +601,7 @@ export const App = {
 
   _closeNavMenu(nb) {
     const nav = nb.nav;
+    if (nb._onTransitionEnd) nav.removeEventListener('transitionend', nb._onTransitionEnd);
     const currentH = nav.offsetHeight;
     const collapsedH = nb.collapsedHeight || currentH;
     nav.style.height = currentH + 'px';
@@ -602,8 +609,12 @@ export const App = {
     this._checkNavOverflow();
     void nav.offsetHeight;
     nav.style.height = collapsedH + 'px';
-    const onEnd = () => { nav.style.height = ''; nav.removeEventListener('transitionend', onEnd); };
-    nav.addEventListener('transitionend', onEnd);
+    nb._onTransitionEnd = () => {
+      nav.style.height = '';
+      nav.removeEventListener('transitionend', nb._onTransitionEnd);
+      nb._onTransitionEnd = null;
+    };
+    nav.addEventListener('transitionend', nb._onTransitionEnd);
     nb.burger.querySelector('.material-symbols-rounded').textContent = 'menu';
     nb.burger.setAttribute('aria-label', 'Open menu');
     nb.burger.setAttribute('aria-expanded', 'false');
@@ -2126,7 +2137,6 @@ export const App = {
         if (exists) return this.fail('A user with that name already exists.');
         const parsed = Utils.parseName(fullName);
         const participant = await Data.adapter.createUser({
-          name: fullName,
           firstName: parsed.firstName,
           lastName: parsed.lastName,
           userType: 'participant',
