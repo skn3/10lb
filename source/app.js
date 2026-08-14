@@ -170,7 +170,7 @@ export const App = {
         };
 
     await Data.adapter.mergeRemoteRecord('users', hydrated);
-    return (await Data.adapter.getUserByFirebaseUid(uid)) || (await Data.adapter.getUserById(match.id));
+    return await Data.adapter.getUserByFirebaseUid(uid);
   },
   async _registerFirebaseAdmin(user = this.state.currentUser) {
     if (!this.isFirebaseMode() || !user || !FirestoreAdapter.isReady() || !(user.isAdmin || user.isMaster)) return;
