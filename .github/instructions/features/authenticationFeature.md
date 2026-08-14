@@ -41,20 +41,28 @@ The `authentication` feature handles all aspects of user login, session manageme
 ### `FirebasePlugin`
 
 - `isInstalled()` — **always returns `true`** (firebase configured ⟹ server exists)
-- `restoreSession()` — calls `FirestoreAdapter.getCurrentFirebaseUser()` + `AuthController.resolveFirebaseUser()`
-- `onLogin(user)` — calls `AuthController.ensureFirebaseAuthenticatedState()` to register admin entry and upsert Firestore session
+- `restoreSession()` — calls `AuthService.getCurrentFirebaseUser()` + `AuthService.resolveFirebaseUser()`
+- `onLogin(user)` — calls `AuthService.ensureFirebaseAuthenticatedState()` to register admin entry and upsert Firestore session
 - `canInstall()` — queries `challenges/default.installedAt` in Firestore; blocks if present
 - `onInit()` — starts `SyncEngine` via `_initOnlineMode`
 
 ## AuthController
 
-`AuthController` contains all Firebase-specific helpers extracted from the old App object. It should only be called from `AuthService`, plugins, or feature pages that must interact with Firebase directly (e.g. `loginPage.js`, `joinPage.js`, `installPage.js`).
+`AuthController` contains all Firebase-specific helpers extracted from the old App object. It should only be called from `AuthService` or other files inside the authentication feature.
 
 ### Key methods
 
 | Method | Purpose |
 |---|---|
 | `loadFirebaseSDK()` | Lazy-load Firebase 10 compat bundles from CDN |
+| `initializeFirebase(config?, challengeId?)` | Ensure Firebase SDK + Firestore app are ready |
+| `signInWithEmail(email, password)` | Sign in through the storage service |
+| `createUserWithEmail(email, password)` | Create Firebase Auth account |
+| `getCurrentFirebaseUser()` | Read the current Firebase Auth user |
+| `sendPasswordResetEmail(email)` | Trigger Firebase password-reset email |
+| `updateFirebasePassword(newPassword)` | Update the authenticated user's Firebase password |
+| `queryUsersByEmail(email)` | Query remote users by email |
+| `getChallengeDoc()` | Read the root challenge document |
 | `resolveFirebaseUser(fbUser)` | Resolve local user from Firebase UID/email |
 | `upsertFirebaseSession(user, settings, sessionId)` | Write session record to Firestore |
 | `deleteFirebaseSession(sessionId)` | Remove session from Firestore |
@@ -67,6 +75,8 @@ The `authentication` feature handles all aspects of user login, session manageme
 | `deleteFirebaseInvite(inviteId)` | Soft-delete invite in Firestore |
 | `loadVisibleInvites(...)` | Load filtered invite list for admin UI |
 | `loadVisibleSessions(...)` | Load filtered session list for admin UI |
+| `deleteCurrentFirebaseAuthUser()` | Delete current Firebase Auth account during reset |
+| `signOutFirebase()` | Sign out the active Firebase Auth session |
 
 ## Session model
 
@@ -90,5 +100,6 @@ class SessionModel {
 
 - `firebaseSessionId(user)` in `App` returns `${user.id}:${Device.getId()}` — unique per user per browser.
 - Offline sessions expire server-side; Firebase sessions track `lastSeenAt` in Firestore.
+- All Firestore and sync access from this feature flows through `StorageService`.
 - `FirebasePlugin.isInstalled()` always returns `true` — never check IndexedDB `installed` flag in Firebase mode.
 - Do not call `AuthController` methods from unrelated features without going through `AuthService`.

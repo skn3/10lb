@@ -47,7 +47,7 @@ App.state = {
 - Page rendering → imported `renderXxxPage(app)` functions from feature pages.
 - Event binding → imported `bindXxxEvents(app)` functions from feature pages.
 - Business logic → feature services (e.g. `ChallengeService`, `SubmissionService`).
-- Auth → `AuthController` / plugin.
+- Auth → `AuthService` / plugin.
 
 ## Pages
 
@@ -60,12 +60,12 @@ export function bindXxxEvents(app) { /* binds DOM events after render */ }
 ### Install page (`installPage.js`)
 - Form id: `install-form`
 - Calls `app.plugin.canInstall()` before proceeding
-- Uses `AuthController.provisionFirebaseMaster()` in Firebase mode
+- Uses `AuthService.provisionFirebaseMaster()` in Firebase mode
 - Calls `app.loginAs()` after success
 
 ### Login page (`loginPage.js`)
 - Form id: `login-form`
-- Firebase mode: calls `FirestoreAdapter.signInWithEmail()` then `AuthController.resolveFirebaseUser()`
+- Firebase mode: calls `FirestoreAdapter.signInWithEmail()` then `AuthService.resolveFirebaseUser()`
 - Offline mode: calls `Security.verifyPassword()` then `app.loginAs()`
 
 ### Join page (`joinPage.js`)

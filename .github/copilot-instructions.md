@@ -72,7 +72,7 @@ source/
       models/                — appSettingsModel.js
       pages/                 — settingsPage.js
     storage/                 — IndexedDB, Firestore, SyncEngine, Data
-      classes/               — firestoreAdapter.js, offlineAdapter.js, syncEngine.js
+      classes/               — storageService.js, storageController.js, firestoreAdapter.js, offlineAdapter.js, syncEngine.js
       models/                — data.js
   shared/
     utils/utils.js            — Utils (esc, id, validEmail, …) — used by all features
@@ -277,7 +277,7 @@ All routes are hash-based. Route constants are in `source/routes.js`.
 | `#/submit` | Authenticated |
 | `#/settings` | Authenticated |
 | `#/create`, `#/edit`, `#/delete` | Admin |
-| `#/users`, `#/user?id=...`, `#/create_participant`, `#/invite-detail` | Admin |
+| `#/users`, `#/user?id=...`, `#/create_participant`, `#/invites`, `#/invite-detail` | Admin |
 | `#/denied` | Access denied fallback |
 
 Route guards delegate to `App.plugin.guardRoute()` — never add `isInstalled()` checks directly in App routing code.

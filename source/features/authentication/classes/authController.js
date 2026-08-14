@@ -1,7 +1,6 @@
 import { RuntimeConfig } from '../../../config.js';
 import { Data } from '../../storage/models/data.js';
-import { FirestoreAdapter } from '../../storage/classes/firestoreAdapter.js';
-import { SyncEngine } from '../../storage/classes/syncEngine.js';
+import { StorageService } from '../../storage/classes/storageService.js';
 import { Device } from '../../../shared/classes/device.js';
 
 // =============================================================================
@@ -44,7 +43,7 @@ export const AuthController = {
 
     let user = await Data.adapter.getUserByFirebaseUid(uid);
     if (!user) {
-      const remoteUsers = await FirestoreAdapter.queryRecords('users', 'firebaseUid', uid);
+      const remoteUsers = await StorageService.queryRecords('users', 'firebaseUid', uid);
       if (remoteUsers.length > 0) {
         await Data.adapter.mergeRemoteRecord('users', remoteUsers[0]);
         user = await Data.adapter.getUserByFirebaseUid(uid);
@@ -56,7 +55,7 @@ export const AuthController = {
     user = await Data.adapter.getUserByUsername(email);
     if (user) return user;
 
-    const remoteByEmail = await FirestoreAdapter.queryRecords('users', 'username', email);
+    const remoteByEmail = await StorageService.queryRecords('users', 'username', email);
     const match = remoteByEmail[0];
     if (!match) return null;
 
@@ -77,8 +76,8 @@ export const AuthController = {
   // Firestore session management
   // ---------------------------------------------------------------------------
   async upsertFirebaseSession(user, appSettings, sessionId) {
-    if (!user || !FirestoreAdapter.isReady()) return;
-    const uid = FirestoreAdapter.getUid();
+    if (!user || !StorageService.isFirestoreReady()) return;
+    const uid = StorageService.getUid();
     if (!uid) return;
     const now = new Date();
     const session = {
@@ -94,21 +93,21 @@ export const AuthController = {
       lastSeenAt: now.toISOString(),
       expiresAt: new Date(now.getTime() + ((appSettings?.sessionDurationDays || 7) * 86400000)).toISOString()
     };
-    await FirestoreAdapter.writeRecord('sessions', session);
+    await StorageService.writeRecord('sessions', session);
   },
 
   async deleteFirebaseSession(sessionId) {
-    if (!sessionId || !FirestoreAdapter.isReady()) return;
+    if (!sessionId || !StorageService.isFirestoreReady()) return;
     try {
-      await FirestoreAdapter.removeRecord('sessions', sessionId);
+      await StorageService.removeRecord('sessions', sessionId);
     } catch (e) {
       console.warn('Could not remove Firebase session:', e.message);
     }
   },
 
   async registerFirebaseAdmin(user) {
-    if (!user || !FirestoreAdapter.isReady() || !(user.isAdmin || user.isMaster)) return;
-    const uid = FirestoreAdapter.getUid();
+    if (!user || !StorageService.isFirestoreReady() || !(user.isAdmin || user.isMaster)) return;
+    const uid = StorageService.getUid();
     if (!uid) return;
     try {
       const app = window.firebase.app('tenlb-app');
@@ -122,10 +121,68 @@ export const AuthController = {
   },
 
   async ensureFirebaseAuthenticatedState(user, appSettings, sessionId) {
-    if (!user || !FirestoreAdapter.isReady()) return;
+    if (!user || !StorageService.isFirestoreReady()) return;
     await this.registerFirebaseAdmin(user);
     await this.upsertFirebaseSession(user, appSettings, sessionId);
-    if (!SyncEngine.isRunning()) await SyncEngine.start();
+    if (!StorageService.isSyncRunning()) await StorageService.startSync();
+  },
+
+  async initializeFirebase(firebaseConfig = RuntimeConfig.firebase, challengeId = 'default') {
+    await this.loadFirebaseSDK();
+    if (!StorageService.isFirestoreReady()) {
+      await StorageService.initializeFirestore(firebaseConfig, challengeId);
+    }
+    return true;
+  },
+
+  async signInWithEmail(email, password) {
+    await this.initializeFirebase();
+    return StorageService.signInWithEmail(email, password);
+  },
+
+  async createUserWithEmail(email, password) {
+    await this.initializeFirebase();
+    return StorageService.createUserWithEmail(email, password);
+  },
+
+  async getCurrentFirebaseUser() {
+    await this.initializeFirebase();
+    return StorageService.getCurrentFirebaseUser();
+  },
+
+  async sendPasswordResetEmail(email) {
+    await this.initializeFirebase();
+    return StorageService.sendPasswordResetEmail(email);
+  },
+
+  async updateFirebasePassword(newPassword) {
+    await this.initializeFirebase();
+    return StorageService.updatePassword(newPassword);
+  },
+
+  async queryUsersByEmail(email) {
+    await this.initializeFirebase();
+    return StorageService.queryRecords('users', 'username', email);
+  },
+
+  async getChallengeDoc() {
+    await this.initializeFirebase();
+    return StorageService.getChallengeDoc();
+  },
+
+  async deleteCurrentFirebaseAuthUser() {
+    if (!StorageService.isFirestoreReady()) return;
+    const authUser = StorageService.getCurrentAuthUser();
+    if (authUser) {
+      await authUser.delete();
+      return;
+    }
+    await StorageService.signOut();
+  },
+
+  async signOutFirebase() {
+    if (!StorageService.isFirestoreReady()) return;
+    await StorageService.signOut();
   },
 
   // ---------------------------------------------------------------------------
@@ -193,36 +250,30 @@ export const AuthController = {
   // Invite helpers (Firebase-backed)
   // ---------------------------------------------------------------------------
   async getFirebaseInvite(code) {
-    if (!FirestoreAdapter.isReady()) {
-      await this.loadFirebaseSDK();
-      await FirestoreAdapter.init(RuntimeConfig.firebase, 'default');
-    }
-    const invite = await FirestoreAdapter.getRecord('invites', code);
+    await this.initializeFirebase();
+    const invite = await StorageService.getRecord('invites', code);
     if (!invite || invite.deletedAt) return null;
     return invite;
   },
 
   async saveFirebaseInvite(invite) {
-    if (!FirestoreAdapter.isReady()) {
-      await this.loadFirebaseSDK();
-      await FirestoreAdapter.init(RuntimeConfig.firebase, 'default');
-    }
-    await FirestoreAdapter.writeRecord('invites', invite);
+    await this.initializeFirebase();
+    await StorageService.writeRecord('invites', invite);
   },
 
   async deleteFirebaseInvite(inviteId) {
-    if (!FirestoreAdapter.isReady()) return;
-    await FirestoreAdapter.removeRecord('invites', inviteId);
+    if (!StorageService.isFirestoreReady()) return;
+    await StorageService.removeRecord('invites', inviteId);
   },
 
   // ---------------------------------------------------------------------------
   // Visible invites / sessions — for use in App.refresh()
   // ---------------------------------------------------------------------------
-  async loadVisibleInvites(isFirebaseMode, currentUser, isAdmin, firestoreAdapter, offlineAdapter) {
+  async loadVisibleInvites(isFirebaseMode, currentUser, isAdmin, offlineAdapter) {
     if (!isFirebaseMode) return offlineAdapter.listInvites();
-    if (!currentUser || !isAdmin || !firestoreAdapter.isReady()) return [];
+    if (!currentUser || !isAdmin || !StorageService.isFirestoreReady()) return [];
     try {
-      const invites = await firestoreAdapter.downloadAll('invites');
+      const invites = await StorageService.downloadAll('invites');
       return invites
         .filter((inv) => inv && !inv.deletedAt)
         .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
@@ -232,10 +283,10 @@ export const AuthController = {
     }
   },
 
-  async loadVisibleSessions(isFirebaseMode, currentUser, isAdmin, firestoreAdapter) {
-    if (!isFirebaseMode || !currentUser || !isAdmin || !firestoreAdapter.isReady()) return [];
+  async loadVisibleSessions(isFirebaseMode, currentUser, isAdmin) {
+    if (!isFirebaseMode || !currentUser || !isAdmin || !StorageService.isFirestoreReady()) return [];
     try {
-      const sessions = await firestoreAdapter.downloadAll('sessions');
+      const sessions = await StorageService.downloadAll('sessions');
       return sessions
         .filter((s) => s && !s.deletedAt)
         .sort((a, b) => new Date(b.lastSeenAt || b.startedAt || 0).getTime() - new Date(a.lastSeenAt || a.startedAt || 0).getTime());

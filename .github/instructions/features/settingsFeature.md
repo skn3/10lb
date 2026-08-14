@@ -19,7 +19,7 @@ The `settings` feature handles all app configuration: user profile, server setti
 SettingsService.saveUserProfile(currentUser, firstName, lastName)
 SettingsService.saveAppSettings(appSettings, updates)
 SettingsService.changeOfflinePassword(currentUser, currentPassword, newPassword, Security)
-SettingsService.resetServer(isFirebaseMode, FirestoreAdapter, SyncEngine)
+SettingsService.resetServer(isFirebaseMode)
 ```
 
 ## Settings page
@@ -44,7 +44,7 @@ SettingsService.resetServer(isFirebaseMode, FirestoreAdapter, SyncEngine)
 ### User settings tab (`userSettingsTab.js`)
 
 Renders profile form + password change form. Password change:
-- Firebase mode: calls `FirestoreAdapter.signInWithEmail()` to re-authenticate, then `FirestoreAdapter.updatePassword()`
+- Firebase mode: calls `AuthService.signInWithEmail()` to re-authenticate, then `AuthService.updateFirebasePassword()`
 - Offline mode: calls `Security.verifyPassword()` + `Security.createPasswordRecord()`, then saves via `SettingsService`
 
 ### Server settings tab (`serverSettingsTab.js`)
@@ -60,7 +60,7 @@ Server reset flow:
 
 Displays sync status badge, storage mode, last sync time, active session count. Shows `SyncButton` when in online mode. Read-only Firebase config panel with test connection button.
 
-Test connection calls `AuthController.testFirebaseConnection(cfg)` and displays result.
+Test connection calls `AuthService.testFirebaseConnection(cfg)` and displays result.
 
 ## Coding notes
 

@@ -1,10 +1,8 @@
 import { Utils } from '../../../shared/utils/utils.js';
 import { SubmitButton } from '../../../shared/components/submitButton.js';
 import { Data } from '../../storage/models/data.js';
-import { FirestoreAdapter } from '../../storage/classes/firestoreAdapter.js';
-import { AuthController } from '../../authentication/classes/authController.js';
+import { AuthService } from '../../authentication/classes/authService.js';
 import { Security } from '../../../shared/classes/security.js';
-import { RuntimeConfig } from '../../../config.js';
 
 // =============================================================================
 // LOGIN PAGE
@@ -32,19 +30,17 @@ export function bindLoginEvents(app) {
       if (!Utils.validEmail(username)) return app.fail('Enter a valid email address.');
 
       if (app.isFirebaseMode()) {
-        if (!FirestoreAdapter.isReady()) {
-          await FirestoreAdapter.init(RuntimeConfig.firebase, 'default');
-        }
+        await AuthService.initializeFirebase();
         let fbUser;
         try {
-          fbUser = await FirestoreAdapter.signInWithEmail(username, password);
+          fbUser = await AuthService.signInWithEmail(username, password);
         } catch {
           return app.fail('Invalid email or password.');
         }
         if (!fbUser) return app.fail('Invalid email or password.');
         let user;
         try {
-          user = await AuthController.resolveFirebaseUser(fbUser);
+          user = await AuthService.resolveFirebaseUser(fbUser);
         } catch (e) {
           console.warn('Could not resolve user account after Firebase sign-in:', e.message);
           return app.fail('Could not load account. Please check your connection and try again.');

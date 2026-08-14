@@ -1,9 +1,8 @@
 import { Utils } from '../../../shared/utils/utils.js';
 import { SubmitButton } from '../../../shared/components/submitButton.js';
 import { Data } from '../../storage/models/data.js';
-import { FirestoreAdapter } from '../../storage/classes/firestoreAdapter.js';
-import { AuthController } from '../../authentication/classes/authController.js';
-import { RuntimeConfig } from '../../../config.js';
+import { AuthService } from '../../authentication/classes/authService.js';
+import { InvitesService } from '../../invites/classes/invitesService.js';
 
 // =============================================================================
 // JOIN PAGE — invite-based registration
@@ -59,7 +58,7 @@ export function bindJoinEvents(app) {
       if (password !== confirmPassword) return app.fail('Passwords do not match.');
 
       const invite = app.isFirebaseMode()
-        ? await AuthController.getFirebaseInvite(code)
+        ? await InvitesService.getFirebaseInvite(code)
         : await Data.adapter.getInviteByCode(code);
       if (!invite) return app.fail('Invite code not found or invalid.');
       if (invite.usedAt) return app.fail('This invite code has already been used.');
@@ -67,7 +66,7 @@ export function bindJoinEvents(app) {
       let existsByEmail;
       if (app.isFirebaseMode()) {
         try {
-          const remoteMatches = await FirestoreAdapter.queryRecords('users', 'username', email);
+          const remoteMatches = await AuthService.queryUsersByEmail(email);
           existsByEmail = remoteMatches.find((u) => !u.deletedAt) || null;
         } catch (e) {
           console.warn('Could not check email uniqueness via Firestore:', e.message);
@@ -78,13 +77,10 @@ export function bindJoinEvents(app) {
       }
       if (existsByEmail) return app.fail('An account with this email already exists.');
 
-      if (!FirestoreAdapter.isReady()) {
-        await AuthController.loadFirebaseSDK();
-        await FirestoreAdapter.init(RuntimeConfig.firebase, 'default');
-      }
+      await AuthService.initializeFirebase();
       let fbUser;
       try {
-        fbUser = await FirestoreAdapter.createUserWithEmail(email, password);
+        fbUser = await AuthService.createUserWithEmail(email, password);
       } catch (err) {
         return app.fail(`Account creation failed: ${err.message || err}`);
       }
@@ -121,7 +117,7 @@ export function bindJoinEvents(app) {
       const localInvite = await Data.adapter.getInviteByCode(code);
       if (!localInvite) await Data.adapter.createInvite(invite);
       await Data.adapter.consumeInvite(code, user.id);
-      await AuthController.saveFirebaseInvite({
+      await InvitesService.saveFirebaseInvite({
         ...invite,
         usedAt: acceptedAt,
         usedBy: user.id,
