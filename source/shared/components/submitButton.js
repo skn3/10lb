@@ -31,7 +31,8 @@ export const SubmitButton = {
       ? `<span class="btn-icon material-symbols-rounded" aria-hidden="true">${_esc(icon)}</span>`
       : '';
     const labelHtml = `<span class="btn-label">${_esc(text)}</span>`;
-    return `<button class="${classes}" type="${btnType}"${idAttr}${extraAttrs} data-icon-skip="1">${iconHtml}${labelHtml}</button>`;
+    const origAttrs = ` data-orig-label="${_escAttr(text)}"${icon ? ` data-icon-default="${_escAttr(icon)}"` : ''}`;
+    return `<button class="${classes}" type="${btnType}"${idAttr}${extraAttrs}${origAttrs} data-icon-skip="1">${iconHtml}${labelHtml}</button>`;
   },
 
   /**
@@ -53,7 +54,7 @@ export const SubmitButton = {
       }
     } else {
       button.disabled = false;
-      if (labelEl) labelEl.textContent = button.dataset.origLabel || labelEl.textContent;
+      if (labelEl) labelEl.textContent = button.dataset.origLabel || '';
       if (iconEl) {
         iconEl.classList.remove('btn-spinner');
         iconEl.classList.add('material-symbols-rounded');

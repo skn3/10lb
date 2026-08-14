@@ -2991,12 +2991,6 @@ export const App = {
     return code;
   },
 
-  async _renderInviteQR() {
-    if (!this.state.inviteDetail) return;
-    const inviteLink = this.routeLink('join', { inviteCode: this.state.inviteDetail.code });
-    await InviteQRCode.attach(inviteLink);
-  },
-
   async _saveWithConflictResolver(kind, attempted, saveFn) {
     try {
       await saveFn(attempted);
