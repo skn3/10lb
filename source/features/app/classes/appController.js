@@ -144,7 +144,7 @@ export const App = {
   _sanitizeRoute(route) {
     const value = String(route || '').replace(/^\/+/, '').trim();
     const normalized = value || 'overview';
-    const allowed = new Set(['install', 'denied', 'login', 'join', 'overview', 'rounds', 'create', 'create_participant', 'edit', 'delete', 'submit', 'users', 'user', 'settings', 'invite-detail', 'finish-week']);
+    const allowed = new Set(['install', 'denied', 'login', 'join', 'overview', 'rounds', 'create', 'create_participant', 'edit', 'delete', 'submit', 'users', 'user', 'settings', 'invites', 'invite-detail', 'finish-week']);
     return allowed.has(normalized) ? normalized : 'overview';
   },
   _buildHashRoute(route, options = {}) {

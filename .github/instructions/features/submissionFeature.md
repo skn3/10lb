@@ -20,10 +20,11 @@ The `submission` feature handles weekly weigh-in recording (weight, holiday, for
 SubmissionService.listSubmissions()
 SubmissionService.recordSubmission(submission, snapshot)
 SubmissionService.userStats(user, rounds, submissions, users)
-SubmissionService.activeRound(rounds)
-SubmissionService.currentWeek(round, users, submissions)
+SubmissionService.calcCurrentWeek(round, users, submissions)
 SubmissionService.weekView(round, users, submissions, week)
 ```
+
+Active round detection is handled by `Domain.activeRound(rounds)` directly in pages — not via SubmissionService.
 
 ## SubmissionType enum
 

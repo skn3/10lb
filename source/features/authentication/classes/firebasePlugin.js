@@ -102,6 +102,8 @@ export class FirebasePlugin extends ServerPlugin {
       this._app._initOnlineMode(RuntimeConfig.firebase).catch((err) => {
         console.warn('Online Mode could not resume:', err.message);
       });
+    } else {
+      this._app.setMessage('', 'config.js is set to firebase mode but firebase config is incomplete. Falling back to local mode.');
     }
   }
 }
