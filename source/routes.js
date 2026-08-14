@@ -7,10 +7,12 @@ export const ROUTES = [
   'overview',
   'rounds',
   'create',
+  'create_participant',
   'edit',
   'delete',
   'submit',
   'users',
+  'user',
   'settings',
   'invite-detail'
 ];
