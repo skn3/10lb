@@ -1,8 +1,7 @@
 import { ServerPlugin } from './serverPlugin.js';
-import { AuthController } from './authController.js';
+import { AuthService } from './authService.js';
 import { RuntimeConfig } from '../../../config.js';
-import { FirestoreAdapter } from '../../storage/classes/firestoreAdapter.js';
-import { SyncEngine } from '../../storage/classes/syncEngine.js';
+import { StorageService } from '../../storage/classes/storageService.js';
 
 // ---------------------------------------------------------------------------
 // Firebase plugin — data is backed by Firestore with IndexedDB as a local
@@ -44,20 +43,19 @@ export class FirebasePlugin extends ServerPlugin {
   }
 
   async restoreSession() {
-    if (!FirestoreAdapter.isReady()) {
+    if (!StorageService.isFirestoreReady()) {
       try {
-        await AuthController.loadFirebaseSDK();
-        await FirestoreAdapter.init(RuntimeConfig.firebase, 'default');
+        await AuthService.initializeFirebase(RuntimeConfig.firebase, 'default');
       } catch (e) {
         console.warn('Firebase SDK init failed during session restore:', e.message);
         return;
       }
     }
-    const fbUser = await FirestoreAdapter.getCurrentFirebaseUser();
+    const fbUser = await AuthService.getCurrentFirebaseUser();
     if (!fbUser || fbUser.isAnonymous) return;
     let user;
     try {
-      user = await AuthController.resolveFirebaseUser(fbUser.uid);
+      user = await AuthService.resolveFirebaseUser(fbUser.uid);
     } catch (e) {
       console.warn('Could not resolve user account during session restore:', e.message);
       return;
@@ -65,7 +63,7 @@ export class FirebasePlugin extends ServerPlugin {
     if (!user) return;
     this._app.state.currentUser = user;
     try {
-      await AuthController.upsertFirebaseSession(user, this._app.state.appSettings, this._app.firebaseSessionId(user));
+      await AuthService.upsertFirebaseSession(user, this._app.state.appSettings, this._app.firebaseSessionId(user));
     } catch (e) {
       console.warn('Could not upsert Firebase session during restore:', e.message);
     }
@@ -73,26 +71,23 @@ export class FirebasePlugin extends ServerPlugin {
 
   async onLogin(user) {
     this._app.state.sessionToken = null;
-    await AuthController.ensureFirebaseAuthenticatedState(user, this._app.state.appSettings, this._app.firebaseSessionId(user));
-    if (!SyncEngine.isRunning()) await SyncEngine.start();
+    await AuthService.ensureFirebaseAuthenticatedState(user, this._app.state.appSettings, this._app.firebaseSessionId(user));
+    if (!StorageService.isSyncRunning()) await StorageService.startSync();
     await this._app.loadSyncMeta();
   }
 
   async onLogout() {
-    await AuthController.deleteFirebaseSession(this._app.firebaseSessionId(this._app.state.currentUser));
-    if (SyncEngine.isRunning()) await SyncEngine.stop();
-    if (FirestoreAdapter.isReady()) await FirestoreAdapter.signOut();
+    await AuthService.deleteFirebaseSession(this._app.firebaseSessionId(this._app.state.currentUser));
+    if (StorageService.isSyncRunning()) await StorageService.stopSync();
+    await AuthService.signOutFirebase();
   }
 
   async canInstall() {
     // Query Firestore to detect an existing install and block re-installation.
     // This is the ONLY place firebase mode checks installed state.
     try {
-      if (!FirestoreAdapter.isReady()) {
-        await AuthController.loadFirebaseSDK();
-        await FirestoreAdapter.init(RuntimeConfig.firebase, 'default');
-      }
-      const doc = await FirestoreAdapter.getChallengeDoc();
+      await AuthService.initializeFirebase(RuntimeConfig.firebase, 'default');
+      const doc = await AuthService.getChallengeDoc();
       if (doc?.installedAt) return false; // already installed
     } catch (e) {
       console.warn('canInstall Firestore check failed, allowing install:', e.message);

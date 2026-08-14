@@ -3,9 +3,8 @@ import { SubmitButton } from '../../../shared/components/submitButton.js';
 import { SubmissionService } from '../../submission/classes/submissionService.js';
 import { UsersService } from '../classes/usersService.js';
 import { InvitesService } from '../../invites/classes/invitesService.js';
+import { AuthService } from '../../authentication/classes/authService.js';
 import { Security } from '../../../shared/classes/security.js';
-import { FirestoreAdapter } from '../../storage/classes/firestoreAdapter.js';
-import { AuthController } from '../../authentication/classes/authController.js';
 import { generateInviteCode } from '../../invites/utils/inviteCodeUtils.js';
 
 // =============================================================================
@@ -122,7 +121,7 @@ export function bindUserAdminEvents(app) {
       const email = user.username;
       if (!email) return app.fail('No email address on record for this user.');
       try {
-        await FirestoreAdapter.sendPasswordResetEmail(email);
+        await AuthService.sendPasswordResetEmail(email);
         app.setMessage(`Password reset email sent to ${email}.`);
         app.render();
       } catch (err) {

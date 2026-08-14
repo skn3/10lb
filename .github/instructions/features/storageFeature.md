@@ -8,10 +8,36 @@ The `storage` feature provides all data persistence: IndexedDB via `OfflineAdapt
 
 ## What this feature owns
 
+- **`storageController.js`** — private Firestore + sync orchestration
+- **`storageService.js`** — public API for external features
 - **`offlineAdapter.js`** — IndexedDB data access layer
 - **`firestoreAdapter.js`** — Firestore data access layer
 - **`syncEngine.js`** — bidirectional sync between IndexedDB and Firestore
 - **`data.js`** — `Data` singleton (active adapter reference + mode flag)
+
+## StorageService
+
+External features must call Firestore and sync operations through `StorageService`, never import `FirestoreAdapter` or `SyncEngine` directly.
+
+```js
+StorageService.initializeFirestore(config, challengeId)
+StorageService.isFirestoreReady()
+StorageService.signInWithEmail(email, password)
+StorageService.createUserWithEmail(email, password)
+StorageService.getCurrentFirebaseUser()
+StorageService.sendPasswordResetEmail(email)
+StorageService.updatePassword(newPassword)
+StorageService.queryRecords(entityType, field, value)
+StorageService.downloadAll(entityType)
+StorageService.writeRecord(entityType, record)
+StorageService.removeRecord(entityType, id)
+StorageService.getChallengeDoc()
+StorageService.resetChallengeData()
+StorageService.startSync()
+StorageService.stopSync()
+StorageService.retrySyncNow()
+StorageService.isSyncRunning()
+```
 
 ## Data singleton
 
@@ -21,7 +47,7 @@ Data.mode     // 'local' | 'online'
 await Data.init()  // opens IndexedDB, sets mode from RuntimeConfig
 ```
 
-All feature code accesses data through `Data.adapter` — never import `OfflineAdapter` directly from business logic.
+All feature code accesses IndexedDB through `Data.adapter` and Firestore/sync through `StorageService` — never import `OfflineAdapter`, `FirestoreAdapter`, or `SyncEngine` directly from external features.
 
 ## OfflineAdapter — IndexedDB stores
 

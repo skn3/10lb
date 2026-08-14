@@ -62,7 +62,7 @@ Uses rejection sampling over `ABCDEFGHJKLMNPQRSTUVWXYZ23456789` (excludes ambigu
 ## Invite flow (Firebase mode)
 
 1. Admin creates invite (standalone or via User admin → "Invite as user/admin").
-2. Invite stored in both IndexedDB (`Data.adapter.createInvite`) and Firestore (`AuthController.saveFirebaseInvite`).
+2. Invite stored in both IndexedDB (`Data.adapter.createInvite`) and Firestore via the feature service stack (`InvitesService` → `InvitesController` → `AuthService.saveFirebaseInvite`).
 3. Admin shares invite link with recipient (QR code or copyable URL: `#/join?invite=CODE`).
 4. Recipient visits join page, enters code + creates account → invite `usedAt` set, user record activated.
 

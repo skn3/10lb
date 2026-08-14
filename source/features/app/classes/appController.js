@@ -2,12 +2,10 @@ import { loadRuntimeConfig, RuntimeConfig } from '../../../config.js';
 import { Utils } from '../../../shared/utils/utils.js';
 import { Device } from '../../../shared/classes/device.js';
 import { Data } from '../../storage/models/data.js';
-import { FirestoreAdapter } from '../../storage/classes/firestoreAdapter.js';
-import { SyncEngine } from '../../storage/classes/syncEngine.js';
 import { Domain } from '../../../domain.js';
 import { OfflinePlugin } from '../../authentication/classes/offlinePlugin.js';
 import { FirebasePlugin } from '../../authentication/classes/firebasePlugin.js';
-import { AuthController } from '../../authentication/classes/authController.js';
+import { AuthService } from '../../authentication/classes/authService.js';
 import { MenuBar } from '../components/menuBar.js';
 import { Snackbar } from '../components/snackbar.js';
 import { SiteHeader } from '../components/siteHeader.js';
@@ -31,6 +29,7 @@ import { renderUsersPage, bindUsersPageEvents } from '../../users/pages/usersPag
 import { renderUserAdminPage, bindUserAdminEvents } from '../../users/pages/userAdminPage.js';
 import { renderCreateParticipantPage, bindCreateParticipantEvents } from '../../users/pages/createParticipantPage.js';
 // Feature pages — invites
+import { InvitesService } from '../../invites/classes/invitesService.js';
 import { renderInvitesPage, bindInvitesPageEvents } from '../../invites/pages/invitesPage.js';
 import { renderInviteDetailPage, bindInviteDetailEvents } from '../../invites/pages/inviteDetailPage.js';
 // Feature pages — settings
@@ -266,11 +265,11 @@ export const App = {
   },
 
   async _loadVisibleInvites() {
-    return AuthController.loadVisibleInvites(this.isFirebaseMode(), this.state.currentUser, this.isAdmin(), FirestoreAdapter, Data.adapter);
+    return InvitesService.listVisibleInvites(this.isFirebaseMode(), this.isAdmin(), this.state.currentUser);
   },
 
   async _loadVisibleSessions() {
-    return AuthController.loadVisibleSessions(this.isFirebaseMode(), this.state.currentUser, this.isAdmin(), FirestoreAdapter);
+    return AuthService.loadVisibleSessions(this.isFirebaseMode(), this.state.currentUser, this.isAdmin());
   },
 
   // ---------------------------------------------------------------------------
@@ -297,21 +296,18 @@ export const App = {
     if (this.plugin) return this.plugin.restoreSession();
     // Legacy fallback (plugin not yet initialised)
     if (this.isFirebaseMode()) {
-      if (!FirestoreAdapter.isReady()) {
-        try {
-          await AuthController.loadFirebaseSDK();
-          await FirestoreAdapter.init(RuntimeConfig.firebase, 'default');
-        } catch (e) {
-          console.warn('Firebase SDK init failed during session restore:', e.message);
-          return;
-        }
+      try {
+        await AuthService.initializeFirebase(RuntimeConfig.firebase, 'default');
+      } catch (e) {
+        console.warn('Firebase SDK init failed during session restore:', e.message);
+        return;
       }
-      const fbUser = await FirestoreAdapter.getCurrentFirebaseUser();
+      const fbUser = await AuthService.getCurrentFirebaseUser();
       if (!fbUser || fbUser.isAnonymous) return;
-      const user = await AuthController.resolveFirebaseUser(fbUser);
+      const user = await AuthService.resolveFirebaseUser(fbUser);
       if (!user) return;
       this.state.currentUser = user;
-      await AuthController.upsertFirebaseSession(user, this.state.appSettings, this.firebaseSessionId(user));
+      await AuthService.upsertFirebaseSession(user, this.state.appSettings, this.firebaseSessionId(user));
       return;
     }
     const token = Utils.getCookie('tenlb_session');
@@ -337,12 +333,11 @@ export const App = {
   // ---------------------------------------------------------------------------
   async _initOnlineMode(firebaseConfig) {
     if (!this.isFirebaseMode()) return;
-    await AuthController.loadFirebaseSDK();
-    await FirestoreAdapter.init(firebaseConfig, 'default');
+    await AuthService.initializeFirebase(firebaseConfig, 'default');
     Data.mode = 'online';
     const meta = await Data.adapter.getDeviceMeta();
     await Data.adapter.saveDeviceMeta({ ...meta, storageMode: 'online' });
-    if (this.state.currentUser) await AuthController.ensureFirebaseAuthenticatedState(this.state.currentUser, this.state.appSettings, this.firebaseSessionId(this.state.currentUser));
+    if (this.state.currentUser) await AuthService.ensureFirebaseAuthenticatedState(this.state.currentUser, this.state.appSettings, this.firebaseSessionId(this.state.currentUser));
     await this.loadSyncMeta();
     await this.refresh();
     this.render();

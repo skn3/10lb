@@ -13,6 +13,7 @@ export const ROUTES = [
   'submit',
   'users',
   'user',
+  'invites',
   'settings',
   'invite-detail',
   'finish-week'

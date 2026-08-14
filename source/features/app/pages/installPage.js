@@ -1,9 +1,7 @@
 import { Utils } from '../../../shared/utils/utils.js';
 import { SubmitButton } from '../../../shared/components/submitButton.js';
-import { RuntimeConfig } from '../../../config.js';
 import { Data } from '../../storage/models/data.js';
-import { FirestoreAdapter } from '../../storage/classes/firestoreAdapter.js';
-import { AuthController } from '../../authentication/classes/authController.js';
+import { AuthService } from '../../authentication/classes/authService.js';
 
 // =============================================================================
 // INSTALL PAGE
@@ -86,27 +84,23 @@ export function bindInstallEvents(app) {
     if (app.isFirebaseMode()) {
       app.installLog('Firebase mode: provisioning master account…');
       try {
-        firebaseProvision = await AuthController.provisionFirebaseMaster(username, password, masterUserId, (msg, type) => app.installLog(msg, type));
+        firebaseProvision = await AuthService.provisionFirebaseMaster(username, password, masterUserId, (msg, type) => app.installLog(msg, type));
         app.installLog(`Firebase master account created. UID: ${firebaseProvision?.uid || '(none)'}`, 'ok');
       } catch (err) {
         app.installLog(`Firebase provision error (${err.code || 'unknown'}): ${err.message || err}`, 'error');
         return app.fail(`Firebase install failed: ${err.message || err}`);
       }
       app.installLog('Initialising FirestoreAdapter for sign-in…');
-      if (!FirestoreAdapter.isReady()) {
-        try {
-          await FirestoreAdapter.init(RuntimeConfig.firebase, 'default');
-          app.installLog('FirestoreAdapter initialised.', 'ok');
-        } catch (err) {
-          app.installLog(`FirestoreAdapter init error: ${err.message || err}`, 'error');
-        }
-      } else {
-        app.installLog('FirestoreAdapter already ready.');
+      try {
+        await AuthService.initializeFirebase();
+        app.installLog('FirestoreAdapter initialised.', 'ok');
+      } catch (err) {
+        app.installLog(`FirestoreAdapter init error: ${err.message || err}`, 'error');
       }
       app.installLog(`Signing in as ${firebaseProvision?.email || username}…`);
       try {
         const email = firebaseProvision?.email || username;
-        await FirestoreAdapter.signInWithEmail(email, password);
+        await AuthService.signInWithEmail(email, password);
         app.installLog('Firebase sign-in successful.', 'ok');
       } catch (err) {
         app.installLog(`Firebase sign-in error (${err.code || 'unknown'}): ${err.message || err}`, 'error');

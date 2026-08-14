@@ -1,7 +1,7 @@
 import { Data } from '../../storage/models/data.js';
-import { FirestoreAdapter } from '../../storage/classes/firestoreAdapter.js';
+import { StorageService } from '../../storage/classes/storageService.js';
 import { RuntimeConfig } from '../../../config.js';
-import { AuthController } from '../../authentication/classes/authController.js';
+import { AuthService } from '../../authentication/classes/authService.js';
 
 // =============================================================================
 // INVITES CONTROLLER — Private business logic for invite management.
@@ -13,8 +13,8 @@ export const InvitesController = {
 
   async listVisibleInvites(isFirebaseMode, isAdmin, currentUser) {
     if (!isFirebaseMode) return Data.adapter.listInvites();
-    if (!currentUser || !isAdmin || !FirestoreAdapter.isReady()) return [];
-    const invites = await FirestoreAdapter.downloadAll('invites');
+    if (!currentUser || !isAdmin || !StorageService.isFirestoreReady()) return [];
+    const invites = await StorageService.downloadAll('invites');
     return invites
       .filter((invite) => invite && !invite.deletedAt)
       .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
@@ -23,7 +23,7 @@ export const InvitesController = {
   async createInvite(invite) {
     await Data.adapter.createInvite(invite);
     if (RuntimeConfig.serverMode === 'firebase') {
-      await AuthController.saveFirebaseInvite(invite);
+      await AuthService.saveFirebaseInvite(invite);
     }
     return invite;
   },
@@ -31,7 +31,7 @@ export const InvitesController = {
   async deleteInvite(inviteId) {
     await Data.adapter.deleteInvite(inviteId);
     if (RuntimeConfig.serverMode === 'firebase') {
-      await AuthController.deleteFirebaseInvite(inviteId);
+      await AuthService.deleteFirebaseInvite(inviteId);
     }
   },
 
@@ -40,24 +40,24 @@ export const InvitesController = {
     await Promise.all(pending.map(async (inv) => {
       await Data.adapter.deleteInvite(inv.id);
       if (RuntimeConfig.serverMode === 'firebase') {
-        await AuthController.deleteFirebaseInvite(inv.id);
+        await AuthService.deleteFirebaseInvite(inv.id);
       }
     }));
   },
 
   async getFirebaseInvite(code) {
     if (RuntimeConfig.serverMode !== 'firebase') return null;
-    return AuthController.getFirebaseInvite(code);
+    return AuthService.getFirebaseInvite(code);
   },
 
   async saveFirebaseInvite(invite) {
     if (RuntimeConfig.serverMode !== 'firebase') return;
-    return AuthController.saveFirebaseInvite(invite);
+    return AuthService.saveFirebaseInvite(invite);
   },
 
   async listVisibleSessions(isFirebaseMode, isAdmin, currentUser) {
-    if (!isFirebaseMode || !currentUser || !isAdmin || !FirestoreAdapter.isReady()) return [];
-    const sessions = await FirestoreAdapter.downloadAll('sessions');
+    if (!isFirebaseMode || !currentUser || !isAdmin || !StorageService.isFirestoreReady()) return [];
+    const sessions = await StorageService.downloadAll('sessions');
     return sessions
       .filter((session) => session && !session.deletedAt)
       .sort((a, b) => new Date(b.lastSeenAt || b.startedAt || 0).getTime() - new Date(a.lastSeenAt || a.startedAt || 0).getTime());

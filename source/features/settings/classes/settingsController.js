@@ -1,4 +1,6 @@
 import { Data } from '../../storage/models/data.js';
+import { AuthService } from '../../authentication/classes/authService.js';
+import { StorageService } from '../../storage/classes/storageService.js';
 import { Utils } from '../../../shared/utils/utils.js';
 
 // =============================================================================
@@ -24,21 +26,21 @@ export const SettingsController = {
     return updated;
   },
 
-  async resetServer(isFirebaseMode, FirestoreAdapter, SyncEngine) {
-    if (isFirebaseMode && SyncEngine.isRunning()) await SyncEngine.stop();
-    if (isFirebaseMode && FirestoreAdapter.isReady()) await FirestoreAdapter.resetChallengeData();
+  async resetServer(isFirebaseMode) {
+    if (isFirebaseMode && StorageService.isSyncRunning()) await StorageService.stopSync();
+    if (isFirebaseMode && StorageService.isFirestoreReady()) await StorageService.resetChallengeData();
     await Data.adapter.clearAllData();
-    if (isFirebaseMode && FirestoreAdapter.isReady()) {
-      const authUser = FirestoreAdapter.getAuth()?.currentUser;
+    if (isFirebaseMode && StorageService.isFirestoreReady()) {
+      const authUser = StorageService.getCurrentAuthUser();
       if (authUser) {
         try {
-          await authUser.delete();
+          await AuthService.deleteCurrentFirebaseAuthUser();
         } catch (e) {
           console.warn('Could not delete current Firebase auth user during reset:', e.message);
-          await FirestoreAdapter.signOut();
+          await AuthService.signOutFirebase();
         }
       } else {
-        await FirestoreAdapter.signOut();
+        await AuthService.signOutFirebase();
       }
     }
     Utils.clearCookie('tenlb_session');

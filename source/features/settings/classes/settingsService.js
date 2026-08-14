@@ -13,6 +13,6 @@ export const SettingsService = {
   changeOfflinePassword: (currentUser, currentPassword, newPassword, Security) =>
     SettingsController.changeOfflinePassword(currentUser, currentPassword, newPassword, Security),
 
-  resetServer: (isFirebaseMode, FirestoreAdapter, SyncEngine) =>
-    SettingsController.resetServer(isFirebaseMode, FirestoreAdapter, SyncEngine)
+  resetServer: (isFirebaseMode) =>
+    SettingsController.resetServer(isFirebaseMode)
 };

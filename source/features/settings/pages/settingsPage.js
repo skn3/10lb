@@ -1,9 +1,8 @@
 import { Utils } from '../../../shared/utils/utils.js';
 import { Security } from '../../../shared/classes/security.js';
 import { SyncButton } from '../components/syncButton.js';
-import { SyncEngine } from '../../storage/classes/syncEngine.js';
-import { FirestoreAdapter } from '../../storage/classes/firestoreAdapter.js';
-import { AuthController } from '../../authentication/classes/authController.js';
+import { AuthService } from '../../authentication/classes/authService.js';
+import { StorageService } from '../../storage/classes/storageService.js';
 import { SettingsService } from '../classes/settingsService.js';
 import { renderUserSettingsTab } from '../components/userSettingsTab.js';
 import { renderServerSettingsTab } from '../components/serverSettingsTab.js';
@@ -65,8 +64,8 @@ export function bindSettingsEvents(app) {
 
       if (app.isFirebaseMode()) {
         const email = app.state.currentUser?.username;
-        try { await FirestoreAdapter.signInWithEmail(email, currentPassword); } catch { return app.fail('Current password is incorrect.'); }
-        try { await FirestoreAdapter.updatePassword(newPassword); } catch (err) { return app.fail(`Password update failed: ${err.message || err}`); }
+        try { await AuthService.signInWithEmail(email, currentPassword); } catch { return app.fail('Current password is incorrect.'); }
+        try { await AuthService.updateFirebasePassword(newPassword); } catch (err) { return app.fail(`Password update failed: ${err.message || err}`); }
         app.setMessage('Password changed.');
         app.render();
         return;
@@ -110,13 +109,13 @@ export function bindSettingsEvents(app) {
 
       if (app.isFirebaseMode()) {
         const email = app.state.currentUser?.username;
-        try { await FirestoreAdapter.signInWithEmail(email, resetForm.password.value); } catch { return app.fail('Invalid master password.'); }
+        try { await AuthService.signInWithEmail(email, resetForm.password.value); } catch { return app.fail('Invalid master password.'); }
       } else {
         const ok = await Security.verifyPassword(resetForm.password.value, app.state.currentUser.password);
         if (!ok) return app.fail('Invalid master password.');
       }
 
-      await SettingsService.resetServer(app.isFirebaseMode(), FirestoreAdapter, SyncEngine);
+      await SettingsService.resetServer(app.isFirebaseMode());
       app.state.currentUser = null;
       app.state.sessionToken = null;
       app.state.pendingInviteCode = '';
@@ -134,7 +133,7 @@ export function bindSettingsEvents(app) {
   const syncRetry = document.getElementById(SyncButton.BUTTON_ID);
   if (syncRetry) {
     SyncButton.bind(syncRetry, () => app._isSyncing(), async () => {
-      await SyncEngine.retryNow();
+      await StorageService.retrySyncNow();
       await app.loadSyncMeta();
       app.render();
     });
@@ -152,7 +151,7 @@ export function bindSettingsEvents(app) {
       firebaseTestBtn.disabled = true;
       app.setButtonLabel(firebaseTestBtn, 'Testing…');
       if (resultEl) resultEl.innerHTML = '';
-      const result = await AuthController.testFirebaseConnection(cfg);
+      const result = await AuthService.testFirebaseConnection(cfg);
       firebaseTestBtn.disabled = false;
       app.setButtonLabel(firebaseTestBtn, 'Test Connection');
       if (resultEl) {
