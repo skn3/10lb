@@ -62,12 +62,20 @@
       gap:8px;
       width:100%;
     }
-    .menu-title {
+    .menu-active-indicator {
+      display:none;
+      align-items:center;
+      gap:6px;
       font-weight:700;
       color:rgba(255,255,255,.95);
-      line-height:1.2;
       padding:8px 0;
+      flex:1;
+      min-width:0;
+      overflow:hidden;
     }
+    .menu-active-indicator .material-symbols-rounded { font-size:18px; line-height:1; flex-shrink:0; }
+    nav[data-menu-state="collapsed"] .menu-active-indicator,
+    nav[data-menu-state="collapsing"] .menu-active-indicator { display:flex; }
     .menu-track {
       display:flex;
       flex-wrap:nowrap;

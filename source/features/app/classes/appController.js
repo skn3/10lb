@@ -468,8 +468,6 @@ export const App = {
     const isBurgerMode = state !== MenuState.INLINE;
     nb.nav.classList.toggle('needs-burger', isBurgerMode);
     const label = expanded ? 'Collapse' : 'Menu';
-    const title = expanded ? 'Menu expanded' : 'Menu';
-    if (nb.title) nb.title.textContent = title;
     if (nb.burger) {
       nb.burger.setAttribute('aria-expanded', expanded ? 'true' : 'false');
       nb.burger.setAttribute('aria-label', expanded ? 'Collapse menu' : 'Expand menu');
@@ -599,11 +597,11 @@ export const App = {
     const header = nav.querySelector('.menu-header');
     const track = nav.querySelector('.menu-track');
     const burger = nav.querySelector('.menu-burger');
-    const title = nav.querySelector('[data-menu-title]');
+    const activeIndicator = nav.querySelector('[data-menu-active]');
     if (!inner || !header || !track || !burger) { this._teardownNavBurger(); return; }
     if (this._navBurger?.nav === nav && this._navBurger?.track === track) { this._queueNavOverflowCheck(this._navBurger, 0); return; }
     this._teardownNavBurger();
-    const nb = { nav, inner, header, track, burger, title, collapsedHeight: 0, state: MenuState.INLINE, resizeTimer: null, fadeTimer: null };
+    const nb = { nav, inner, header, track, burger, activeIndicator, collapsedHeight: 0, state: MenuState.INLINE, resizeTimer: null, fadeTimer: null };
     nb.onBurgerClick = () => {
       if (nb.state === MenuState.EXPANDED || nb.state === MenuState.EXPANDING) this._closeNavMenu(nb);
       else if (nb.nav.classList.contains('needs-burger')) this._openNavMenu(nb);
@@ -620,6 +618,18 @@ export const App = {
     this._navBurger = nb;
     this._setNavState(nb, MenuState.INLINE);
     this._queueNavOverflowCheck(nb, 0);
+    this._updateNavActive(nb);
+  },
+
+  _updateNavActive(nb) {
+    if (!nb?.activeIndicator) return;
+    const active = nb.track?.querySelector('.menu-item.active');
+    if (!active) { nb.activeIndicator.innerHTML = ''; return; }
+    const icon = active.querySelector('.material-symbols-rounded')?.textContent?.trim() || '';
+    const label = active.querySelector('.menu-item-label')?.textContent || '';
+    nb.activeIndicator.innerHTML =
+      (icon ? `<span class="material-symbols-rounded" aria-hidden="true">${Utils.esc(icon)}</span>` : '') +
+      `<span>${Utils.esc(label)}</span>`;
   },
 
   _buildSyncStatus(syncMeta) {
