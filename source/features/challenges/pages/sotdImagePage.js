@@ -83,7 +83,7 @@ export function bindSotdImageEvents(app) {
   ctx.fillStyle = '#f8fafc';
   ctx.font = 'bold 52px system-ui, sans-serif';
   ctx.textAlign = 'center';
-  ctx.fillText(Utils.fullName(round.title || round.id), W / 2, y + 52);
+  ctx.fillText(round.title || round.id, W / 2, y + 52);
   ctx.font = '32px system-ui, sans-serif';
   ctx.fillStyle = '#94a3b8';
   ctx.fillText(`Week ${selectedWeek} of ${round.weeksCount}`, W / 2, y + 96);
