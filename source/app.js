@@ -488,180 +488,85 @@ export const App = {
   _syncNavVisibility(nav, hasItems) {
     if (!nav) return;
     nav.classList.toggle('has-items', !!hasItems);
-    if (!hasItems) nav.classList.remove('is-dragging');
   },
 
-  _stopNavTween() {
-    if (!this._navMotion?.raf) return;
-    cancelAnimationFrame(this._navMotion.raf);
-    this._navMotion.raf = null;
+
+  _teardownNavBurger() {
+    const nb = this._navBurger;
+    if (!nb) return;
+    if (nb.ro) nb.ro.disconnect();
+    if (nb.burger && !this.react.enabled) nb.burger.removeEventListener('click', nb.onBurgerClick);
+    this._navBurger = null;
   },
 
-  _setNavOffset(offset) {
-    const navMotion = this._navMotion;
-    if (!navMotion?.track) return;
-    navMotion.offset = offset;
-    navMotion.track.style.transform = `translate3d(${offset}px,0,0)`;
-  },
-
-  _applyNavRubber(offset) {
-    const navMotion = this._navMotion;
-    if (!navMotion) return offset;
-    if (offset > navMotion.maxOffset) return navMotion.maxOffset + ((offset - navMotion.maxOffset) * 0.35);
-    if (offset < navMotion.minOffset) return navMotion.minOffset + ((offset - navMotion.minOffset) * 0.35);
-    return offset;
-  },
-
-  _measureNavBounds() {
-    const navMotion = this._navMotion;
-    if (!navMotion?.nav || !navMotion.track) return;
-    const viewportWidth = navMotion.nav.clientWidth || 0;
-    const trackWidth = navMotion.track.scrollWidth || 0;
-    navMotion.maxOffset = 0;
-    navMotion.minOffset = Math.min(0, viewportWidth - trackWidth);
-    if (navMotion.minOffset === 0) {
-      this._setNavOffset(0);
-      navMotion.velocity = 0;
+  _checkNavOverflow() {
+    const nb = this._navBurger;
+    if (!nb?.nav || !nb.track) return;
+    if (nb.nav.classList.contains('is-open')) {
+      nb.nav.classList.add('needs-burger');
       return;
     }
-    if (navMotion.offset > navMotion.maxOffset) this._setNavOffset(navMotion.maxOffset);
-    if (navMotion.offset < navMotion.minOffset) this._setNavOffset(navMotion.minOffset);
+    nb.nav.classList.toggle('needs-burger', nb.track.scrollWidth > nb.track.clientWidth + 2);
   },
 
-  _startNavInertia() {
-    const navMotion = this._navMotion;
-    if (!navMotion) return;
-    this._stopNavTween();
-    let lastTs = performance.now();
-    const tick = (ts) => {
-      const dt = Math.min(32, Math.max(8, ts - lastTs));
-      lastTs = ts;
-      const spring = 0.14;
-      const damping = 0.9;
-      const friction = 0.95;
-      let next = navMotion.offset + (navMotion.velocity * dt);
-      if (next > navMotion.maxOffset) {
-        const over = navMotion.maxOffset - next;
-        navMotion.velocity += over * spring;
-      } else if (next < navMotion.minOffset) {
-        const over = navMotion.minOffset - next;
-        navMotion.velocity += over * spring;
-      }
-      navMotion.velocity *= (next > navMotion.maxOffset || next < navMotion.minOffset) ? damping : friction;
-      if (Math.abs(navMotion.velocity) > 2.2) navMotion.velocity = Math.sign(navMotion.velocity) * 2.2;
-      next = navMotion.offset + (navMotion.velocity * dt);
-      if (Math.abs(navMotion.velocity) < 0.01) {
-        if (next > navMotion.maxOffset) next = navMotion.maxOffset;
-        if (next < navMotion.minOffset) next = navMotion.minOffset;
-      }
-      this._setNavOffset(next);
-      const inBounds = next <= navMotion.maxOffset + 0.5 && next >= navMotion.minOffset - 0.5;
-      if (Math.abs(navMotion.velocity) < 0.01 && inBounds) {
-        navMotion.velocity = 0;
-        navMotion.raf = null;
-        return;
-      }
-      navMotion.raf = requestAnimationFrame(tick);
-    };
-    navMotion.raf = requestAnimationFrame(tick);
+  _openNavMenu(nb) {
+    const nav = nb.nav;
+    nb.collapsedHeight = nav.offsetHeight;
+    nav.classList.add('is-open');
+    nav.style.height = nb.collapsedHeight + 'px';
+    void nav.offsetHeight;
+    nav.style.height = nav.scrollHeight + 'px';
+    const onEnd = () => { nav.style.height = ''; nav.removeEventListener('transitionend', onEnd); };
+    nav.addEventListener('transitionend', onEnd);
+    nb.burger.querySelector('.material-symbols-rounded').textContent = 'close';
+    nb.burger.setAttribute('aria-label', 'Close menu');
+    nb.burger.setAttribute('aria-expanded', 'true');
+    this._checkNavOverflow();
   },
 
-  _teardownNavMotion() {
-    const navMotion = this._navMotion;
-    if (!navMotion) return;
-    this._stopNavTween();
-    navMotion.nav?.removeEventListener('pointerdown', navMotion.onPointerDown);
-    window.removeEventListener('pointermove', navMotion.onPointerMove);
-    window.removeEventListener('pointerup', navMotion.onPointerUp);
-    window.removeEventListener('pointercancel', navMotion.onPointerUp);
-    window.removeEventListener('resize', navMotion.onResize);
-    navMotion.nav?.removeEventListener('click', navMotion.onClickCapture, true);
-    this._navMotion = null;
+  _closeNavMenu(nb) {
+    const nav = nb.nav;
+    const currentH = nav.offsetHeight;
+    const collapsedH = nb.collapsedHeight || currentH;
+    nav.style.height = currentH + 'px';
+    nav.classList.remove('is-open');
+    this._checkNavOverflow();
+    void nav.offsetHeight;
+    nav.style.height = collapsedH + 'px';
+    const onEnd = () => { nav.style.height = ''; nav.removeEventListener('transitionend', onEnd); };
+    nav.addEventListener('transitionend', onEnd);
+    nb.burger.querySelector('.material-symbols-rounded').textContent = 'menu';
+    nb.burger.setAttribute('aria-label', 'Open menu');
+    nb.burger.setAttribute('aria-expanded', 'false');
   },
 
-  _ensureNavMotion() {
+  _setupNavBurger() {
     const nav = document.getElementById('nav');
     if (!nav || !nav.classList.contains('has-items')) {
-      this._teardownNavMotion();
+      this._teardownNavBurger();
       return;
     }
     const track = nav.querySelector('.menu-track');
-    if (!track) {
-      this._teardownNavMotion();
+    const burger = nav.querySelector('.menu-burger');
+    if (!track || !burger) {
+      this._teardownNavBurger();
       return;
     }
-    if (this._navMotion?.nav === nav && this._navMotion?.track === track) {
-      this._measureNavBounds();
+    if (this._navBurger?.nav === nav && this._navBurger?.track === track) {
+      this._checkNavOverflow();
       return;
     }
-    this._teardownNavMotion();
-    const navMotion = {
-      nav,
-      track,
-      dragging: false,
-      pointerId: null,
-      startX: 0,
-      startOffset: 0,
-      lastX: 0,
-      lastTs: 0,
-      velocity: 0,
-      offset: 0,
-      minOffset: 0,
-      maxOffset: 0,
-      moved: false,
-      suppressClickUntil: 0,
-      raf: null
+    this._teardownNavBurger();
+    const nb = { nav, track, burger, collapsedHeight: 0 };
+    nb.onBurgerClick = () => {
+      if (nav.classList.contains('is-open')) this._closeNavMenu(nb);
+      else this._openNavMenu(nb);
     };
-    navMotion.onPointerDown = (event) => {
-      if (event.button != null && event.button !== 0) return;
-      this._stopNavTween();
-      navMotion.dragging = true;
-      navMotion.pointerId = event.pointerId;
-      navMotion.startX = event.clientX;
-      navMotion.startOffset = navMotion.offset;
-      navMotion.lastX = event.clientX;
-      navMotion.lastTs = event.timeStamp;
-      navMotion.velocity = 0;
-      navMotion.moved = false;
-      nav.classList.add('is-dragging');
-      if (event.target?.setPointerCapture) event.target.setPointerCapture(event.pointerId);
-    };
-    navMotion.onPointerMove = (event) => {
-      if (!navMotion.dragging || navMotion.pointerId !== event.pointerId) return;
-      const dx = event.clientX - navMotion.startX;
-      if (Math.abs(dx) > 4) navMotion.moved = true;
-      const rawOffset = navMotion.startOffset + dx;
-      this._setNavOffset(this._applyNavRubber(rawOffset));
-      const dt = Math.max(1, event.timeStamp - navMotion.lastTs);
-      const vx = (event.clientX - navMotion.lastX) / dt;
-      navMotion.velocity = (navMotion.velocity * 0.7) + (vx * 0.3);
-      if (Math.abs(navMotion.velocity) > 2.2) navMotion.velocity = Math.sign(navMotion.velocity) * 2.2;
-      navMotion.lastX = event.clientX;
-      navMotion.lastTs = event.timeStamp;
-    };
-    navMotion.onPointerUp = (event) => {
-      if (!navMotion.dragging || (event.pointerId != null && navMotion.pointerId !== event.pointerId)) return;
-      navMotion.dragging = false;
-      navMotion.pointerId = null;
-      nav.classList.remove('is-dragging');
-      if (navMotion.moved) navMotion.suppressClickUntil = Date.now() + 250;
-      this._startNavInertia();
-    };
-    navMotion.onResize = () => this._measureNavBounds();
-    navMotion.onClickCapture = (event) => {
-      if (Date.now() < navMotion.suppressClickUntil) {
-        event.preventDefault();
-        event.stopPropagation();
-      }
-    };
-    nav.addEventListener('pointerdown', navMotion.onPointerDown);
-    window.addEventListener('pointermove', navMotion.onPointerMove);
-    window.addEventListener('pointerup', navMotion.onPointerUp);
-    window.addEventListener('pointercancel', navMotion.onPointerUp);
-    window.addEventListener('resize', navMotion.onResize);
-    nav.addEventListener('click', navMotion.onClickCapture, true);
-    this._navMotion = navMotion;
-    this._measureNavBounds();
+    nb.ro = new ResizeObserver(() => this._checkNavOverflow());
+    nb.ro.observe(nav);
+    if (!this.react.enabled) burger.addEventListener('click', nb.onBurgerClick);
+    this._navBurger = nb;
+    this._checkNavOverflow();
   },
 
   _buildSyncStatus(syncMeta) {
@@ -713,7 +618,7 @@ export const App = {
     model.authRole = this.roleLabel(this.state.currentUser);
 
     if (!this.react.enabled) {
-      nav.innerHTML = `<div class="menu-track" role="menubar">${model.items.map((item) => `<a href="${this._buildHashRoute(item.key)}" class="menu-item ${this.state.route === item.key ? 'active' : ''}" role="menuitem" data-route="${item.key}" aria-current="${this.state.route === item.key ? 'page' : 'false'}"><span class="material-symbols-rounded" aria-hidden="true">${item.icon}</span><span>${Utils.esc(item.label)}</span></a>`).join('')}</div>`;
+      nav.innerHTML = `<div class="nav-inner"><div class="menu-track" role="menubar">${model.items.map((item) => `<a href="${this._buildHashRoute(item.key)}" class="menu-item ${this.state.route === item.key ? 'active' : ''}" role="menuitem" data-route="${item.key}" aria-current="${this.state.route === item.key ? 'page' : 'false'}"><span class="material-symbols-rounded" aria-hidden="true">${item.icon}</span><span>${Utils.esc(item.label)}</span></a>`).join('')}</div><button class="menu-burger" type="button" aria-label="Open menu" aria-expanded="false"><span class="material-symbols-rounded" aria-hidden="true">menu</span></button></div>`;
       nav.onclick = (e) => {
         const b = e.target.closest('[data-route]');
         if (!b) return;
@@ -746,18 +651,23 @@ export const App = {
     const syncBar = document.getElementById('sync-bar');
     if (syncBar) syncBar.style.display = navModel.syncVisible ? 'block' : 'none';
     this._syncNavVisibility(document.getElementById('nav'), navModel.items.length > 0);
-    this.react.navRoot.render(e(HashRouter, null, e('div', { className: 'menu-track', role: 'menubar' },
-      ...navModel.items.map((item) => e(Link, {
-        key: item.key,
-        to: `/${item.key}`,
-        className: `menu-item ${this.state.route === item.key ? 'active' : ''}`,
-        role: 'menuitem',
-        'aria-current': this.state.route === item.key ? 'page' : 'false',
-        onClick: (event) => {
-          event.preventDefault();
-          this.navigate(item.key);
-        }
-      }, e('span', { className: 'material-symbols-rounded', 'aria-hidden': 'true' }, item.icon), e('span', null, item.label)))
+    this.react.navRoot.render(e(HashRouter, null, e('div', { className: 'nav-inner' },
+      e('div', { className: 'menu-track', role: 'menubar' },
+        ...navModel.items.map((item) => e(Link, {
+          key: item.key,
+          to: `/${item.key}`,
+          className: `menu-item ${this.state.route === item.key ? 'active' : ''}`,
+          role: 'menuitem',
+          'aria-current': this.state.route === item.key ? 'page' : 'false',
+          onClick: (event) => {
+            event.preventDefault();
+            this.navigate(item.key);
+          }
+        }, e('span', { className: 'material-symbols-rounded', 'aria-hidden': 'true' }, item.icon), e('span', null, item.label)))
+      ),
+      e('button', { className: 'menu-burger', type: 'button', 'aria-label': 'Open menu', 'aria-expanded': 'false', onClick: () => this._navBurger?.onBurgerClick?.() },
+        e('span', { className: 'material-symbols-rounded', 'aria-hidden': 'true' }, 'menu')
+      )
     )));
     this.react.authRoot.render(navModel.authName
       ? e(React.Fragment, null,
@@ -1226,7 +1136,7 @@ export const App = {
     const screen = this.resolveScreen();
 
     if (!this.renderWithReact(navModel, screen)) app.innerHTML = screen;
-    this._ensureNavMotion();
+    this._setupNavBurger();
     this.updateStickyOffsets();
     this.renderSnackbar();
 
