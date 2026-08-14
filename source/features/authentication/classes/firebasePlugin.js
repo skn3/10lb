@@ -1,4 +1,5 @@
 import { ServerPlugin } from './serverPlugin.js';
+import { AuthController } from './authController.js';
 import { RuntimeConfig } from '../../../config.js';
 import { FirestoreAdapter } from '../../storage/classes/firestoreAdapter.js';
 import { SyncEngine } from '../../storage/classes/syncEngine.js';
@@ -45,7 +46,7 @@ export class FirebasePlugin extends ServerPlugin {
   async restoreSession() {
     if (!FirestoreAdapter.isReady()) {
       try {
-        await this._app._loadFirebaseSDK();
+        await AuthController.loadFirebaseSDK();
         await FirestoreAdapter.init(RuntimeConfig.firebase, 'default');
       } catch (e) {
         console.warn('Firebase SDK init failed during session restore:', e.message);
@@ -56,23 +57,25 @@ export class FirebasePlugin extends ServerPlugin {
     if (!fbUser || fbUser.isAnonymous) return;
     let user;
     try {
-      user = await this._app._resolveFirebaseUser(fbUser.uid);
+      user = await AuthController.resolveFirebaseUser(fbUser.uid);
     } catch (e) {
       console.warn('Could not resolve user account during session restore:', e.message);
       return;
     }
     if (!user) return;
     this._app.state.currentUser = user;
-    await this._app._upsertFirebaseSession(user);
+    await AuthController.upsertFirebaseSession(user, this._app.state.appSettings, this._app.firebaseSessionId(user));
   }
 
   async onLogin(user) {
     this._app.state.sessionToken = null;
-    await this._app._ensureFirebaseAuthenticatedState(user);
+    await AuthController.ensureFirebaseAuthenticatedState(user, this._app.state.appSettings, this._app.firebaseSessionId(user));
+    if (!SyncEngine.isRunning()) await SyncEngine.start();
+    await this._app.loadSyncMeta();
   }
 
   async onLogout() {
-    await this._app._deleteFirebaseSession();
+    await AuthController.deleteFirebaseSession(this._app.firebaseSessionId(this._app.state.currentUser));
     if (SyncEngine.isRunning()) await SyncEngine.stop();
     if (FirestoreAdapter.isReady()) await FirestoreAdapter.signOut();
   }
@@ -82,7 +85,7 @@ export class FirebasePlugin extends ServerPlugin {
     // This is the ONLY place firebase mode checks installed state.
     try {
       if (!FirestoreAdapter.isReady()) {
-        await this._app._loadFirebaseSDK();
+        await AuthController.loadFirebaseSDK();
         await FirestoreAdapter.init(RuntimeConfig.firebase, 'default');
       }
       const doc = await FirestoreAdapter.getChallengeDoc();
