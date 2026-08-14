@@ -11,6 +11,16 @@ import { Domain } from './domain.js';
 import { OfflinePlugin } from './features/auth/classes/offlinePlugin.js';
 import { FirebasePlugin } from './features/auth/classes/firebasePlugin.js';
 import { SubmissionStatusPanel } from './shared/components/submissionStatusPanel.js';
+import { SubmitButton } from './shared/components/submitButton.js';
+import { MenuBar } from './shared/components/menuBar.js';
+import { Snackbar } from './shared/components/snackbar.js';
+import { SiteHeader } from './shared/components/siteHeader.js';
+import { WeightChart } from './shared/components/weightChart.js';
+import { Leaderboard } from './shared/components/leaderboard.js';
+import { WeekPager } from './shared/components/weekPager.js';
+import { DataTable } from './shared/components/dataTable.js';
+import { SyncButton } from './shared/components/syncButton.js';
+import { InviteQRCode } from './shared/components/qrCode.js';
 
 // =============================================================================
 // APP — Main application object
@@ -313,6 +323,9 @@ export const App = {
     await this.loadSyncMeta();
     this.setupPwa();
     this.setupReact();
+
+    // Wire up the Snackbar component so that push/remove auto-renders into the DOM.
+    Snackbar.setOnChange(() => Snackbar.render(document.getElementById('snackbar-root')));
 
     // Instantiate the mode plugin — all mode-specific behaviour is delegated here.
     this.plugin = RuntimeConfig.serverMode === 'firebase' ? new FirebasePlugin(this) : new OfflinePlugin(this);
@@ -721,14 +734,9 @@ export const App = {
     model.authRole = this.roleLabel(this.state.currentUser);
 
     if (!this.react.enabled) {
-      nav.innerHTML = `<div class="nav-inner"><div class="menu-track" role="menubar">${model.items.map((item) => `<a href="${this._buildHashRoute(item.key)}" class="menu-item ${this.state.route === item.key ? 'active' : ''}" role="menuitem" data-route="${item.key}" aria-current="${this.state.route === item.key ? 'page' : 'false'}"><span class="material-symbols-rounded" aria-hidden="true">${item.icon}</span><span>${Utils.esc(item.label)}</span></a>`).join('')}</div><button class="menu-burger" type="button" aria-label="Open menu" aria-expanded="false"><span class="material-symbols-rounded" aria-hidden="true">menu</span></button></div>`;
-      nav.onclick = (e) => {
-        const b = e.target.closest('[data-route]');
-        if (!b) return;
-        e.preventDefault();
-        this.navigate(b.dataset.route);
-      };
-      authChip.innerHTML = `${Utils.esc(model.authName)} <span class="tag">${model.authRole}</span> <button class="btn secondary small" id="btn-logout">Logout</button>`;
+      nav.innerHTML = MenuBar.render(model.items, this.state.route, (key) => this._buildHashRoute(key));
+      MenuBar.attachClickHandler(nav, (route) => this.navigate(route));
+      authChip.innerHTML = SiteHeader.renderHTML(model.authName, model.authRole);
       const logoutBtn = document.getElementById('btn-logout');
       if (logoutBtn) logoutBtn.onclick = () => this.logout();
     }
@@ -754,32 +762,13 @@ export const App = {
     const syncBar = document.getElementById('sync-bar');
     if (syncBar) syncBar.style.display = navModel.syncVisible ? 'block' : 'none';
     this._syncNavVisibility(document.getElementById('nav'), navModel.items.length > 0);
-    this.react.navRoot.render(e(HashRouter, null, e('div', { className: 'nav-inner' },
-      e('div', { className: 'menu-track', role: 'menubar' },
-        ...navModel.items.map((item) => e(Link, {
-          key: item.key,
-          to: `/${item.key}`,
-          className: `menu-item ${this.state.route === item.key ? 'active' : ''}`,
-          role: 'menuitem',
-          'aria-current': this.state.route === item.key ? 'page' : 'false',
-          onClick: (event) => {
-            event.preventDefault();
-            this.navigate(item.key);
-          }
-        }, e('span', { className: 'material-symbols-rounded', 'aria-hidden': 'true' }, item.icon), e('span', null, item.label)))
-      ),
-      e('button', { className: 'menu-burger', type: 'button', 'aria-label': 'Open menu', 'aria-expanded': 'false', onClick: () => this._navBurger?.onBurgerClick?.() },
-        e('span', { className: 'material-symbols-rounded', 'aria-hidden': 'true' }, 'menu')
-      )
-    )));
-    this.react.authRoot.render(navModel.authName
-      ? e(React.Fragment, null,
-        navModel.authName,
-        ' ',
-        e('span', { className: 'tag' }, navModel.authRole),
-        ' ',
-        e('button', { className: 'btn secondary small', type: 'button', onClick: () => this.logout() }, 'Logout'))
-      : null);
+    this.react.navRoot.render(e(HashRouter, null,
+      MenuBar.renderReact(navModel.items, this.state.route, {
+        onNavigate: (key) => this.navigate(key),
+        onBurgerClick: () => this._navBurger?.onBurgerClick?.()
+      })
+    ));
+    this.react.authRoot.render(SiteHeader.renderReact(navModel.authName, navModel.authRole, () => this.logout()));
     this.react.syncRoot.render(navModel.syncVisible ? e('span', { dangerouslySetInnerHTML: { __html: navModel.syncText } }) : null);
     this.react.appRoot.render(e('div', { dangerouslySetInnerHTML: { __html: screen } }));
     return true;
@@ -799,50 +788,18 @@ export const App = {
   },
 
   renderSnackbar() {
-    const host = document.getElementById('snackbar-root');
-    if (!host) return;
-    if (!this._snacks) this._snacks = [];
-    host.innerHTML = '';
-    for (const item of this._snacks) {
-      const bar = document.createElement('div');
-      bar.className = `snackbar ${item.kind}`;
-      bar.setAttribute('role', 'status');
-      bar.dataset.snackId = item.id;
-      const txt = document.createElement('span');
-      txt.className = 'snackbar-text';
-      txt.textContent = item.text;
-      bar.appendChild(txt);
-      const closeBtn = document.createElement('button');
-      closeBtn.className = 'snackbar-close';
-      closeBtn.setAttribute('aria-label', 'Dismiss');
-      closeBtn.textContent = '✕';
-      closeBtn.addEventListener('click', () => this._removeSnack(item.id));
-      bar.appendChild(closeBtn);
-      host.appendChild(bar);
-    }
+    Snackbar.render(document.getElementById('snackbar-root'));
   },
 
   _snackCounter: 0,
   _snacks: [],
 
   _pushSnack(text, kind) {
-    if (!text) return;
-    if (!this._snacks) this._snacks = [];
-    const id = ++this._snackCounter;
-    const item = { id, text, kind };
-    this._snacks.push(item);
-    this.renderSnackbar();
-    if (kind === 'success') {
-      item._timer = setTimeout(() => this._removeSnack(id), 7000);
-    }
+    Snackbar.push(text, kind);
   },
 
   _removeSnack(id) {
-    if (!this._snacks) return;
-    const item = this._snacks.find((s) => s.id === id);
-    if (item?._timer) clearTimeout(item._timer);
-    this._snacks = this._snacks.filter((s) => s.id !== id);
-    this.renderSnackbar();
+    Snackbar.remove(id);
   },
 
   setMessage(msg = '', err = '') {
@@ -1138,9 +1095,42 @@ export const App = {
     this.enhanceFormValidation(form);
     form.onsubmit = async (e) => {
       e.preventDefault();
-      if (this._isSyncing()) { this.fail('Sync is in progress. Please wait until sync completes before submitting.'); return; }
       if (!this.validateForm(form)) return;
-      const release = this.setButtonBusy(e.submitter || form.querySelector('button[type="submit"]'), true);
+      const submitBtn = e.submitter || form.querySelector('button[type="submit"]');
+      // If a sync is in progress, show a syncing state on the submit button and
+      // wait for it to complete before proceeding with the submission.
+      if (this._isSyncing()) {
+        if (submitBtn) {
+          const origLabel = this.buttonLabelText(submitBtn);
+          const origIcon = submitBtn.dataset.iconDefault || this.iconForButton(submitBtn) || '';
+          submitBtn.disabled = true;
+          const labelEl = submitBtn.querySelector('.btn-label');
+          if (labelEl) labelEl.textContent = 'Syncing…';
+          const iconEl = submitBtn.querySelector('.btn-icon');
+          if (iconEl) {
+            iconEl.classList.remove('material-symbols-rounded');
+            iconEl.textContent = '';
+            iconEl.classList.add('btn-spinner');
+          }
+          await new Promise((resolve) => {
+            const onSync = () => {
+              if (!this._isSyncing()) {
+                window.removeEventListener('tenlb:syncstate', onSync);
+                resolve();
+              }
+            };
+            window.addEventListener('tenlb:syncstate', onSync);
+          });
+          submitBtn.disabled = false;
+          if (labelEl) labelEl.textContent = origLabel;
+          if (iconEl) {
+            iconEl.classList.remove('btn-spinner');
+            iconEl.classList.add('material-symbols-rounded');
+            iconEl.textContent = origIcon;
+          }
+        }
+      }
+      const release = this.setButtonBusy(submitBtn, true);
       try {
         await handler(e);
       } catch (err) {
@@ -1256,7 +1246,7 @@ export const App = {
   },
 
   renderDenied() {
-    return `<div class="card"><h2>Access denied</h2><p class="error">You do not have permission to view this page.</p><button class="btn secondary" data-go="overview">Go back</button></div>`;
+    return `<div class="card"><h2>Access denied</h2><p class="error">You do not have permission to view this page.</p>${SubmitButton.render({ text: 'Go back', icon: 'arrow_back', theme: 'secondary', attrs: { 'data-go': 'overview' } })}</div>`;
   },
 
   renderInstall() {
@@ -1284,7 +1274,7 @@ export const App = {
         <div><label>Theme</label><select name="theme">${ThemeOptions.map((t) => `<option value="${t.key}" ${t.key === (s.theme || 'teal') ? 'selected' : ''}>${t.label}</option>`).join('')}</select></div>
         <div><label>User session duration (days)</label><input name="sessionDurationDays" type="number" min="1" max="365" value="${Utils.safeNum(s.sessionDurationDays, 7)}" required /></div>
         <div style="grid-column:1/-1" class="small muted">Password must contain at least 8 characters, including a number, letter, and symbol.</div>
-        <div style="grid-column:1/-1" class="row"><button class="btn" type="submit">Install server</button></div>
+        <div style="grid-column:1/-1" class="row">${SubmitButton.render({ text: 'Install server', icon: 'install_desktop', submit: true })}</div>
       </form>
       <div id="install-log" style="display:none;margin-top:16px;padding:12px;background:var(--surface2,#1a1a2e);border:1px solid var(--border,#333);border-radius:6px;font-family:monospace;font-size:12px;line-height:1.6;color:var(--text,#ccc);max-height:300px;overflow-y:auto;white-space:pre-wrap;word-break:break-all"></div>
     </div>`;
@@ -1297,7 +1287,7 @@ export const App = {
         <div><label>Email</label><input name="username" type="email" inputmode="email" required autocomplete="email" autocapitalize="none" spellcheck="false" /></div>
         <div><label>Password</label><input name="password" type="password" required autocomplete="current-password" /></div>
         <input name="redirect" type="hidden" value="${Utils.escAttr(this.state.redirectAfterLogin || 'overview')}" />
-        <button class="btn" type="submit">Login</button>
+        ${SubmitButton.render({ text: 'Login', icon: 'login', submit: true })}
       </form>
       ${this.isFirebaseMode() ? '<p class="small muted" style="margin-top:12px">Have an invite code? <a href="#" id="link-to-join" style="color:var(--brand)">Click here to register</a></p>' : ''}
     </div>`;
@@ -1305,7 +1295,7 @@ export const App = {
 
   renderJoin() {
     if (!this.isFirebaseMode()) {
-      return `<div class="card" style="max-width:560px;margin:0 auto"><h2 style="margin-top:0">Registration unavailable</h2><p class="muted">This server is running in offline mode. Ask the master admin to create participant accounts.</p><button class="btn secondary" type="button" id="btn-go-login">Go to login</button></div>`;
+      return `<div class="card" style="max-width:560px;margin:0 auto"><h2 style="margin-top:0">Registration unavailable</h2><p class="muted">This server is running in offline mode. Ask the master admin to create participant accounts.</p>${SubmitButton.render({ text: 'Go to login', icon: 'login', theme: 'secondary', id: 'btn-go-login' })}</div>`;
     }
     const code = this.state.pendingInviteCode || '';
     const serverName = this.state.appSettings?.serverName || '10lb Challenge';
@@ -1321,8 +1311,8 @@ export const App = {
         <div><label>Last name</label><input name="lastName" type="text" required autocomplete="family-name" /></div>
         <div style="grid-column:1/-1" class="small muted">Password must contain at least 8 characters, including a number, letter, and symbol.</div>
         <div style="grid-column:1/-1" class="row">
-          <button class="btn" type="submit">Create account</button>
-          <button class="btn secondary" type="button" id="btn-go-login">Already have an account</button>
+          ${SubmitButton.render({ text: 'Create account', icon: 'person_add', submit: true })}
+          ${SubmitButton.render({ text: 'Already have an account', icon: 'login', theme: 'secondary', id: 'btn-go-login' })}
         </div>
       </form>
     </div>`;
@@ -1338,8 +1328,8 @@ export const App = {
       <td><span class="pill warn">Pending</span></td>
       <td>
         <div class="row">
-          <button class="btn secondary small" data-view-invite="${Utils.escAttr(inv.id)}">View</button>
-          <button class="btn danger small" data-delete-invite="${Utils.escAttr(inv.id)}">Delete</button>
+          ${SubmitButton.render({ text: 'View', icon: 'visibility', theme: 'secondary small', attrs: { 'data-view-invite': inv.id } })}
+          ${SubmitButton.render({ text: 'Delete', icon: 'delete', theme: 'danger small', attrs: { 'data-delete-invite': inv.id } })}
         </div>
       </td>
     </tr>`).join('');
@@ -1351,15 +1341,15 @@ export const App = {
         <td><span class="pill ok">Used</span></td>
         <td>${user ? Utils.esc(Utils.fullName(user)) : '<span class="muted">Unknown</span>'}</td>
         <td>${Utils.dateTime(inv.usedAt)}</td>
-        <td><button class="btn danger small" data-delete-invite="${Utils.escAttr(inv.id)}">Delete</button></td>
+        <td>${SubmitButton.render({ text: 'Delete', icon: 'delete', theme: 'danger small', attrs: { 'data-delete-invite': inv.id } })}</td>
       </tr>`;
     }).join('');
     return `<div class="card">
       <div class="row between" style="margin-bottom:12px">
         <h2 style="margin:0">Invites</h2>
         <div class="row">
-          <button class="btn" id="btn-create-invite">Create invite</button>
-          ${pending.length ? `<button class="btn danger" id="btn-delete-all-invites">Delete all pending</button>` : ''}
+          ${SubmitButton.render({ text: 'Create invite', icon: 'person_add', id: 'btn-create-invite' })}
+          ${pending.length ? SubmitButton.render({ text: 'Delete all pending', icon: 'delete_sweep', theme: 'danger', id: 'btn-delete-all-invites' }) : ''}
         </div>
       </div>
       <h3 style="margin-top:0">Pending (${pending.length})</h3>
@@ -1379,13 +1369,12 @@ export const App = {
     return `<div class="card" style="max-width:640px;margin:0 auto">
       <div class="row between" style="margin-bottom:12px">
         <h2 style="margin:0">Invite link</h2>
-        <button class="btn secondary" data-go="users">← Back to users</button>
+        ${SubmitButton.render({ text: 'Back to users', icon: 'arrow_back', theme: 'secondary', attrs: { 'data-go': 'users' } })}
       </div>
       <p class="muted">Share this invite with the person you want to join. The code can only be used once.</p>
 
       <div style="text-align:center;margin:16px 0">
-        <div id="qr-code-container" style="display:inline-block;padding:12px;background:#fff;border:1px solid var(--border);border-radius:12px"></div>
-        <p class="small muted" id="qr-status" style="margin:6px 0 0">Loading QR code…</p>
+        ${InviteQRCode.renderPlaceholder()}
       </div>
 
       <div style="margin:16px 0">
@@ -1399,13 +1388,13 @@ export const App = {
         <label>Invite link</label>
         <div class="row">
           <input id="invite-link-input" readonly value="${Utils.escAttr(inviteLink)}" style="font-size:.85rem" />
-          <button class="btn" id="btn-copy-invite-link" style="white-space:nowrap">Copy link</button>
+          ${SubmitButton.render({ text: 'Copy link', icon: 'content_copy', id: 'btn-copy-invite-link', attrs: { style: 'white-space:nowrap' } })}
         </div>
       </div>
 
       <div class="row" style="margin-top:16px">
-        <button class="btn secondary" id="btn-create-new-invite">Create another invite</button>
-        <button class="btn danger" data-delete-invite="${Utils.escAttr(inv.id)}" id="btn-delete-this-invite">Delete this invite</button>
+        ${SubmitButton.render({ text: 'Create another invite', icon: 'add_link', theme: 'secondary', id: 'btn-create-new-invite' })}
+        ${SubmitButton.render({ text: 'Delete this invite', icon: 'delete', theme: 'danger', id: 'btn-delete-this-invite', attrs: { 'data-delete-invite': inv.id } })}
       </div>
       <p class="small muted" style="margin-top:8px">Issued: ${Utils.dateTime(inv.createdAt)}</p>
     </div>`;
@@ -1413,7 +1402,7 @@ export const App = {
 
   renderOverview() {
     const round = this.currentRound();
-    if (!round) return `<div class="card"><h2>No challenges active</h2><p class="muted">Start a new round to begin.</p>${this.isAdmin() ? '<button class="btn" data-go="create">Start New Round</button>' : ''}</div>`;
+    if (!round) return `<div class="card"><h2>No challenges active</h2><p class="muted">Start a new round to begin.</p>${this.isAdmin() ? SubmitButton.render({ text: 'Start New Round', icon: 'add_circle', attrs: { 'data-go': 'create' } }) : ''}</div>`;
     const subs = Domain.submissionsByRound(this.state.submissions, round.id);
     const currentWeek = Domain.calcCurrentWeek(round, this.state.users, subs);
     const selectedWeek = this.state.weekCursor[round.id] || Math.min(currentWeek, round.weeksCount);
@@ -1436,36 +1425,19 @@ export const App = {
         <span>${round.weeksCount} weeks</span><span>•</span>
         <span>Weigh day: ${Utils.weekdayName(round.weighDay)}</span>
       </div>
-      <div class="row between week-nav" style="margin-top:8px">
-        <button data-week-nav="prev" ${selectedWeek <= 1 ? 'disabled' : ''}>◀</button>
-        <strong>Week ${selectedWeek} of ${round.weeksCount}</strong>
-        <button data-week-nav="next" ${!canGoNext ? 'disabled' : ''}>▶</button>
-      </div>
+      ${WeekPager.render(selectedWeek, round.weeksCount, canGoNext)}
       <div class="small muted" style="margin-top:6px">Current progress week: ${currentWeek} / ${round.weeksCount}</div>
       ${statusPanel}
       ${selectedWeek === 1 ? `<div class="card" style="margin-top:10px"><strong>Start weights</strong>${view.startWeights.length ? `<ul>${view.startWeights.map((x)=>`<li>${Utils.esc(Utils.fullName(x.user))}: ${x.weight}${unit}</li>`).join('')}</ul>` : '<p class="muted">No start weights submitted yet.</p>'}</div>` : ''}
-      ${selectedWeek >= 2 ? `<div class="card" style="margin-top:10px"><strong>Leaderboard</strong>
-      <table class="table"><thead><tr><th>Rank</th><th>User</th><th>% Lost</th><th>This Week</th><th>Total</th></tr></thead><tbody>
-      ${view.ranked.map((r, i) => {
-        const rank = i + 1;
-        const prize = prizeRanks.includes(i) ? ` ${['🏆','🥈','🥉','🎖️','🎗️','⭐','✨'][i] || '🏅'}` : '';
-        const delta = r.weeklyLoss > 0 ? `<span class="arrow-loss">⬇ ${r.weeklyLoss}${unit}</span>` : (r.weeklyLoss < 0 ? `<span class="arrow-gain">⬆ ${Math.abs(r.weeklyLoss)}${unit}</span>` : '—');
-        return `<tr><td>${rank}${prize}</td><td>${Utils.esc(Utils.fullName(r.user))}</td><td>${Utils.pct(r.percentLoss)}</td><td>${delta}</td><td>${r.totalLoss}${unit}</td></tr>`;
-      }).join('') || '<tr><td colspan="5" class="muted">No leaderboard data yet.</td></tr>'}
-      </tbody></table>
-      ${view.holiday.length ? `<h4>Holiday</h4><ul>${view.holiday.map((x)=>`<li class="holiday">${Utils.esc(Utils.fullName(x.user))} (used ${x.holidaysUsed}/${round.holidaysAllowed})</li>`).join('')}</ul>`:''}
-      ${view.forfeit.length ? `<h4>Forfeit</h4><ul>${view.forfeit.map((x)=>`<li class="forfeit">${Utils.esc(Utils.fullName(x.user))}</li>`).join('')}</ul>`:''}
-      ${view.pending.length ? `<h4>Pending</h4><ul>${view.pending.map((x)=>`<li>${Utils.esc(Utils.fullName(x.user))}</li>`).join('')}</ul>`:''}
-      <div style="margin-top:12px"><canvas id="weight-chart" height="220"></canvas></div>
-      </div>` : ''}
+      ${selectedWeek >= 2 ? Leaderboard.render(view, round, this.state.appSettings, prizeRanks) : ''}
       ${selectedWeek === round.weeksCount && isFinalComplete ? `<div class="card"><strong>Final winners</strong><ol>${view.ranked.slice(0, prizeRanks.length).map((r, i)=>`<li>${Utils.esc(Utils.fullName(r.user))} — ${Utils.money(round.prizeSplits[i] || 0, this.state.appSettings.currency)}</li>`).join('')}</ol></div>` : ''}
-      ${round.status === 'active' && this.isAdmin() ? `<div class="row"><button class="btn secondary" data-go="edit">Edit Round</button><button class="btn danger" data-go="delete">Delete Round</button></div>` : ''}
+      ${round.status === 'active' && this.isAdmin() ? `<div class="row">${SubmitButton.render({ text: 'Edit Round', icon: 'edit', theme: 'secondary', attrs: { 'data-go': 'edit' } })}${SubmitButton.render({ text: 'Delete Round', icon: 'delete', theme: 'danger', attrs: { 'data-go': 'delete' } })}</div>` : ''}
     </div>`;
   },
 
   renderRoundList() {
     const active = Domain.activeRound(this.state.rounds);
-    return `<div class="card"><div class="row between"><h2 style="margin:0">Challenge Rounds</h2>${(!active && this.isAdmin()) ? '<button class="btn" data-go="create">Start New Round</button>' : ''}</div>
+    return `<div class="card"><div class="row between"><h2 style="margin:0">Challenge Rounds</h2>${(!active && this.isAdmin()) ? SubmitButton.render({ text: 'Start New Round', icon: 'add_circle', attrs: { 'data-go': 'create' } }) : ''}</div>
       <div class="list" style="margin-top:10px">${this.state.rounds.length ? this.state.rounds.map((r) => {
         const subs = Domain.submissionsByRound(this.state.submissions, r.id);
         const progress = Domain.calcCurrentWeek(r, this.state.users, subs);
@@ -1502,7 +1474,7 @@ export const App = {
     if (!this.isAdmin()) return this.renderDenied();
     const active = Domain.activeRound(this.state.rounds);
     if (active) {
-      return `<div class="card"><p class="error">A challenge is already active.</p><button class="btn secondary" data-go="rounds">Go to round list</button></div>`;
+      return `<div class="card"><p class="error">A challenge is already active.</p>${SubmitButton.render({ text: 'Go to round list', icon: 'list_alt', theme: 'secondary', attrs: { 'data-go': 'rounds' } })}</div>`;
     }
     if (!this.state.createDraft) this.state.createDraft = this.createDefaults();
     const d = this.state.createDraft;
@@ -1521,11 +1493,11 @@ export const App = {
         <div><label>Start date</label><input type="date" name="startDate" value="${d.startDate}" required /></div>
         <div><label>Weigh day</label><select name="weighDay">${['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'].map((x,i)=>`<option value="${i}" ${String(i)===String(d.weighDay)?'selected':''}>${x}</option>`).join('')}</select></div>
 
-        <div class="card" style="grid-column:1/-1"><div class="row between"><strong>Users (${count})</strong><div class="row"><button type="button" data-user-toggle="all" class="btn secondary small">Toggle all</button></div></div>
+        <div class="card" style="grid-column:1/-1"><div class="row between"><strong>Users (${count})</strong><div class="row">${SubmitButton.render({ text: 'Toggle all', icon: 'select_all', theme: 'secondary small', attrs: { 'type': 'button', 'data-user-toggle': 'all' } })}</div></div>
           <div class="grid three" style="margin-top:8px">${d.allNames.map((n)=>`<label class="row"><input type="checkbox" data-user-name="${Utils.escAttr(n)}" data-label="${Utils.escAttr(n)}" ${d.selectedNames.includes(n)?'checked':''} style="width:auto"/> ${Utils.esc(n)}</label>`).join('') || '<p class="muted">No users yet.</p>'}</div>
           <div style="margin-top:8px">
             <label for="new-user-name">Add user full name</label>
-            <div class="row"><input id="new-user-name" type="text" autocomplete="name" placeholder="Add new user full name" value="${Utils.escAttr(d.newName || '')}"/><button type="button" class="btn" data-add-user="1">Add</button></div>
+            <div class="row"><input id="new-user-name" type="text" autocomplete="name" placeholder="Add new user full name" value="${Utils.escAttr(d.newName || '')}"/>${SubmitButton.render({ text: 'Add', icon: 'person_add', attrs: { 'type': 'button', 'data-add-user': '1' } })}</div>
           </div>
         </div>
 
@@ -1538,14 +1510,14 @@ export const App = {
             <option value="custom" ${d.payoutMode==='custom'?'selected':''}>Custom</option>
           </select>
           <div id="payout-rows" class="grid three" style="margin-top:8px">
-          ${rows.map((v,i)=>`<div><label>Rank ${i+1}</label><div class="row"><button type="button" class="btn secondary" data-pay-adjust="-1" data-pay-index="${i}">-</button><input type="number" step="0.01" data-pay-index="${i}" value="${Utils.safeNum(v)}"/><button type="button" class="btn secondary" data-pay-adjust="1" data-pay-index="${i}">+</button></div></div>`).join('')}
+          ${rows.map((v,i)=>`<div><label>Rank ${i+1}</label><div class="row">${SubmitButton.render({ text: '-', icon: 'remove', theme: 'secondary', attrs: { 'type': 'button', 'data-pay-adjust': '-1', 'data-pay-index': String(i) } })}<input type="number" step="0.01" data-pay-index="${i}" value="${Utils.safeNum(v)}"/>${SubmitButton.render({ text: '+', icon: 'add', theme: 'secondary', attrs: { 'type': 'button', 'data-pay-adjust': '1', 'data-pay-index': String(i) } })}</div></div>`).join('')}
           </div>
           <p class="small ${over ? 'error' : 'muted'}">Entered total: ${Utils.money(sum, this.state.appSettings.currency)} ${over ? '(cannot exceed pool)' : ''}</p>
         </div>
 
         <div style="grid-column:1/-1" class="row">
-          <button class="btn" type="submit">Create Round</button>
-          <button class="btn secondary" type="button" data-go="rounds">Cancel</button>
+          ${SubmitButton.render({ text: 'Create Round', icon: 'add_circle', submit: true })}
+          ${SubmitButton.render({ text: 'Cancel', icon: 'close', theme: 'secondary', attrs: { 'type': 'button', 'data-go': 'rounds' } })}
         </div>
       </form></div>`;
   },
@@ -1564,7 +1536,7 @@ export const App = {
           <div class="grid three" style="margin-top:8px">${(round.prizeSplits || []).map((v,i)=>`<div><label>Rank ${i+1}</label><input type="number" step="0.01" min="0" name="split-${i}" value="${Utils.safeNum(v)}"/></div>`).join('')}</div>
           <p class="small ${sum > totalPrize ? 'error' : 'muted'}">Entered: ${Utils.money(sum, this.state.appSettings.currency)}</p>
         </div>
-        <div class="row" style="grid-column:1/-1"><button class="btn" type="submit">Save</button><button type="button" class="btn secondary" data-go="overview">Cancel</button></div>
+        <div class="row" style="grid-column:1/-1">${SubmitButton.render({ text: 'Save', icon: 'save', submit: true })}${SubmitButton.render({ text: 'Cancel', icon: 'close', theme: 'secondary', attrs: { 'type': 'button', 'data-go': 'overview' } })}</div>
       </form></div>`;
   },
 
@@ -1573,13 +1545,13 @@ export const App = {
     return `<div class="card" style="max-width:640px;margin:0 auto">
       <div class="row between" style="margin-bottom:12px">
         <h2 style="margin:0">Create participant</h2>
-        <button class="btn secondary" type="button" data-go="users">Back to users</button>
+        ${SubmitButton.render({ text: 'Back to users', icon: 'arrow_back', theme: 'secondary', attrs: { 'type': 'button', 'data-go': 'users' } })}
       </div>
       <p class="muted">Create a participant with only a name so an admin can submit challenge weights for them.</p>
       <form id="create-participant-form" class="grid">
         <div><label>Participant name</label><input name="fullName" type="text" required autocomplete="name" placeholder="e.g. Jane Smith" /></div>
         <div class="small muted">Participants cannot log in until you promote or invite them later.</div>
-        <div class="row"><button class="btn" type="submit">Create participant</button><button class="btn secondary" type="button" data-go="users">Cancel</button></div>
+        <div class="row">${SubmitButton.render({ text: 'Create participant', icon: 'person_add', submit: true })}${SubmitButton.render({ text: 'Cancel', icon: 'close', theme: 'secondary', attrs: { 'type': 'button', 'data-go': 'users' } })}</div>
       </form>
     </div>`;
   },
@@ -1594,14 +1566,14 @@ export const App = {
           <label for="confirm-delete">Confirm delete</label>
           <label class="row"><input type="checkbox" id="confirm-delete" data-label="Confirm delete" required style="width:auto"/> I confirm delete <strong>${Utils.esc(round.title)}</strong></label>
         </div>
-        <div class="row" style="margin-top:10px"><button class="btn danger" type="submit">Delete round</button><button type="button" class="btn secondary" data-go="overview">Cancel</button></div>
+        <div class="row" style="margin-top:10px">${SubmitButton.render({ text: 'Delete round', icon: 'delete', theme: 'danger', submit: true })}${SubmitButton.render({ text: 'Cancel', icon: 'close', theme: 'secondary', attrs: { 'type': 'button', 'data-go': 'overview' } })}</div>
       </form></div>`;
   },
 
   renderFinishWeek() {
     if (!this.isAdmin()) return this.renderDenied();
     const round = Domain.activeRound(this.state.rounds);
-    if (!round) return `<div class="card"><p class="error">No active challenge round.</p><button class="btn secondary" data-go="overview">Back</button></div>`;
+    if (!round) return `<div class="card"><p class="error">No active challenge round.</p>${SubmitButton.render({ text: 'Back', icon: 'arrow_back', theme: 'secondary', attrs: { 'data-go': 'overview' } })}</div>`;
     const subs = Domain.submissionsByRound(this.state.submissions, round.id);
     const week = Domain.calcCurrentWeek(round, this.state.users, subs);
     const statusPanel = SubmissionStatusPanel.render(round, this.state.users, subs, week, { hideFinishWeekButton: true });
@@ -1610,7 +1582,7 @@ export const App = {
       <p class="muted">Once you generate results, the weigh-ins for week ${week} will be finalised. After finalising, the submit screen will advance to week ${week + 1} so participants can enter their next weigh-in.</p>
       <form id="finish-week-form">
         <label class="row" style="margin-bottom:12px"><input type="checkbox" id="finish-week-confirm" data-label="Confirm finalise week" required style="width:auto"/> I confirm I want to finalise week ${week} results</label>
-        <div class="row"><button class="btn" type="submit">Generate Results</button><button type="button" class="btn secondary" data-go="overview">Cancel</button></div>
+        <div class="row">${SubmitButton.render({ text: 'Generate Results', icon: 'task_alt', submit: true })}${SubmitButton.render({ text: 'Cancel', icon: 'close', theme: 'secondary', attrs: { 'type': 'button', 'data-go': 'overview' } })}</div>
       </form>
     </div>`;
   },
@@ -1654,7 +1626,7 @@ export const App = {
           <p class="small muted">Active round: ${Utils.esc(round.title)} • Week ${week}</p>
           ${submittedMsg}
           ${canEdit ? `<p class="small muted">The week has not been finalised yet. You may edit your submission.</p>
-          <button class="btn secondary" data-edit-submission="${Utils.escAttr(existing.id)}">Edit Submission</button>` : `<p class="small muted">This week has been finalised and can no longer be edited.</p>`}
+          ${SubmitButton.render({ text: 'Edit Submission', icon: 'edit', theme: 'secondary', attrs: { 'data-edit-submission': existing.id } })}` : `<p class="small muted">This week has been finalised and can no longer be edited.</p>`}
         </div>`;
       }
     }
@@ -1667,7 +1639,7 @@ export const App = {
           <p class="small muted">Active round: ${Utils.esc(round.title)} • Week ${week}</p>
           ${statusPanel}
           <p class="muted">All submissions for week ${week} have been completed.</p>
-          <button class="btn" data-go="finish-week">Finish Week</button>
+          ${SubmitButton.render({ text: 'Finish Week', icon: 'task_alt', attrs: { 'data-go': 'finish-week' } })}
         </div>`;
       }
     }
@@ -1698,7 +1670,7 @@ export const App = {
           <label for="forfeit-confirm">Confirm forfeit</label>
           <label class="row"><input type="checkbox" id="forfeit-confirm" data-label="Confirm forfeit" style="width:auto"/> Confirm user forfeit</label>
         </div>
-        <div style="grid-column:1/-1" class="row"><button class="btn" type="submit">Submit</button></div>
+        <div style="grid-column:1/-1" class="row">${SubmitButton.render({ text: 'Submit', icon: 'publish', submit: true })}</div>
       </form></div>`;
   },
 
@@ -1799,38 +1771,39 @@ export const App = {
       return 0;
     });
 
-    const rows = shown.map((row) => {
+    const tableHeaders = ['', 'User', 'Type', 'Last logged in', ...(this.isFirebaseMode() ? ['Active sessions'] : []), 'Rounds participated', 'Total cash won', 'Total weight lost/gained', 'In current round', 'Actions'];
+    const tableRows = shown.map((row) => {
       if (row.kind === 'invite') {
-        return `<tr>
-          <td></td>
-          <td>Invite<div class="small muted"><code>${Utils.esc(row.invite.code)}</code></div></td>
-          <td>${row.role}</td>
-          <td>—</td>
-          ${this.isFirebaseMode() ? '<td>—</td>' : ''}
-          <td>0</td>
-          <td>${Utils.money(0, this.state.appSettings.currency)}</td>
-          <td>0${this.state.appSettings.weightFormat}</td>
-          <td>No</td>
-          <td><div class="row"><select data-user-action-select="${Utils.escAttr(row.id)}"><option value="">Actions…</option><option value="view-invite">View invite</option><option value="delete-invite">Delete invite</option></select><button class="btn secondary small" data-user-action-apply="${Utils.escAttr(row.id)}">Apply</button></div></td>
-        </tr>`;
+        return [
+          '',
+          `Invite<div class="small muted"><code>${Utils.esc(row.invite.code)}</code></div>`,
+          row.role,
+          '—',
+          ...(this.isFirebaseMode() ? ['—'] : []),
+          '0',
+          Utils.money(0, this.state.appSettings.currency),
+          `0${this.state.appSettings.weightFormat}`,
+          'No',
+          `<div class="row"><select data-user-action-select="${Utils.escAttr(row.id)}"><option value="">Actions…</option><option value="view-invite">View invite</option><option value="delete-invite">Delete invite</option></select>${SubmitButton.render({ text: 'Apply', icon: 'task_alt', theme: 'secondary small', attrs: { 'data-user-action-apply': row.id } })}</div>`
+        ];
       }
       const u = row.user;
       const activeSessions = this.isFirebaseMode() ? this.activeSessionsForUser(u.id).length : 0;
-      return `<tr>
-        <td><input type="checkbox" data-bulk-user="${u.id}" ${this.state.selectedUsers.includes(u.id) ? 'checked' : ''} ${u.isMaster ? 'disabled' : ''}/></td>
-        <td>${Utils.esc(Utils.fullName(u))}<div class="small muted">${Utils.esc(this.userLoginLabel(u))}${row.invited ? ' • invited' : ''}</div></td>
-        <td>${row.role}</td>
-        <td>${Utils.timeAgo(u.lastLoginAt)}</td>
-        ${this.isFirebaseMode() ? `<td>${activeSessions}</td>` : ''}
-        <td>${row.roundsParticipated}</td>
-        <td>${Utils.money(row.totalCashWon, this.state.appSettings.currency)}</td>
-        <td>${row.totalWeightDelta}${this.state.appSettings.weightFormat}</td>
-        <td>${row.inCurrentRound ? 'Yes' : 'No'}</td>
-        <td><button class="btn secondary small" type="button" data-manage-user="${u.id}">Open</button></td>
-      </tr>`;
-    }).join('');
+      return [
+        `<input type="checkbox" data-bulk-user="${u.id}" ${this.state.selectedUsers.includes(u.id) ? 'checked' : ''} ${u.isMaster ? 'disabled' : ''}/>`,
+        `${Utils.esc(Utils.fullName(u))}<div class="small muted">${Utils.esc(this.userLoginLabel(u))}${row.invited ? ' • invited' : ''}</div>`,
+        row.role,
+        Utils.timeAgo(u.lastLoginAt),
+        ...(this.isFirebaseMode() ? [String(activeSessions)] : []),
+        String(row.roundsParticipated),
+        Utils.money(row.totalCashWon, this.state.appSettings.currency),
+        `${row.totalWeightDelta}${this.state.appSettings.weightFormat}`,
+        row.inCurrentRound ? 'Yes' : 'No',
+        SubmitButton.render({ text: 'Open', icon: 'person', theme: 'secondary small', attrs: { 'type': 'button', 'data-manage-user': u.id } })
+      ];
+    });
 
-    return `<div class="card"><div class="row between"><h2 style="margin:0">Users</h2><div class="row"><button class="btn" type="button" data-go="create_participant">Create participant</button>${this.isFirebaseMode() ? '<button class="btn" id="btn-create-invite">Create invite</button>' : ''}<button class="btn danger" data-bulk-delete="1">Delete selected</button></div></div>
+    return `<div class="card"><div class="row between"><h2 style="margin:0">Users</h2><div class="row">${SubmitButton.render({ text: 'Create participant', icon: 'person_add', attrs: { 'type': 'button', 'data-go': 'create_participant' } })}${this.isFirebaseMode() ? SubmitButton.render({ text: 'Create invite', icon: 'add_link', id: 'btn-create-invite' }) : ''}${SubmitButton.render({ text: 'Delete selected', icon: 'delete_sweep', theme: 'danger', attrs: { 'data-bulk-delete': '1' } })}</div></div>
       <div class="grid three" style="margin-top:8px">
         <div><label>Type</label><select id="users-filter-type"><option value="all" ${f.type==='all'?'selected':''}>All</option><option value="master" ${f.type==='master'?'selected':''}>Master</option><option value="admin" ${f.type==='admin'?'selected':''}>Admin</option><option value="user" ${f.type==='user'?'selected':''}>User</option><option value="participant" ${f.type==='participant'?'selected':''}>Participant</option>${this.isFirebaseMode() ? `<option value="invite" ${f.type==='invite'?'selected':''}>Invite</option>` : ''}</select></div>
         <div><label>Status</label><select id="users-filter-status"><option value="all" ${f.status==='all'?'selected':''}>All</option><option value="confirmed" ${f.status==='confirmed'?'selected':''}>Confirmed</option><option value="invited" ${f.status==='invited'?'selected':''}>Invited</option></select></div>
@@ -1839,8 +1812,7 @@ export const App = {
         <div><label class="row"><input type="checkbox" id="users-filter-current" style="width:auto" ${f.currentChallengeOnly ? 'checked' : ''}/> Only users in current challenge</label></div>
       </div>
       <div style="overflow:auto;margin-top:8px">
-        <table class="table"><thead><tr><th></th><th>User</th><th>Type</th><th>Last logged in</th>${this.isFirebaseMode() ? '<th>Active sessions</th>' : ''}<th>Rounds participated</th><th>Total cash won</th><th>Total weight lost/gained</th><th>In current round</th><th>Actions</th></tr></thead>
-        <tbody>${rows || `<tr><td colspan="${this.isFirebaseMode() ? 10 : 9}" class="muted">No users found.</td></tr>`}</tbody></table>
+        ${DataTable.render({ headers: tableHeaders, rows: tableRows, emptyMessage: 'No users found.', colSpan: tableHeaders.length })}
       </div>
     </div>`;
   },
@@ -1852,7 +1824,7 @@ export const App = {
       return `<div class="card" style="max-width:640px;margin:0 auto">
         <h2 style="margin-top:0">User not found</h2>
         <p class="muted">The selected user no longer exists.</p>
-        <button class="btn secondary" type="button" data-go="users">Back to users</button>
+        ${SubmitButton.render({ text: 'Back to users', icon: 'arrow_back', theme: 'secondary', attrs: { 'type': 'button', 'data-go': 'users' } })}
       </div>`;
     }
     const stats = this.userStats(user);
@@ -1866,7 +1838,7 @@ export const App = {
           <h2 style="margin:0">${Utils.esc(Utils.fullName(user))}</h2>
           <div class="small muted">${Utils.esc(this.roleLabel(user))} • ${Utils.esc(this.userLoginLabel(user))}</div>
         </div>
-        <button class="btn secondary" type="button" data-go="users">Back to users</button>
+        ${SubmitButton.render({ text: 'Back to users', icon: 'arrow_back', theme: 'secondary', attrs: { 'type': 'button', 'data-go': 'users' } })}
       </div>
 
       <div class="grid two" style="margin-bottom:12px">
@@ -1894,7 +1866,7 @@ export const App = {
           <div><label>First name</label><input name="firstName" type="text" required autocomplete="given-name" value="${Utils.escAttr(user.firstName || '')}" /></div>
           <div><label>Last name</label><input name="lastName" type="text" autocomplete="family-name" value="${Utils.escAttr(user.lastName || '')}" /></div>
           <div style="grid-column:1/-1"><label>Email / login</label><input name="username" type="text" disabled value="${Utils.escAttr(user.username || '')}" placeholder="No login email" /></div>
-          <div style="grid-column:1/-1" class="row"><button class="btn" type="submit">Save user</button></div>
+          <div style="grid-column:1/-1" class="row">${SubmitButton.render({ text: 'Save user', icon: 'save', submit: true })}</div>
         </form>
       </div>
 
@@ -1903,17 +1875,17 @@ export const App = {
         <form id="user-type-form" class="grid two">
           <div><label>Type</label><select name="userType" ${typeLocked ? 'disabled' : ''}>${typeOptions.map((option) => `<option value="${option.value}" ${option.value === (user.userType || 'user') ? 'selected' : ''}>${option.label}</option>`).join('')}</select></div>
           <div class="small muted" style="align-self:end">${user.isMaster ? 'Master type is locked.' : typeLocked ? 'This participant cannot be promoted from this page.' : 'Changing to participant removes login access.'}</div>
-          <div style="grid-column:1/-1" class="row"><button class="btn secondary" type="submit" ${typeLocked ? 'disabled' : ''}>Save type</button></div>
+          <div style="grid-column:1/-1" class="row">${SubmitButton.render({ text: 'Save type', icon: 'manage_accounts', theme: 'secondary', submit: true, attrs: typeLocked ? { disabled: 'true' } : {} })}</div>
         </form>
       </div>
 
       <div class="card">
         <h3 style="margin-top:0">Actions</h3>
         <div class="row" style="flex-wrap:wrap">
-          ${((!this.isFirebaseMode() && user.canLogin !== false) || (this.isFirebaseMode() && !!user.firebaseUid)) ? '<button class="btn secondary" type="button" id="btn-reset-user-password">Reset password</button>' : ''}
-          ${(this.isFirebaseMode() && user.userType === 'participant' && !user.firebaseUid) ? '<button class="btn secondary" type="button" data-user-invite="user">Invite as user</button><button class="btn secondary" type="button" data-user-invite="admin">Invite as admin</button>' : ''}
-          ${pendingInvites.map((invite) => `<button class="btn secondary" type="button" data-view-invite="${Utils.escAttr(invite.id)}">View ${Utils.esc(invite.inviteType || 'user')} invite</button>`).join('')}
-          ${canDelete ? '<button class="btn danger" type="button" id="btn-delete-user">Delete user</button>' : ''}
+          ${((!this.isFirebaseMode() && user.canLogin !== false) || (this.isFirebaseMode() && !!user.firebaseUid)) ? SubmitButton.render({ text: 'Reset password', icon: 'password', theme: 'secondary', id: 'btn-reset-user-password', attrs: { 'type': 'button' } }) : ''}
+          ${(this.isFirebaseMode() && user.userType === 'participant' && !user.firebaseUid) ? `${SubmitButton.render({ text: 'Invite as user', icon: 'person_add', theme: 'secondary', attrs: { 'type': 'button', 'data-user-invite': 'user' } })}${SubmitButton.render({ text: 'Invite as admin', icon: 'person_add', theme: 'secondary', attrs: { 'type': 'button', 'data-user-invite': 'admin' } })}` : ''}
+          ${pendingInvites.map((invite) => SubmitButton.render({ text: `View ${Utils.esc(invite.inviteType || 'user')} invite`, icon: 'qr_code', theme: 'secondary', attrs: { 'type': 'button', 'data-view-invite': invite.id } })).join('')}
+          ${canDelete ? SubmitButton.render({ text: 'Delete user', icon: 'delete', theme: 'danger', id: 'btn-delete-user', attrs: { 'type': 'button' } }) : ''}
         </div>
       </div>
     </div>`;
@@ -1938,7 +1910,7 @@ export const App = {
       <div><label>First name</label><input name="firstName" type="text" required autocomplete="given-name" value="${Utils.escAttr(u.firstName || '')}" /></div>
       <div><label>Last name</label><input name="lastName" type="text" required autocomplete="family-name" value="${Utils.escAttr(u.lastName || '')}" /></div>
       <div style="grid-column:1/-1"><label>Email</label><input disabled type="email" value="${Utils.escAttr(u.username)}" /></div>
-      <div style="grid-column:1/-1"><button class="btn" type="submit">Save profile</button></div>
+      <div style="grid-column:1/-1">${SubmitButton.render({ text: 'Save profile', icon: 'save', submit: true })}</div>
     </form>
 
     <form id="user-password-form" class="grid two" style="margin-top:12px">
@@ -1946,7 +1918,7 @@ export const App = {
       <div></div>
       <div><label>New password</label><input name="newPassword" type="password" required ${Utils.passwordInputAttrs('new-password')} /></div>
       <div><label>Confirm new password</label><input name="confirmPassword" type="password" required ${Utils.passwordInputAttrs('new-password')} /></div>
-      <div style="grid-column:1/-1"><button class="btn secondary" type="submit">Change password</button></div>
+      <div style="grid-column:1/-1">${SubmitButton.render({ text: 'Change password', icon: 'password', theme: 'secondary', submit: true })}</div>
     </form>`;
   },
 
@@ -1968,7 +1940,7 @@ export const App = {
       <div><label>Firebase Messaging Sender ID</label><input disabled value="${this.isMaster() ? Utils.escAttr(firebase.messagingSenderId || '') : ''}" /></div>
       <div><label>Firebase App ID</label><input disabled value="${this.isMaster() ? Utils.escAttr(firebase.appId || '') : ''}" /></div>
       <div style="grid-column:1/-1" class="small muted">Runtime mode and Firebase settings are read from config.js and cannot be changed from UI.</div>
-      <div class="row" style="align-items:flex-end"><button class="btn" type="submit">Save server settings</button></div>
+      <div class="row" style="align-items:flex-end">${SubmitButton.render({ text: 'Save server settings', icon: 'save', submit: true })}</div>
     </form>
 
     <div class="card" style="margin-top:12px">
@@ -1976,7 +1948,7 @@ export const App = {
       ${this.state.currentUser.isMaster ? `<form id="server-reset-form" class="grid two">
           <div><label>Master password</label><input name="password" type="password" required autocomplete="current-password" /></div>
           <div><label for="server-reset-form-confirm-1">Confirm reset</label><label class="row"><input id="server-reset-form-confirm-1" data-label="Confirm reset" style="width:auto" type="checkbox" name="confirm" required /> Yes, uninstall this server</label></div>
-          <div style="grid-column:1/-1"><button class="btn danger" type="submit">Reset server</button></div>
+          <div style="grid-column:1/-1">${SubmitButton.render({ text: 'Reset server', icon: 'warning', theme: 'danger', submit: true })}</div>
         </form>` : `<p class="error">Only the master admin can reset this server.</p>`}
     </div>`;
   },
@@ -2010,7 +1982,7 @@ export const App = {
       ${this.isFirebaseMode() ? `<p class="small muted" style="margin-top:8px">Tracked active Firebase sessions: ${this.state.sessions.length}</p>` : ''}
 
       <div class="row" style="margin-top:8px">
-        ${mode === 'online' ? `<button class="btn secondary" id="btn-sync-retry">↻ Retry sync</button>` : ''}
+        ${mode === 'online' ? SyncButton.render() : ''}
       </div>
     </div>
 
@@ -2025,7 +1997,7 @@ export const App = {
         <div><label>Messaging Sender ID</label><input disabled name="messagingSenderId" value="${Utils.escAttr(cfg.messagingSenderId || '')}" /></div>
         <div><label>App ID</label><input disabled name="appId" value="${Utils.escAttr(cfg.appId || '')}" placeholder="1:123:web:abc" /></div>
         <div style="grid-column:1/-1" class="row">
-          <button class="btn secondary" type="button" id="btn-firebase-test">Test Connection</button>
+          ${SubmitButton.render({ text: 'Test Connection', icon: 'wifi', theme: 'secondary', id: 'btn-firebase-test', attrs: { 'type': 'button' } })}
         </div>
         <div id="firebase-test-result" style="grid-column:1/-1"></div>
       </form>
@@ -2253,7 +2225,8 @@ export const App = {
 
     // Auto-render QR code when invite-detail is shown
     if (this.state.route === 'invite-detail' && this.state.inviteDetail) {
-      this._renderInviteQR();
+      const inviteLink = this.routeLink('join', { inviteCode: this.state.inviteDetail.code });
+      InviteQRCode.attach(inviteLink);
     }
 
     const installForm = document.getElementById('install-form');
@@ -2961,14 +2934,13 @@ export const App = {
       });
     }
 
-    const syncRetry = document.getElementById('btn-sync-retry');
+    const syncRetry = document.getElementById(SyncButton.BUTTON_ID);
     if (syncRetry) {
-      syncRetry.onclick = async () => {
-        syncRetry.disabled = true;
+      SyncButton.bind(syncRetry, () => this._isSyncing(), async () => {
         await SyncEngine.retryNow();
         await this.loadSyncMeta();
         this.render();
-      };
+      });
     }
 
     const firebaseTestBtn = document.getElementById('btn-firebase-test');
@@ -2995,70 +2967,13 @@ export const App = {
   },
 
   _attachWeightChart() {
-    const canvas = document.getElementById('weight-chart');
-    if (!canvas || typeof Chart === 'undefined') return;
     const round = this.currentRound();
     if (!round) return;
     const subs = Domain.submissionsByRound(this.state.submissions, round.id);
     const currentWeek = Domain.calcCurrentWeek(round, this.state.users, subs);
     const selectedWeek = this.state.weekCursor[round.id] || Math.min(currentWeek, round.weeksCount);
-    if (selectedWeek < 2) return;
-
-    const participants = Domain.roundUsers(round, this.state.users);
     const unit = this.state.appSettings.weightFormat || 'lb';
-    const colors = ['#0f766e','#4338ca','#be123c','#d97706','#047857','#7c3aed','#db2777','#0369a1','#65a30d','#dc2626'];
-    const labels = [];
-    for (let w = 1; w <= selectedWeek; w++) labels.push(`Wk ${w}`);
-
-    const datasets = [];
-    participants.forEach((u, idx) => {
-      const startSub = Domain.firstWeight(subs, u.id);
-      if (!startSub) return; // no start weight, skip
-      const startWeight = Utils.safeNum(startSub.weight);
-      if (!startWeight) return;
-      const data = [];
-      for (let w = 1; w <= selectedWeek; w++) {
-        if (Domain.isForfeit(subs, u.id, w)) { data.push(null); continue; }
-        const sub = Domain.submissionFor(subs, w, u.id);
-        if (!sub || sub.type === 'holiday') { data.push(null); continue; }
-        if (sub.type !== 'weight') { data.push(null); continue; }
-        const loss = Utils.round2(startWeight - Utils.safeNum(sub.weight));
-        data.push(loss);
-      }
-      if (data.every((d) => d === null)) return;
-      datasets.push({
-        label: Utils.fullName(u),
-        data,
-        borderColor: colors[idx % colors.length],
-        backgroundColor: colors[idx % colors.length] + '22',
-        tension: 0.3,
-        spanGaps: false,
-        pointRadius: 4
-      });
-    });
-
-    if (!datasets.length) return;
-
-    // Destroy any previous chart instance (stored on App to survive canvas replacement)
-    if (this._weightChartInstance) { this._weightChartInstance.destroy(); this._weightChartInstance = null; }
-    this._weightChartInstance = new Chart(canvas, {
-      type: 'line',
-      data: { labels, datasets },
-      options: {
-        responsive: true,
-        plugins: {
-          legend: { position: 'bottom' },
-          title: { display: true, text: `Weight loss journey (${unit})` }
-        },
-        scales: {
-          y: {
-            title: { display: true, text: `Total loss (${unit})` },
-            ticks: { callback: (v) => `${v}${unit}` }
-          },
-          x: { title: { display: true, text: 'Week' } }
-        }
-      }
-    });
+    this._weightChartInstance = WeightChart.attach(round, this.state.users, subs, selectedWeek, unit, this._weightChartInstance);
   },
 
   _generateInviteCode() {
@@ -3077,27 +2992,9 @@ export const App = {
   },
 
   async _renderInviteQR() {
-    const container = document.getElementById('qr-code-container');
-    const status = document.getElementById('qr-status');
-    if (!container || !this.state.inviteDetail) return;
+    if (!this.state.inviteDetail) return;
     const inviteLink = this.routeLink('join', { inviteCode: this.state.inviteDetail.code });
-    try {
-      if (!window.QRCode) {
-        await new Promise((res, rej) => {
-          const s = document.createElement('script');
-          s.src = 'https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js';
-          s.onload = res;
-          s.onerror = rej;
-          document.head.appendChild(s);
-        });
-      }
-      container.innerHTML = '';
-      new window.QRCode(container, { text: inviteLink, width: 200, height: 200, correctLevel: window.QRCode.CorrectLevel.M });
-      if (status) status.textContent = 'Scan to open invite link';
-    } catch {
-      container.innerHTML = '<span class="muted small">QR code unavailable (no internet connection)</span>';
-      if (status) status.textContent = '';
-    }
+    await InviteQRCode.attach(inviteLink);
   },
 
   async _saveWithConflictResolver(kind, attempted, saveFn) {
