@@ -18,30 +18,34 @@ export function renderOverviewPage(app) {
   const view = Domain.weekView(round, app.state.users, subs, selectedWeek);
   const prizeRanks = Domain.payoutRankIndices(round);
   const isFinalComplete = Domain.isWeekComplete(round, app.state.users, subs, round.weeksCount);
+  const isSelectedWeekComplete = Domain.isWeekComplete(round, app.state.users, subs, selectedWeek);
   const canGoNext = selectedWeek < currentWeek;
 
   const unit = app.state.appSettings.weightFormat || 'lb';
   const statusPanel = (app.isAdmin() && selectedWeek === currentWeek)
     ? SubmissionStatusPanel.render(round, app.state.users, subs, selectedWeek, {})
     : '';
+
   return `<div class="card">
     <div class="row between">
       <h2 style="margin:0">${Utils.esc(round.title)}</h2>
       <span class="tag">${round.status}</span>
     </div>
+    ${WeekPager.render(selectedWeek, round.weeksCount, canGoNext)}
+  </div>
+  <div class="card" style="margin-top:10px">
     <div class="row small muted">
       <span>${round.participantIds.length} participants</span><span>•</span>
       <span>${round.weeksCount} weeks</span><span>•</span>
       <span>Weigh day: ${Utils.weekdayName(round.weighDay)}</span>
     </div>
-    ${WeekPager.render(selectedWeek, round.weeksCount, canGoNext)}
-    <div class="small muted" style="margin-top:6px">Current progress week: ${currentWeek} / ${round.weeksCount}</div>
-    ${statusPanel}
-    ${selectedWeek === 1 ? `<div class="card" style="margin-top:10px"><strong>Start weights</strong>${view.startWeights.length ? `<ul>${view.startWeights.map((x) => `<li>${Utils.esc(Utils.fullName(x.user))}: ${x.weight}${unit}</li>`).join('')}</ul>` : '<p class="muted">No start weights submitted yet.</p>'}</div>` : ''}
-    ${selectedWeek >= 2 ? Leaderboard.render(view, round, app.state.appSettings, prizeRanks) : ''}
-    ${selectedWeek === round.weeksCount && isFinalComplete ? `<div class="card"><strong>Final winners</strong><ol>${view.ranked.slice(0, prizeRanks.length).map((r, i) => `<li>${Utils.esc(Utils.fullName(r.user))} — ${Utils.money(round.prizeSplits[i] || 0, app.state.appSettings.currency)}</li>`).join('')}</ol></div>` : ''}
-    ${round.status === 'active' && app.isAdmin() ? `<div class="row">${SubmitButton.render({ text: 'Edit Round', icon: 'edit', theme: 'secondary', attrs: { 'data-go': 'edit' } })}${SubmitButton.render({ text: 'Delete Round', icon: 'delete', theme: 'danger', attrs: { 'data-go': 'delete' } })}</div>` : ''}
-  </div>`;
+    <div class="small muted" style="margin-top:4px">Current progress week: ${currentWeek} / ${round.weeksCount}</div>
+  </div>
+  ${statusPanel ? `<div class="card" style="margin-top:10px">${statusPanel}</div>` : ''}
+  ${selectedWeek === 1 ? `<div class="card" style="margin-top:10px"><strong>Start weights</strong>${view.startWeights.length ? `<ul>${view.startWeights.map((x) => `<li>${Utils.esc(Utils.fullName(x.user))}: ${x.weight}${unit}</li>`).join('')}</ul>` : '<p class="muted">No start weights submitted yet.</p>'}</div>` : ''}
+  ${selectedWeek >= 2 ? Leaderboard.render(view, round, app.state.appSettings, prizeRanks) : ''}
+  ${selectedWeek === round.weeksCount && isFinalComplete ? `<div class="card" style="margin-top:10px"><strong>Final winners</strong><ol>${view.ranked.slice(0, prizeRanks.length).map((r, i) => `<li>${Utils.esc(Utils.fullName(r.user))} — ${Utils.money(round.prizeSplits[i] || 0, app.state.appSettings.currency)}</li>`).join('')}</ol></div>` : ''}
+  ${round.status === 'active' && app.isAdmin() ? `<div class="row" style="margin-top:10px">${SubmitButton.render({ text: 'Edit Round', icon: 'edit', theme: 'secondary', attrs: { 'data-go': 'edit' } })}${isSelectedWeekComplete ? SubmitButton.render({ text: 'Generate SOTD Image', icon: 'image', attrs: { 'data-go': 'sotd-image' } }) : ''}</div>` : ''}`;
 }
 
 export function bindOverviewEvents(app) {

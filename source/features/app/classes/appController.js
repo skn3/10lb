@@ -22,6 +22,7 @@ import { renderCreateRoundPage, bindCreateRoundEvents } from '../../challenges/p
 import { renderEditRoundPage, bindEditRoundEvents } from '../../challenges/pages/editRoundPage.js';
 import { renderDeleteRoundPage, bindDeleteRoundEvents } from '../../challenges/pages/deleteRoundPage.js';
 import { renderFinishWeekPage, bindFinishWeekEvents } from '../../challenges/pages/finishWeekPage.js';
+import { renderSotdImagePage, bindSotdImageEvents } from '../../challenges/pages/sotdImagePage.js';
 // Feature pages — submission
 import { renderOverviewPage, bindOverviewEvents } from '../../submission/pages/overviewPage.js';
 import { renderSubmitPage, bindSubmitEvents } from '../../submission/pages/submitPage.js';
@@ -784,7 +785,8 @@ export const App = {
       settings: () => renderSettingsPage(app),
       invites: () => renderInvitesPage(app),
       'invite-detail': () => renderInviteDetailPage(app),
-      'finish-week': () => renderFinishWeekPage(app)
+      'finish-week': () => renderFinishWeekPage(app),
+      'sotd-image': () => renderSotdImagePage(app)
     };
     const fn = routeScreens[route];
     return fn ? fn() : '';
@@ -815,6 +817,7 @@ export const App = {
     else if (route === 'edit') bindEditRoundEvents(this);
     else if (route === 'delete') bindDeleteRoundEvents(this);
     else if (route === 'finish-week') bindFinishWeekEvents(this);
+    else if (route === 'sotd-image') bindSotdImageEvents(this);
     else if (route === 'submit') bindSubmitEvents(this);
     else if (route === 'users') bindUsersPageEvents(this);
     else if (route === 'user') bindUserAdminEvents(this);

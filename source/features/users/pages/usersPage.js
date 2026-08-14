@@ -1,7 +1,7 @@
 import { UserType, UserTypeIcon } from '../../../constants.js';
 import { Utils } from '../../../shared/utils/utils.js';
 import { SubmitButton } from '../../../shared/components/submitButton.js';
-import { DataTable } from '../components/dataTable.js';
+import { DataTable } from '../../../shared/components/dataTable.js';
 import { SubmissionService } from '../../submission/classes/submissionService.js';
 import { UsersService } from '../classes/usersService.js';
 

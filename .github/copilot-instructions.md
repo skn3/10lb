@@ -48,7 +48,7 @@ source/
       classes/               — challengeService.js, challengeController.js
       enums/                 — roundEnums.js (re-export from `source/constants.js`)
       models/                — roundModel.js
-      pages/                 — createRoundPage.js, deleteRoundPage.js, editRoundPage.js, finishWeekPage.js, roundListPage.js
+      pages/                 — createRoundPage.js, deleteRoundPage.js, editRoundPage.js, finishWeekPage.js, roundListPage.js, sotdImagePage.js
     submission/              — weight/holiday/forfeit submit + overview
       classes/               — submissionService.js, submissionController.js
       components/            — leaderboard.js, weekPager.js
@@ -57,7 +57,6 @@ source/
       pages/                 — overviewPage.js, submitPage.js
     users/                   — user admin, create participant
       classes/               — usersService.js, usersController.js
-      components/            — dataTable.js
       enums/                 — userTypeEnum.js (re-export from `source/constants.js`)
       models/                — userModel.js
       pages/                 — createParticipantPage.js, userAdminPage.js, usersPage.js
@@ -83,6 +82,7 @@ source/
       submitButton.js         — used by every feature
       submissionStatusPanel.js — used by submission AND challenges
       weightChart.js          — used by app and submission
+      dataTable.js            — generic table component; used by users, submission (leaderboard)
 dist/
   bundle.js                  — esbuild output
   index.html                 — copied from source/
@@ -279,6 +279,7 @@ All routes are hash-based. Route constants are in `source/routes.js`.
 | `#/settings` | Authenticated |
 | `#/create`, `#/edit`, `#/delete` | Admin |
 | `#/users`, `#/user?id=...`, `#/create_participant`, `#/invites`, `#/invite-detail` | Admin |
+| `#/sotd-image` | Admin (shown when selected week is complete) |
 | `#/denied` | Access denied fallback |
 
 Route guards delegate to `App.plugin.guardRoute()` — never add `isInstalled()` checks directly in App routing code.
@@ -300,8 +301,8 @@ Current form inventory:
 | `edit-user-form` | users | Edit user |
 | `user-type-form` | users | Change user type |
 | `create-form` | challenges | Start new round |
-| `edit-form` | challenges | Edit round |
-| `delete-form` | challenges | Delete round |
+| `edit-form` | challenges | Edit round (also contains delete-form below) |
+| `delete-form` | challenges | Delete round (embedded in edit round page) |
 | `submit-form` | submission | Submit weight / holiday / forfeit |
 | `user-settings-form` | settings | Update profile |
 | `user-password-form` | settings | Change password |

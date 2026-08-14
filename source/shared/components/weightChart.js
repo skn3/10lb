@@ -52,11 +52,19 @@ export const WeightChart = {
       const startWeight = Utils.safeNum(startSub.weight);
       if (!startWeight) return;
       const data = [];
+      let lastValue = null;
       for (let w = 1; w <= selectedWeek; w++) {
         if (Domain.isForfeit(subs, u.id, w)) { data.push(null); continue; }
         const sub = Domain.submissionFor(subs, w, u.id);
-        if (!sub || sub.type === 'holiday' || sub.type !== 'weight') { data.push(null); continue; }
-        data.push(Utils.round2(startWeight - Utils.safeNum(sub.weight)));
+        if (!sub || sub.type === 'holiday') {
+          // Carry forward last known value for holiday weeks so the line stays visible
+          data.push(lastValue);
+          continue;
+        }
+        if (sub.type !== 'weight') { data.push(null); continue; }
+        const v = Utils.round2(startWeight - Utils.safeNum(sub.weight));
+        lastValue = v;
+        data.push(v);
       }
       if (data.every((d) => d === null)) return;
       datasets.push({
@@ -85,6 +93,7 @@ export const WeightChart = {
         },
         scales: {
           y: {
+            reverse: true,
             title: { display: true, text: `Total loss (${unit})` },
             ticks: { callback: (v) => `${v}${unit}` }
           },

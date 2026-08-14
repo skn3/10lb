@@ -37,7 +37,8 @@ export const ROUTES = Object.freeze([
   'invites',
   'settings',
   'invite-detail',
-  'finish-week'
+  'finish-week',
+  'sotd-image'
 ]);
 
 export const UserType = Object.freeze({
