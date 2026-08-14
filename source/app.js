@@ -2161,7 +2161,19 @@ export const App = {
             return this.fail('Invalid email or password.');
           }
           if (!fbUser) return this.fail('Invalid email or password.');
-          const user = await Data.adapter.getUserByFirebaseUid(fbUser.uid);
+          let user = await Data.adapter.getUserByFirebaseUid(fbUser.uid);
+          if (!user) {
+            // User record may not be in IndexedDB yet on a fresh device — pull from Firestore.
+            try {
+              const remoteUsers = await FirestoreAdapter.downloadAll('users');
+              for (const record of remoteUsers) {
+                await Data.adapter.mergeRemoteRecord('users', record);
+              }
+              user = await Data.adapter.getUserByFirebaseUid(fbUser.uid);
+            } catch (e) {
+              console.warn('Could not fetch users from Firestore during login:', e.message);
+            }
+          }
           if (!user) return this.fail('No local account found for this Firebase user. Please contact the admin.');
           if (user.userType === 'participant' || user.canLogin === false) return this.fail('This account cannot log in.');
           await this.loginAs(user);
