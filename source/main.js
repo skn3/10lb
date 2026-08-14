@@ -1,4 +1,4 @@
-import { App } from './app.js';
+import { App } from './features/app/classes/appService.js';
 
 App.init().catch((e) => {
   const app = document.getElementById('app');
