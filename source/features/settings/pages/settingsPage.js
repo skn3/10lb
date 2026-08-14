@@ -1,3 +1,4 @@
+import { ThemeOptions } from '../../../constants.js';
 import { Utils } from '../../../shared/utils/utils.js';
 import { Security } from '../../../shared/classes/security.js';
 import { SyncButton } from '../components/syncButton.js';
@@ -12,13 +13,6 @@ import { RuntimeConfig } from '../../../config.js';
 // =============================================================================
 // SETTINGS PAGE
 // =============================================================================
-
-// ThemeOptions kept local so settings page stays self-contained
-const ThemeOptions = [
-  { key: 'system', label: 'System default' },
-  { key: 'light', label: 'Light' },
-  { key: 'dark', label: 'Dark' }
-];
 
 export function renderSettingsPage(app) {
   const tab = app.state.settingsTab || 'user';

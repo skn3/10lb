@@ -29,9 +29,13 @@ export const MenuBar = {
         `<span>${Utils.esc(item.label)}</span></a>`;
     }).join('');
     return `<div class="nav-inner">` +
+      `<div class="menu-header">` +
+      `<span class="menu-title" data-menu-title>Menu</span>` +
+      `<button class="menu-burger" type="button" aria-label="Expand menu" aria-expanded="false" title="Expand menu">` +
+      `<span class="menu-burger-glyph" aria-hidden="true">☰</span><span class="menu-burger-label">Menu</span></button>` +
+      `</div>` +
       `<div class="menu-track" role="menubar">${links}</div>` +
-      `<button class="menu-burger" type="button" aria-label="Open menu" aria-expanded="false">` +
-      `<span class="material-symbols-rounded" aria-hidden="true">menu</span></button></div>`;
+      `</div>`;
   },
 
   /**
@@ -50,6 +54,19 @@ export const MenuBar = {
     const e = React.createElement;
     const { onNavigate, onBurgerClick } = opts;
     return e('div', { className: 'nav-inner' },
+      e('div', { className: 'menu-header' },
+        e('span', { className: 'menu-title', 'data-menu-title': '1' }, 'Menu'),
+        e('button', {
+          className: 'menu-burger',
+          type: 'button',
+          'aria-label': 'Expand menu',
+          'aria-expanded': 'false',
+          title: 'Expand menu',
+          onClick: onBurgerClick || undefined
+        },
+        e('span', { className: 'menu-burger-glyph', 'aria-hidden': 'true' }, '☰'),
+        e('span', { className: 'menu-burger-label' }, 'Menu'))
+      ),
       e('div', { className: 'menu-track', role: 'menubar' },
         ...items.map((item) =>
           e(Link, {
@@ -63,15 +80,7 @@ export const MenuBar = {
           e('span', { className: 'material-symbols-rounded', 'aria-hidden': 'true' }, item.icon),
           e('span', null, item.label))
         )
-      ),
-      e('button', {
-        className: 'menu-burger',
-        type: 'button',
-        'aria-label': 'Open menu',
-        'aria-expanded': 'false',
-        onClick: onBurgerClick || undefined
-      },
-      e('span', { className: 'material-symbols-rounded', 'aria-hidden': 'true' }, 'menu'))
+      )
     );
   },
 

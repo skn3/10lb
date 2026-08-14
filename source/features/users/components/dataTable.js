@@ -13,7 +13,7 @@
 // =============================================================================
 export const DataTable = {
   /**
-   * @param {{ headers: string[], rows: string[][], emptyMessage?: string, colSpan?: number }} opts
+   * @param {{ headers: string[], rows: (string[][]|string[]|string)[], emptyMessage?: string, colSpan?: number }} opts
    * @returns {string}
    */
   render({ headers = [], rows = [], emptyMessage = 'No data.', colSpan } = {}) {
@@ -23,9 +23,10 @@ export const DataTable = {
     if (rows.length === 0) {
       bodyRows = `<tr><td colspan="${span}" class="muted">${emptyMessage}</td></tr>`;
     } else {
-      bodyRows = rows.map((cells) =>
-        `<tr>${cells.map((c) => `<td>${c}</td>`).join('')}</tr>`
-      ).join('');
+      bodyRows = rows.map((row) => {
+        if (typeof row === 'string') return row;
+        return `<tr>${row.map((c) => `<td>${c}</td>`).join('')}</tr>`;
+      }).join('');
     }
     return `<table class="table"><thead><tr>${headCells}</tr></thead><tbody>${bodyRows}</tbody></table>`;
   }

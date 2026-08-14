@@ -1,4 +1,5 @@
 import { loadRuntimeConfig, RuntimeConfig } from '../../../config.js';
+import { MenuConfig, MenuState, NavigationItems, ROUTES, SyncStatus, SyncStatusIcon, ThemeAlias } from '../../../constants.js';
 import { Utils } from '../../../shared/utils/utils.js';
 import { Device } from '../../../shared/classes/device.js';
 import { Data } from '../../storage/models/data.js';
@@ -143,7 +144,7 @@ export const App = {
   _sanitizeRoute(route) {
     const value = String(route || '').replace(/^\/+/, '').trim();
     const normalized = value || 'overview';
-    const allowed = new Set(['install', 'denied', 'login', 'join', 'overview', 'rounds', 'create', 'create_participant', 'edit', 'delete', 'submit', 'users', 'user', 'settings', 'invites', 'invite-detail', 'finish-week']);
+    const allowed = new Set(ROUTES);
     return allowed.has(normalized) ? normalized : 'overview';
   },
   _buildHashRoute(route, options = {}) {
@@ -433,7 +434,8 @@ export const App = {
   // Nav / UI helpers
   // ---------------------------------------------------------------------------
   applyTheme() {
-    document.body.setAttribute('data-theme', this.state.appSettings?.theme || 'teal');
+    const theme = this.state.appSettings?.theme || 'teal';
+    document.body.setAttribute('data-theme', ThemeAlias[theme] || theme);
   },
 
   updateStickyOffsets() {
@@ -450,84 +452,193 @@ export const App = {
     nav.classList.toggle('has-items', !!hasItems);
   },
 
+  _clearNavTimers(nb) {
+    if (!nb) return;
+    if (nb.resizeTimer) clearTimeout(nb.resizeTimer);
+    if (nb.fadeTimer) clearTimeout(nb.fadeTimer);
+    nb.resizeTimer = null;
+    nb.fadeTimer = null;
+  },
+
+  _setNavState(nb, state) {
+    if (!nb?.nav) return;
+    nb.state = state;
+    nb.nav.dataset.menuState = state;
+    const expanded = state === MenuState.EXPANDING || state === MenuState.EXPANDED;
+    const isBurgerMode = state !== MenuState.INLINE;
+    nb.nav.classList.toggle('needs-burger', isBurgerMode);
+    const label = expanded ? 'Collapse' : 'Menu';
+    const title = expanded ? 'Menu expanded' : 'Menu';
+    if (nb.title) nb.title.textContent = title;
+    if (nb.burger) {
+      nb.burger.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+      nb.burger.setAttribute('aria-label', expanded ? 'Collapse menu' : 'Expand menu');
+      nb.burger.setAttribute('title', expanded ? 'Collapse menu' : 'Expand menu');
+      const labelEl = nb.burger.querySelector('.menu-burger-label');
+      if (labelEl) labelEl.textContent = label;
+    }
+  },
+
+  _navCollapsedHeight(nb) {
+    if (!nb?.nav || !nb?.header || !nb?.inner) return 0;
+    const navStyle = getComputedStyle(nb.nav);
+    const innerStyle = getComputedStyle(nb.inner);
+    return Math.ceil(
+      nb.header.offsetHeight +
+      parseFloat(innerStyle.paddingTop || '0') +
+      parseFloat(innerStyle.paddingBottom || '0') +
+      parseFloat(navStyle.borderTopWidth || '0') +
+      parseFloat(navStyle.borderBottomWidth || '0')
+    );
+  },
+
+  _navItemsWidth(nb) {
+    if (!nb?.track) return 0;
+    const items = [...nb.track.querySelectorAll('.menu-item')];
+    const gap = parseFloat(getComputedStyle(nb.track).columnGap || getComputedStyle(nb.track).gap || '0');
+    return items.reduce((sum, item) => sum + item.offsetWidth, 0) + Math.max(0, items.length - 1) * gap;
+  },
+
+  _navNeedsBurger(nb) {
+    if (!nb?.inner || !nb?.track) return false;
+    const availableWidth = nb.inner.clientWidth;
+    const fullWidth = this._navItemsWidth(nb);
+    return fullWidth > availableWidth + MenuConfig.OVERFLOW_TOLERANCE;
+  },
+
+  _queueNavOverflowCheck(nb, delay = 0) {
+    if (!nb) return;
+    if (nb.resizeTimer) clearTimeout(nb.resizeTimer);
+    nb.resizeTimer = setTimeout(() => {
+      if (this._navBurger !== nb) return;
+      this._checkNavOverflow();
+    }, delay);
+  },
+
   _teardownNavBurger() {
     const nb = this._navBurger;
     if (!nb) return;
     if (nb.ro) nb.ro.disconnect();
     if (nb._onTransitionEnd) nb.nav?.removeEventListener('transitionend', nb._onTransitionEnd);
     if (nb.burger && !this.react.enabled) nb.burger.removeEventListener('click', nb.onBurgerClick);
+    this._clearNavTimers(nb);
+    if (nb.nav) {
+      nb.nav.style.height = '';
+      delete nb.nav.dataset.menuState;
+      nb.nav.classList.remove('needs-burger');
+    }
     this._navBurger = null;
   },
 
   _checkNavOverflow() {
     const nb = this._navBurger;
     if (!nb?.nav || !nb.track) return;
-    if (nb.nav.classList.contains('is-open')) { nb.nav.classList.add('needs-burger'); return; }
-    nb.nav.classList.toggle('needs-burger', nb.track.scrollWidth > nb.track.clientWidth + 2);
+    if (nb.state === MenuState.EXPANDING || nb.state === MenuState.COLLAPSING) {
+      this._queueNavOverflowCheck(nb, MenuConfig.HEIGHT_MS + MenuConfig.FADE_MS);
+      return;
+    }
+    const needsBurger = this._navNeedsBurger(nb);
+    if (!needsBurger) {
+      nb.nav.style.height = '';
+      this._setNavState(nb, MenuState.INLINE);
+      return;
+    }
+    if (nb.state === MenuState.INLINE) this._setNavState(nb, MenuState.COLLAPSED);
   },
 
   _openNavMenu(nb) {
     const nav = nb.nav;
+    if (!nav || nb.state === MenuState.EXPANDING || nb.state === MenuState.EXPANDED || !nav.classList.contains('needs-burger')) return;
     if (nb._onTransitionEnd) nav.removeEventListener('transitionend', nb._onTransitionEnd);
-    nb.collapsedHeight = nav.offsetHeight;
-    nav.classList.add('is-open');
+    this._clearNavTimers(nb);
+    nb.collapsedHeight = this._navCollapsedHeight(nb);
+    this._setNavState(nb, MenuState.EXPANDING);
     nav.style.height = nb.collapsedHeight + 'px';
     void nav.offsetHeight;
     nav.style.height = nav.scrollHeight + 'px';
-    nb._onTransitionEnd = () => { nav.style.height = ''; nav.removeEventListener('transitionend', nb._onTransitionEnd); nb._onTransitionEnd = null; };
+    nb._onTransitionEnd = (event) => {
+      if (event?.target !== nav || event?.propertyName !== 'height') return;
+      nav.style.height = '';
+      nav.removeEventListener('transitionend', nb._onTransitionEnd);
+      nb._onTransitionEnd = null;
+      this._setNavState(nb, MenuState.EXPANDED);
+      this._queueNavOverflowCheck(nb, 0);
+    };
     nav.addEventListener('transitionend', nb._onTransitionEnd);
-    nb.burger.querySelector('.material-symbols-rounded').textContent = 'close';
-    nb.burger.setAttribute('aria-label', 'Close menu');
-    nb.burger.setAttribute('aria-expanded', 'true');
-    this._checkNavOverflow();
   },
 
   _closeNavMenu(nb) {
     const nav = nb.nav;
+    if (!nav || nb.state === MenuState.COLLAPSING || nb.state === MenuState.COLLAPSED || nb.state === MenuState.INLINE) return;
     if (nb._onTransitionEnd) nav.removeEventListener('transitionend', nb._onTransitionEnd);
+    this._clearNavTimers(nb);
     const currentH = nav.offsetHeight;
-    const collapsedH = nb.collapsedHeight || currentH;
-    nav.style.height = currentH + 'px';
-    nav.classList.remove('is-open');
-    this._checkNavOverflow();
-    void nav.offsetHeight;
-    nav.style.height = collapsedH + 'px';
-    nb._onTransitionEnd = () => { nav.style.height = ''; nav.removeEventListener('transitionend', nb._onTransitionEnd); nb._onTransitionEnd = null; };
-    nav.addEventListener('transitionend', nb._onTransitionEnd);
-    nb.burger.querySelector('.material-symbols-rounded').textContent = 'menu';
-    nb.burger.setAttribute('aria-label', 'Open menu');
-    nb.burger.setAttribute('aria-expanded', 'false');
+    const collapsedH = nb.collapsedHeight || this._navCollapsedHeight(nb);
+    this._setNavState(nb, MenuState.COLLAPSING);
+    nb.fadeTimer = setTimeout(() => {
+      if (this._navBurger !== nb) return;
+      nav.style.height = currentH + 'px';
+      void nav.offsetHeight;
+      nav.style.height = collapsedH + 'px';
+      nb._onTransitionEnd = (event) => {
+        if (event?.target !== nav || event?.propertyName !== 'height') return;
+        nav.style.height = '';
+        nav.removeEventListener('transitionend', nb._onTransitionEnd);
+        nb._onTransitionEnd = null;
+        this._setNavState(nb, MenuState.COLLAPSED);
+        this._queueNavOverflowCheck(nb, 0);
+      };
+      nav.addEventListener('transitionend', nb._onTransitionEnd);
+    }, MenuConfig.FADE_MS);
   },
 
   _setupNavBurger() {
     const nav = document.getElementById('nav');
     if (!nav || !nav.classList.contains('has-items')) { this._teardownNavBurger(); return; }
+    const inner = nav.querySelector('.nav-inner');
+    const header = nav.querySelector('.menu-header');
     const track = nav.querySelector('.menu-track');
     const burger = nav.querySelector('.menu-burger');
-    if (!track || !burger) { this._teardownNavBurger(); return; }
-    if (this._navBurger?.nav === nav && this._navBurger?.track === track) { this._checkNavOverflow(); return; }
+    const title = nav.querySelector('[data-menu-title]');
+    if (!inner || !header || !track || !burger) { this._teardownNavBurger(); return; }
+    if (this._navBurger?.nav === nav && this._navBurger?.track === track) { this._queueNavOverflowCheck(this._navBurger, 0); return; }
     this._teardownNavBurger();
-    const nb = { nav, track, burger, collapsedHeight: 0 };
-    nb.onBurgerClick = () => { if (nav.classList.contains('is-open')) this._closeNavMenu(nb); else this._openNavMenu(nb); };
-    nb.ro = new ResizeObserver(() => this._checkNavOverflow());
+    const nb = { nav, inner, header, track, burger, title, collapsedHeight: 0, state: MenuState.INLINE, resizeTimer: null, fadeTimer: null };
+    nb.onBurgerClick = () => {
+      if (nb.state === MenuState.EXPANDED || nb.state === MenuState.EXPANDING) this._closeNavMenu(nb);
+      else if (nb.nav.classList.contains('needs-burger')) this._openNavMenu(nb);
+    };
+    nb.ro = new ResizeObserver(() => {
+      const delay = nb.state === MenuState.EXPANDING || nb.state === MenuState.COLLAPSING
+        ? MenuConfig.HEIGHT_MS + MenuConfig.FADE_MS
+        : 0;
+      this._queueNavOverflowCheck(nb, delay);
+    });
     nb.ro.observe(nav);
+    nb.ro.observe(inner);
     if (!this.react.enabled) burger.addEventListener('click', nb.onBurgerClick);
     this._navBurger = nb;
-    this._checkNavOverflow();
+    this._setNavState(nb, MenuState.INLINE);
+    this._queueNavOverflowCheck(nb, 0);
   },
 
   _buildSyncStatus(syncMeta) {
     if (!syncMeta) return { syncVisible: false, syncText: '' };
     const mode = syncMeta.storageMode || 'local';
     if (mode !== 'online') return { syncVisible: false, syncText: '' };
-    const status = syncMeta.syncStatus || 'idle';
-    const statusIcons = { idle: '', syncing: '<span class="sync-spin">↻</span>', synced: '✓', pending: '⚠', error: '✗' };
-    const statusText = { idle: '', syncing: 'Syncing…', synced: `Synced ${syncMeta.lastSyncAt ? Utils.dateTime(syncMeta.lastSyncAt) : ''}`, pending: 'Changes pending', error: 'Sync error' };
-    return { syncVisible: true, syncText: `${statusIcons[status] || ''} ONLINE — ${statusText[status] || Utils.esc(status)}` };
+    const status = syncMeta.syncStatus || SyncStatus.IDLE;
+    const statusText = {
+      [SyncStatus.IDLE]: '',
+      [SyncStatus.SYNCING]: 'Syncing…',
+      [SyncStatus.SYNCED]: `Synced ${syncMeta.lastSyncAt ? Utils.dateTime(syncMeta.lastSyncAt) : ''}`,
+      [SyncStatus.PENDING]: 'Changes pending',
+      [SyncStatus.ERROR]: 'Sync error'
+    };
+    return { syncVisible: true, syncText: `${SyncStatusIcon[status] || ''} ONLINE — ${statusText[status] || Utils.esc(status)}` };
   },
 
   _isSyncing() {
-    return this.state.syncMeta?.storageMode === 'online' && this.state.syncMeta?.syncStatus === 'syncing';
+    return this.state.syncMeta?.storageMode === 'online' && this.state.syncMeta?.syncStatus === SyncStatus.SYNCING;
   },
 
   _syncWarnBanner() {
@@ -563,16 +674,9 @@ export const App = {
       this._syncNavVisibility(nav, false);
       return model;
     }
-    model.items = [
-      { key: 'overview', label: 'Current Round', icon: 'dashboard' },
-      { key: 'rounds', label: 'Rounds', icon: 'calendar_month' },
-      { key: 'submit', label: 'Submit', icon: 'monitor_weight' }
-    ];
-    if (this.isAdmin()) model.items.push(
-      { key: 'create', label: 'Create', icon: 'add_circle' },
-      { key: 'users', label: 'Users', icon: 'group' }
-    );
-    model.items.push({ key: 'settings', label: 'Settings', icon: 'settings' });
+    model.items = [...NavigationItems.primary];
+    if (this.isAdmin()) model.items.push(...NavigationItems.admin);
+    model.items.push(...NavigationItems.secondary);
     model.authName = Utils.fullName(this.state.currentUser);
     model.authRole = this.roleLabel(this.state.currentUser);
     if (!this.react.enabled) {
@@ -677,9 +781,6 @@ export const App = {
     this._ensureJsOnlyFormHandling();
     this.enhanceButtons();
     document.querySelectorAll('[data-go]').forEach((el) => el.onclick = () => this.navigate(el.dataset.go));
-    document.querySelectorAll('[data-manage-user]').forEach((button) => button.onclick = () => {
-      this.navigate('user', { userId: button.dataset.manageUser });
-    });
     document.querySelectorAll('[data-open-round]').forEach((b) => b.onclick = () => {
       this.state.selectedRoundId = b.dataset.openRound;
       this.navigate('overview');

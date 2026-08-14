@@ -22,7 +22,7 @@ The application is written in **vanilla JavaScript (ES2020)** using ES modules, 
 | Auth (offline) | Cookie (`tenlb_session`) + IndexedDB session records |
 | PWA | Service Worker (`sw.js`), runtime-generated Web App Manifest |
 | Fonts | Material Symbols Rounded (self-hosted WOFF2) |
-| Config | `source/config.js` bundled into app; `config.json` deployed alongside output |
+| Config | `source/constants.js` holds app-wide constants/enums; `source/config.js` holds runtime config and DB wiring; `config.json` is deployed alongside output |
 
 ---
 
@@ -31,9 +31,10 @@ The application is written in **vanilla JavaScript (ES2020)** using ES modules, 
 ```
 source/
   main.js                    — esbuild entry point
-  config.js                  — RuntimeConfig + Config constants
+  constants.js               — app-wide constants, enums, nav config, and theme options
+  config.js                  — RuntimeConfig + DB config wiring
   domain.js                  — pure business logic (no I/O)
-  routes.js                  — route name constants
+  routes.js                  — route re-export from `source/constants.js`
   features/
     app/                     — App lifecycle, routing, nav, PWA
       classes/               — appService.js, appController.js
@@ -45,19 +46,19 @@ source/
       models/                — sessionModel.js
     challenges/              — round CRUD + finish-week
       classes/               — challengeService.js, challengeController.js
-      enums/                 — roundEnums.js
+      enums/                 — roundEnums.js (re-export from `source/constants.js`)
       models/                — roundModel.js
       pages/                 — createRoundPage.js, deleteRoundPage.js, editRoundPage.js, finishWeekPage.js, roundListPage.js
     submission/              — weight/holiday/forfeit submit + overview
       classes/               — submissionService.js, submissionController.js
       components/            — leaderboard.js, weekPager.js
-      enums/                 — submissionEnums.js
+      enums/                 — submissionEnums.js (re-export from `source/constants.js`)
       models/                — submissionModel.js
       pages/                 — overviewPage.js, submitPage.js
     users/                   — user admin, create participant
       classes/               — usersService.js, usersController.js
       components/            — dataTable.js
-      enums/                 — userTypeEnum.js
+      enums/                 — userTypeEnum.js (re-export from `source/constants.js`)
       models/                — userModel.js
       pages/                 — createParticipantPage.js, userAdminPage.js, usersPage.js
     invites/                 — invite codes, join flow
