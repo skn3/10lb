@@ -1,4 +1,5 @@
 import { Domain } from '../../../domain.js';
+import { PrizeMedals } from '../../../constants.js';
 import { Utils } from '../../../shared/utils/utils.js';
 import { WeightChart } from '../../../shared/components/weightChart.js';
 
@@ -12,8 +13,6 @@ import { WeightChart } from '../../../shared/components/weightChart.js';
 // renderRow(r, rank, prizeRanks, unit)
 //   Returns a single <tr> HTML string for one ranked participant.
 // =============================================================================
-
-const PRIZE_MEDALS = ['🏆', '🥈', '🥉', '🎖️', '🎗️', '⭐', '✨'];
 
 export const Leaderboard = {
   /**
@@ -62,7 +61,7 @@ export const Leaderboard = {
    * @returns {string}
    */
   renderRow(r, rank, prizeRanks, unit) {
-    const prize = prizeRanks.includes(rank - 1) ? ` ${PRIZE_MEDALS[rank - 1] || '🏅'}` : '';
+    const prize = prizeRanks.includes(rank - 1) ? ` ${PrizeMedals[rank - 1] || '🏅'}` : '';
     const delta = r.weeklyLoss > 0
       ? `<span class="arrow-loss">⬇ ${r.weeklyLoss}${unit}</span>`
       : r.weeklyLoss < 0

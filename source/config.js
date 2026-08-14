@@ -1,3 +1,5 @@
+import { AppDb } from './constants.js';
+
 // =============================================================================
 // CONFIG
 // DB_VERSION history:
@@ -8,7 +10,7 @@
 //       submissions
 //   4 – added invites store (for invite-code-based registration)
 // =============================================================================
-export const Config = { DB_NAME: 'tenlb-challenge', DB_VERSION: 4 };
+export const Config = { DB_NAME: AppDb.NAME, DB_VERSION: AppDb.VERSION };
 
 export let RuntimeConfig = {
   serverMode: 'firebase', // 'offline' | 'firebase'

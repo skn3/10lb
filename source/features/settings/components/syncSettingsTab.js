@@ -1,3 +1,4 @@
+import { SyncStatus, SyncStatusClass, SyncStatusLabel } from '../../../constants.js';
 import { Utils } from '../../../shared/utils/utils.js';
 import { SubmitButton } from '../../../shared/components/submitButton.js';
 import { SyncButton } from '../components/syncButton.js';
@@ -10,15 +11,13 @@ export function renderSyncSettingsTab(app) {
   if (!app.isMaster() || !app.isFirebaseMode()) return `<p class="error">Access denied.</p>`;
   const meta = app.state.syncMeta || {};
   const mode = meta.storageMode || 'local';
-  const syncStatus = meta.syncStatus || 'idle';
+  const syncStatus = meta.syncStatus || SyncStatus.IDLE;
   const lastSync = meta.lastSyncAt ? Utils.dateTime(meta.lastSyncAt) : 'Never';
   const syncError = meta.syncError || null;
   const cfg = RuntimeConfig.firebase || {};
   const networkOnline = navigator.onLine;
 
-  const statusLabel = { idle: '— Idle', syncing: '↻ Syncing…', synced: '✓ Synced', pending: '⚠ Changes pending', error: '✗ Error' };
-  const statusClass = { idle: 'muted', syncing: '', synced: 'ok', pending: 'warn', error: 'error' };
-  const syncBadge = `<span class="${statusClass[syncStatus] || ''}">${statusLabel[syncStatus] || syncStatus}</span>`;
+  const syncBadge = `<span class="${SyncStatusClass[syncStatus] || ''}">${SyncStatusLabel[syncStatus] || syncStatus}</span>`;
 
   return `
   <div class="card" style="margin-bottom:12px">

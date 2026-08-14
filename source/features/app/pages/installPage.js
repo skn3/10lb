@@ -1,3 +1,4 @@
+import { ThemeOptions } from '../../../constants.js';
 import { Utils } from '../../../shared/utils/utils.js';
 import { SubmitButton } from '../../../shared/components/submitButton.js';
 import { Data } from '../../storage/models/data.js';
@@ -6,13 +7,6 @@ import { AuthService } from '../../authentication/classes/authService.js';
 // =============================================================================
 // INSTALL PAGE
 // =============================================================================
-
-const ThemeOptions = [
-  { key: 'teal', label: 'Teal (default)' },
-  { key: 'system', label: 'System default' },
-  { key: 'light', label: 'Light' },
-  { key: 'dark', label: 'Dark' }
-];
 
 export function renderInstallPage(app) {
   const s = app.state.appSettings || {};

@@ -1,3 +1,4 @@
+import { UserType, UserTypeIcon } from '../../../constants.js';
 import { Utils } from '../../../shared/utils/utils.js';
 import { SubmitButton } from '../../../shared/components/submitButton.js';
 import { DataTable } from '../components/dataTable.js';
@@ -7,6 +8,22 @@ import { UsersService } from '../classes/usersService.js';
 // =============================================================================
 // USERS PAGE — Admin user list with filtering, sorting, bulk actions
 // =============================================================================
+function resolveRowType(row) {
+  if (row.kind === 'invite') return 'invite';
+  return row.user.userType || (row.user.isMaster ? UserType.MASTER : (row.user.isAdmin ? UserType.ADMIN : UserType.USER));
+}
+
+function isProtectedUser(app, user) {
+  return !!user && (user.isMaster || user.id === app.state.currentUser?.id);
+}
+
+function selectedDeletableUserIds(app) {
+  return app.state.selectedUsers.filter((id) => {
+    const user = app.state.users.find((entry) => entry.id === id);
+    return user && !isProtectedUser(app, user);
+  });
+}
+
 export function renderUsersPage(app) {
   if (!app.isAdmin()) return app._renderDenied();
   const f = app.state.userFilters || {};
@@ -45,9 +62,11 @@ export function renderUsersPage(app) {
     }))
     : [];
   const merged = [...users, ...pendingInviteRows];
+  const deletableSelectedIds = selectedDeletableUserIds(app);
+  const selectedCount = deletableSelectedIds.length;
 
   const shown = merged.filter((row) => {
-    const type = row.kind === 'invite' ? 'invite' : (row.user.userType || (row.user.isMaster ? 'master' : (row.user.isAdmin ? 'admin' : 'user')));
+    const type = resolveRowType(row);
     if (f.type && f.type !== 'all' && type !== f.type) return false;
     if (f.status === 'invited' && !row.invited) return false;
     if (f.status === 'confirmed' && !row.confirmed) return false;
@@ -76,62 +95,101 @@ export function renderUsersPage(app) {
     return 0;
   });
 
-  const tableHeaders = ['', 'User', 'Type', 'Last logged in', ...(app.isFirebaseMode() ? ['Active sessions'] : []), 'Rounds participated', 'Total cash won', 'Total weight lost/gained', 'In current round', 'Actions'];
+  const tableHeaders = ['', 'User', 'Type', 'Last logged in', ...(app.isFirebaseMode() ? ['Active sessions'] : []), 'Rounds participated', 'Total cash won', 'Total weight lost/gained', 'In current round'];
   const tableRows = shown.map((row) => {
     if (row.kind === 'invite') {
-      return [
-        '',
-        `Invite<div class="small muted"><code>${Utils.esc(row.invite.code)}</code></div>`,
-        row.role,
-        '—',
-        ...(app.isFirebaseMode() ? ['—'] : []),
-        '0',
-        Utils.money(0, app.state.appSettings.currency),
-        `0${app.state.appSettings.weightFormat}`,
-        'No',
-        `<div class="row"><select data-user-action-select="${Utils.escAttr(row.id)}"><option value="">Actions…</option><option value="view-invite">View invite</option><option value="delete-invite">Delete invite</option></select>${SubmitButton.render({ text: 'Apply', icon: 'task_alt', theme: 'secondary small', attrs: { 'data-user-action-apply': row.id } })}</div>`
-      ];
+    return `<tr class="is-clickable" tabindex="0" role="button" data-open-invite="${Utils.escAttr(row.inviteId)}">` +
+      `<td></td>` +
+      `<td><span class="user-linkish"><span class="material-symbols-rounded" aria-hidden="true">${Utils.esc(UserTypeIcon.invite)}</span><span>Invite</span></span><div class="small muted"><code>${Utils.esc(row.invite.code)}</code></div></td>` +
+      `<td>${row.role}</td>` +
+      `<td>—</td>` +
+      `${app.isFirebaseMode() ? '<td>—</td>' : ''}` +
+      `<td>0</td>` +
+      `<td>${Utils.money(0, app.state.appSettings.currency)}</td>` +
+      `<td>0${app.state.appSettings.weightFormat}</td>` +
+      `<td>No</td>` +
+    `</tr>`;
     }
     const u = row.user;
+    const protectedUser = isProtectedUser(app, u);
     const activeSessions = app.isFirebaseMode() ? app.state.sessions.filter((s) => s?.userId === u.id).length : 0;
-    return [
-      `<input type="checkbox" data-bulk-user="${u.id}" ${app.state.selectedUsers.includes(u.id) ? 'checked' : ''} ${u.isMaster ? 'disabled' : ''}/>`,
-      `${Utils.esc(Utils.fullName(u))}<div class="small muted">${Utils.esc(UsersService.userLoginLabel(u))}${row.invited ? ' • invited' : ''}</div>`,
-      row.role,
-      Utils.timeAgo(u.lastLoginAt),
-      ...(app.isFirebaseMode() ? [String(activeSessions)] : []),
-      String(row.roundsParticipated),
-      Utils.money(row.totalCashWon, app.state.appSettings.currency),
-      `${row.totalWeightDelta}${app.state.appSettings.weightFormat}`,
-      row.inCurrentRound ? 'Yes' : 'No',
-      SubmitButton.render({ text: 'Open', icon: 'person', theme: 'secondary small', attrs: { 'type': 'button', 'data-manage-user': u.id } })
-    ];
+    const icon = UserTypeIcon[resolveRowType(row)] || UserTypeIcon[UserType.USER];
+    return `<tr class="is-clickable" tabindex="0" role="button" data-open-user="${Utils.escAttr(u.id)}">` +
+    `<td><input type="checkbox" data-bulk-user="${Utils.escAttr(u.id)}" ${deletableSelectedIds.includes(u.id) ? 'checked' : ''} ${protectedUser ? 'disabled' : ''}/></td>` +
+    `<td><span class="user-linkish"><span class="material-symbols-rounded" aria-hidden="true">${Utils.esc(icon)}</span><span>${Utils.esc(Utils.fullName(u))}</span></span><div class="small muted">${Utils.esc(UsersService.userLoginLabel(u))}${row.invited ? ' • invited' : ''}</div></td>` +
+    `<td>${row.role}</td>` +
+    `<td>${Utils.timeAgo(u.lastLoginAt)}</td>` +
+    `${app.isFirebaseMode() ? `<td>${activeSessions}</td>` : ''}` +
+    `<td>${row.roundsParticipated}</td>` +
+    `<td>${Utils.money(row.totalCashWon, app.state.appSettings.currency)}</td>` +
+    `<td>${row.totalWeightDelta}${app.state.appSettings.weightFormat}</td>` +
+    `<td>${row.inCurrentRound ? 'Yes' : 'No'}</td>` +
+    `</tr>`;
   });
 
-  return `<div class="card"><div class="row between"><h2 style="margin:0">Users</h2><div class="row">${SubmitButton.render({ text: 'Create participant', icon: 'person_add', attrs: { 'type': 'button', 'data-go': 'create_participant' } })}${app.isFirebaseMode() ? SubmitButton.render({ text: 'Create invite', icon: 'add_link', id: 'btn-create-invite' }) : ''}${SubmitButton.render({ text: 'Delete selected', icon: 'delete_sweep', theme: 'danger', attrs: { 'data-bulk-delete': '1' } })}</div></div>
-    <div class="grid three" style="margin-top:8px">
+  return `<div class="card"><div class="row between"><h2 style="margin:0">User filters</h2><span class="small muted">${shown.length} shown</span></div>
+    <div class="grid two" style="margin-top:8px">
       <div><label>Type</label><select id="users-filter-type"><option value="all" ${f.type === 'all' ? 'selected' : ''}>All</option><option value="master" ${f.type === 'master' ? 'selected' : ''}>Master</option><option value="admin" ${f.type === 'admin' ? 'selected' : ''}>Admin</option><option value="user" ${f.type === 'user' ? 'selected' : ''}>User</option><option value="participant" ${f.type === 'participant' ? 'selected' : ''}>Participant</option>${app.isFirebaseMode() ? `<option value="invite" ${f.type === 'invite' ? 'selected' : ''}>Invite</option>` : ''}</select></div>
       <div><label>Status</label><select id="users-filter-status"><option value="all" ${f.status === 'all' ? 'selected' : ''}>All</option><option value="confirmed" ${f.status === 'confirmed' ? 'selected' : ''}>Confirmed</option><option value="invited" ${f.status === 'invited' ? 'selected' : ''}>Invited</option></select></div>
       <div><label>Sort</label><select id="users-filter-sort"><option value="a-z" ${f.sort === 'a-z' ? 'selected' : ''}>A-Z</option><option value="a-z-desc" ${f.sort === 'a-z-desc' ? 'selected' : ''}>Z-A</option><option value="type-a-z" ${f.sort === 'type-a-z' ? 'selected' : ''}>Type, A-Z</option><option value="type-a-z-desc" ${f.sort === 'type-a-z-desc' ? 'selected' : ''}>Type, Z-A</option><option value="joined-a-z" ${f.sort === 'joined-a-z' ? 'selected' : ''}>Joined/Invited, Oldest-Newest</option><option value="joined-a-z-desc" ${f.sort === 'joined-a-z-desc' ? 'selected' : ''}>Joined/Invited, Newest-Oldest</option><option value="last-a-z" ${f.sort === 'last-a-z' ? 'selected' : ''}>Last accessed, Oldest-Newest</option><option value="last-a-z-desc" ${f.sort === 'last-a-z-desc' ? 'selected' : ''}>Last accessed, Newest-Oldest</option><option value="weight-a-z" ${f.sort === 'weight-a-z' ? 'selected' : ''}>Total weight lost, Low-High</option><option value="weight-a-z-desc" ${f.sort === 'weight-a-z-desc' ? 'selected' : ''}>Total weight lost, High-Low</option><option value="money-a-z" ${f.sort === 'money-a-z' ? 'selected' : ''}>Total money won, Low-High</option><option value="money-a-z-desc" ${f.sort === 'money-a-z-desc' ? 'selected' : ''}>Total money won, High-Low</option></select></div>
       <div><label>Search</label><input id="users-filter-search" value="${Utils.escAttr(f.search || '')}" placeholder="Search users…" /></div>
       <div><label class="row"><input type="checkbox" id="users-filter-current" style="width:auto" ${f.currentChallengeOnly ? 'checked' : ''}/> Only users in current challenge</label></div>
     </div>
+  </div>
+  <div class="card"><div class="row between"><h2 style="margin:0">Users</h2><div class="row">${SubmitButton.render({ text: 'Create participant', icon: 'person_add', attrs: { 'type': 'button', 'data-go': 'create_participant' } })}${app.isFirebaseMode() ? SubmitButton.render({ text: 'Create invite', icon: 'add_link', id: 'btn-create-invite' }) : ''}</div></div>
+    <div class="row between" style="margin-top:12px">
+    <span class="selection-status">${selectedCount} selected</span>
+    ${SubmitButton.render({ text: 'Delete selected', icon: 'delete_sweep', theme: 'danger', attrs: { 'data-bulk-delete': '1', 'type': 'button', ...(selectedCount ? {} : { disabled: 'disabled' }) } })}
+    </div>
     <div style="overflow:auto;margin-top:8px">
-      ${DataTable.render({ headers: tableHeaders, rows: tableRows, emptyMessage: 'No users found.', colSpan: tableHeaders.length })}
+    ${DataTable.render({ headers: tableHeaders, rows: tableRows, emptyMessage: 'No users found.', colSpan: tableHeaders.length })}
     </div>
   </div>`;
 }
 
 export function bindUsersPageEvents(app) {
-  document.querySelectorAll('[data-manage-user]').forEach((button) => button.onclick = () => {
-    app.navigate('user', { userId: button.dataset.manageUser });
+  document.querySelectorAll('[data-open-user]').forEach((row) => {
+    const open = () => app.navigate('user', { userId: row.dataset.openUser });
+    row.onclick = (event) => {
+    if (event.target.closest('input,button,select,a,label')) return;
+    open();
+    };
+    row.onkeydown = (event) => {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    if (event.target.closest('input,button,select,a,label')) return;
+    event.preventDefault();
+    open();
+    };
+  });
+
+  document.querySelectorAll('[data-open-invite]').forEach((row) => {
+    const open = () => {
+    const invite = app.state.invites.find((entry) => entry.id === row.dataset.openInvite);
+    if (!invite) return;
+    app.state.inviteDetail = invite;
+    app.navigate('invite-detail');
+    };
+    row.onclick = (event) => {
+    if (event.target.closest('input,button,select,a,label')) return;
+    open();
+    };
+    row.onkeydown = (event) => {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    if (event.target.closest('input,button,select,a,label')) return;
+    event.preventDefault();
+    open();
+    };
   });
 
   const bulkCheckboxes = document.querySelectorAll('[data-bulk-user]');
-  bulkCheckboxes.forEach((x) => x.onchange = () => {
+  bulkCheckboxes.forEach((x) => {
+    x.onclick = (event) => event.stopPropagation();
+    x.onchange = () => {
     const id = x.dataset.bulkUser;
     if (x.checked) app.state.selectedUsers = [...new Set([...app.state.selectedUsers, id])];
     else app.state.selectedUsers = app.state.selectedUsers.filter((v) => v !== id);
+    app.render();
+    };
   });
 
   const setUserFilter = (key, value) => {
@@ -149,36 +207,9 @@ export function bindUsersPageEvents(app) {
   const filterCurrent = document.getElementById('users-filter-current');
   if (filterCurrent) filterCurrent.onchange = () => setUserFilter('currentChallengeOnly', !!filterCurrent.checked);
 
-  document.querySelectorAll('[data-user-action-apply]').forEach((b) => b.onclick = async () => {
-    const id = b.dataset.userActionApply;
-    const select = document.querySelector(`[data-user-action-select="${CSS.escape(id)}"]`);
-    const action = select?.value || '';
-    if (!action) return;
-    if (!id.startsWith('invite:')) return;
-    const inviteId = id.split(':')[1];
-    const inv = app.state.invites.find((x) => x.id === inviteId);
-    if (!inv) return;
-    if (action === 'view-invite') {
-      app.state.inviteDetail = inv;
-      app.navigate('invite-detail');
-      return;
-    }
-    if (action === 'delete-invite') {
-      if (!confirm('Delete this invite?')) return;
-      const { InvitesService } = await import('../../invites/classes/invitesService.js');
-      await InvitesService.deleteInvite(inv.id);
-      await app.refresh();
-      app.setMessage('Invite deleted.');
-      return app.render();
-    }
-  });
-
   const bulkDelete = document.querySelector('[data-bulk-delete="1"]');
   if (bulkDelete) bulkDelete.onclick = async () => {
-    const ids = app.state.selectedUsers.filter((id) => {
-      const u = app.state.users.find((x) => x.id === id);
-      return u && !u.isMaster && u.id !== app.state.currentUser.id;
-    });
+    const ids = selectedDeletableUserIds(app);
     if (!ids.length) return app.fail('Select users to delete.');
     if (!confirm(`Delete ${ids.length} selected user(s)? This cannot be undone.`)) return;
     for (const id of ids) await UsersService.deleteUser(id);
