@@ -131,7 +131,17 @@ export const App = {
   },
   // Resolve a local user by Firebase UID, querying Firestore as authoritative
   // source if the record is absent from the IndexedDB cache.
-  async _resolveFirebaseUser(uid) {
+  // Also supports legacy users that were created before firebaseUid was set by
+  // falling back to username/email matching.
+  async _resolveFirebaseUser(firebaseUserOrUid) {
+    const uid = typeof firebaseUserOrUid === 'string'
+      ? firebaseUserOrUid
+      : (firebaseUserOrUid?.uid || null);
+    const email = typeof firebaseUserOrUid === 'string'
+      ? null
+      : String(firebaseUserOrUid?.email || '').trim().toLowerCase();
+    if (!uid) return null;
+
     let user = await Data.adapter.getUserByFirebaseUid(uid);
     if (!user) {
       const remoteUsers = await FirestoreAdapter.queryRecords('users', 'firebaseUid', uid);
@@ -140,7 +150,28 @@ export const App = {
         user = await Data.adapter.getUserByFirebaseUid(uid);
       }
     }
-    return user || null;
+    if (user) return user;
+
+    if (!email) return null;
+
+    user = await Data.adapter.getUserByUsername(email);
+    if (user) return user;
+
+    const remoteByEmail = await FirestoreAdapter.queryRecords('users', 'username', email);
+    const match = remoteByEmail[0];
+    if (!match) return null;
+
+    const hydrated = match.firebaseUid === uid
+      ? match
+      : {
+          ...match,
+          firebaseUid: uid,
+          version: (match.version || 1) + 1,
+          updatedAt: new Date().toISOString()
+        };
+
+    await Data.adapter.mergeRemoteRecord('users', hydrated);
+    return await Data.adapter.getUserByFirebaseUid(uid);
   },
   async _registerFirebaseAdmin(user = this.state.currentUser) {
     if (!this.isFirebaseMode() || !user || !FirestoreAdapter.isReady() || !(user.isAdmin || user.isMaster)) return;
@@ -346,7 +377,7 @@ export const App = {
       }
       const fbUser = await FirestoreAdapter.getCurrentFirebaseUser();
       if (!fbUser || fbUser.isAnonymous) return;
-      const user = await this._resolveFirebaseUser(fbUser.uid);
+      const user = await this._resolveFirebaseUser(fbUser);
       if (!user) return;
       this.state.currentUser = user;
       await this._upsertFirebaseSession(user);
@@ -2322,7 +2353,7 @@ export const App = {
           if (!fbUser) return this.fail('Invalid email or password.');
           let user;
           try {
-            user = await this._resolveFirebaseUser(fbUser.uid);
+            user = await this._resolveFirebaseUser(fbUser);
           } catch (e) {
             console.warn('Could not resolve user account after Firebase sign-in:', e.message);
             return this.fail('Could not load account. Please check your connection and try again.');
