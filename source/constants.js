@@ -119,6 +119,8 @@ export const MenuState = Object.freeze({
   COLLAPSING: 'collapsing'
 });
 
+// Keep these timings aligned with `--menu-height-ms` and `--menu-fade-ms`
+// in /source/index.html so the JS menu state machine matches the CSS animation.
 export const MenuConfig = Object.freeze({
   HEIGHT_MS: 280,
   FADE_MS: 200,
