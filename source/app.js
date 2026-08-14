@@ -1864,7 +1864,7 @@ export const App = {
       <div class="card" style="margin-bottom:12px">
         <h3 style="margin-top:0">User type</h3>
         <form id="user-type-form" class="grid two">
-          <div><label>Type</label><select name="userType" ${typeLocked ? 'disabled' : ''}>${typeOptions.map((option) => `<option value="${option.value}" ${option.value === (user.userType || 'user') ? 'selected' : ''}>${option.label}</option>`).join('')}</select>${typeLocked ? `<input type="hidden" name="userType" value="${Utils.escAttr(user.userType || 'participant')}" />` : ''}</div>
+          <div><label>Type</label><select name="userType" ${typeLocked ? 'disabled' : ''}>${typeOptions.map((option) => `<option value="${option.value}" ${option.value === (user.userType || 'user') ? 'selected' : ''}>${option.label}</option>`).join('')}</select></div>
           <div class="small muted" style="align-self:end">${user.isMaster ? 'Master type is locked.' : typeLocked ? 'This participant cannot be promoted from this page.' : 'Changing to participant removes login access.'}</div>
           <div style="grid-column:1/-1" class="row"><button class="btn secondary" type="submit" ${typeLocked ? 'disabled' : ''}>Save type</button></div>
         </form>
