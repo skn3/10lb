@@ -45,7 +45,7 @@ export const App = {
     sessionToken: null,
     redirectAfterLogin: 'overview',
     selectedUsers: [],
-    editingUserId: null,
+    selectedUserId: null,
     syncMeta: null,        // device/sync metadata (from getDeviceMeta)
     inviteDetail: null,    // current invite being viewed
     pendingInviteCode: '', // invite code from hash route/query import
@@ -73,6 +73,24 @@ export const App = {
   },
   activeSessionsForUser(userId) {
     return this.state.sessions.filter((session) => session?.userId === userId);
+  },
+  selectedUser() {
+    return this.state.users.find((user) => user.id === this.state.selectedUserId) || null;
+  },
+  userLoginLabel(user) {
+    if (!user) return '';
+    if (user.username) return user.username;
+    return user.canLogin !== false ? 'No login email' : 'Participant only';
+  },
+  managedUserTypeOptions(user) {
+    if (!user) return [];
+    if (user.isMaster || user.userType === 'master') return [{ value: 'master', label: 'Master' }];
+    const hasLocalLogin = !!user.password && Utils.validEmail(user.username || '');
+    const hasFirebaseLogin = !!user.firebaseUid;
+    const canPromote = user.userType !== 'participant' || hasLocalLogin || hasFirebaseLogin;
+    const options = [{ value: 'participant', label: 'Participant' }];
+    if (canPromote) options.push({ value: 'user', label: 'User' }, { value: 'admin', label: 'Admin' });
+    return options;
   },
   async _loadVisibleInvites() {
     if (!this.isFirebaseMode()) return Data.adapter.listInvites();
@@ -166,7 +184,7 @@ export const App = {
   _sanitizeRoute(route) {
     const value = String(route || '').replace(/^\/+/, '').trim();
     const normalized = value || 'overview';
-    const allowed = new Set(['install', 'denied', 'login', 'join', 'overview', 'rounds', 'create', 'edit', 'delete', 'submit', 'users', 'settings', 'invite-detail', 'finish-week']);
+    const allowed = new Set(['install', 'denied', 'login', 'join', 'overview', 'rounds', 'create', 'create_participant', 'edit', 'delete', 'submit', 'users', 'user', 'settings', 'invite-detail', 'finish-week']);
     return allowed.has(normalized) ? normalized : 'overview';
   },
 
@@ -176,6 +194,10 @@ export const App = {
     if (target === 'join') {
       const invite = (options.inviteCode || this.state.pendingInviteCode || '').trim().toUpperCase();
       if (invite) params.set('invite', invite);
+    }
+    if (target === 'user') {
+      const userId = String(options.userId || this.state.selectedUserId || '').trim();
+      if (userId) params.set('id', userId);
     }
     const q = params.toString();
     return `#/${target}${q ? `?${q}` : ''}`;
@@ -202,7 +224,9 @@ export const App = {
   _applyRouteFromHash() {
     const parsed = this._readHashRoute();
     const invite = parsed.params.get('invite');
+    const selectedUserId = parsed.route === 'user' ? String(parsed.params.get('id') || '').trim() : '';
     if (invite) this.state.pendingInviteCode = invite.toUpperCase();
+    this.state.selectedUserId = selectedUserId || null;
     const requested = parsed.route || this._defaultRoute();
     if (this.isInstalled() && !this.isAuthenticated() && !['login', 'join', 'install'].includes(requested)) {
       this.state.redirectAfterLogin = requested;
@@ -345,6 +369,7 @@ export const App = {
     this.state.currentUser = null;
     this.state.sessionToken = null;
     this.state.pendingInviteCode = '';
+    this.state.selectedUserId = null;
     this.state.redirectAfterLogin = 'overview';
     this.navigate(this._defaultRoute(), { replace: true });
   },
@@ -837,10 +862,12 @@ export const App = {
         overview: 'home',
         rounds: 'list_alt',
         create: 'add_circle',
+        create_participant: 'person_add',
         edit: 'edit',
         delete: 'delete',
         submit: 'publish',
         users: 'groups',
+        user: 'person',
         settings: 'settings',
         'invite-detail': 'qr_code',
         login: 'login',
@@ -865,7 +892,9 @@ export const App = {
         'install-form': 'install_desktop',
         'login-form': 'login',
         'join-form': 'person_add',
+        'create-participant-form': 'person_add',
         'edit-user-form': 'save',
+        'user-type-form': 'manage_accounts',
         'create-form': 'add_circle',
         'edit-form': 'save',
         'delete-form': 'delete',
@@ -1099,10 +1128,12 @@ export const App = {
       overview: () => this.renderOverview(),
       rounds: () => this.renderRoundList(),
       create: () => this.renderCreate(),
+      create_participant: () => this.renderCreateParticipant(),
       edit: () => this.renderEdit(),
       delete: () => this.renderDelete(),
       submit: () => this.renderSubmit(),
       users: () => this.renderUsers(),
+      user: () => this.renderUserAdmin(),
       settings: () => this.renderSettings(),
       'invite-detail': () => this.renderInviteDetail(),
       'finish-week': () => this.renderFinishWeek()
@@ -1456,6 +1487,22 @@ export const App = {
       </form></div>`;
   },
 
+  renderCreateParticipant() {
+    if (!this.isAdmin()) return this.renderDenied();
+    return `<div class="card" style="max-width:640px;margin:0 auto">
+      <div class="row between" style="margin-bottom:12px">
+        <h2 style="margin:0">Create participant</h2>
+        <button class="btn secondary" type="button" data-go="users">Back to users</button>
+      </div>
+      <p class="muted">Create a participant with only a name so an admin can submit challenge weights for them.</p>
+      <form id="create-participant-form" class="grid">
+        <div><label>Participant name</label><input name="fullName" type="text" required autocomplete="name" placeholder="e.g. Jane Smith" /></div>
+        <div class="small muted">Participants cannot log in until you promote or invite them later.</div>
+        <div class="row"><button class="btn" type="submit">Create participant</button><button class="btn secondary" type="button" data-go="users">Cancel</button></div>
+      </form>
+    </div>`;
+  },
+
   renderDelete() {
     if (!this.isAdmin()) return this.renderDenied();
     const round = this.currentRound();
@@ -1690,7 +1737,7 @@ export const App = {
       const activeSessions = this.isFirebaseMode() ? this.activeSessionsForUser(u.id).length : 0;
       return `<tr>
         <td><input type="checkbox" data-bulk-user="${u.id}" ${this.state.selectedUsers.includes(u.id) ? 'checked' : ''} ${u.isMaster ? 'disabled' : ''}/></td>
-        <td>${Utils.esc(Utils.fullName(u))}<div class="small muted">${Utils.esc(u.username)}${row.invited ? ' • invited' : ''}</div></td>
+        <td>${Utils.esc(Utils.fullName(u))}<div class="small muted">${Utils.esc(this.userLoginLabel(u))}${row.invited ? ' • invited' : ''}</div></td>
         <td>${row.role}</td>
         <td>${Utils.timeAgo(u.lastLoginAt)}</td>
         ${this.isFirebaseMode() ? `<td>${activeSessions}</td>` : ''}
@@ -1698,24 +1745,11 @@ export const App = {
         <td>${Utils.money(row.totalCashWon, this.state.appSettings.currency)}</td>
         <td>${row.totalWeightDelta}${this.state.appSettings.weightFormat}</td>
         <td>${row.inCurrentRound ? 'Yes' : 'No'}</td>
-        <td><div class="row"><select data-user-action-select="${u.id}"><option value="">Actions…</option><option value="edit">Edit profile</option>${u.canLogin !== false ? '<option value="password">Reset password</option>' : ''}${(!u.isMaster && this.isFirebaseMode()) ? `<option value="toggle-admin">${u.isAdmin ? 'Make user' : 'Make admin'}</option>` : ''}${u.userType === 'participant' && this.isFirebaseMode() ? '<option value="invite-user">Invite as user</option><option value="invite-admin">Invite as admin</option>' : ''}${!u.isMaster ? '<option value="delete">Delete</option>' : ''}</select><button class="btn secondary small" data-user-action-apply="${u.id}">Apply</button></div></td>
+        <td><button class="btn secondary small" type="button" data-manage-user="${u.id}">Open</button></td>
       </tr>`;
     }).join('');
 
-    const editingUser = this.state.users.find((user) => user.id === this.state.editingUserId);
-    return `<div class="card"><div class="row between"><h2 style="margin:0">Users</h2><div class="row">${this.isFirebaseMode() ? '<button class="btn" id="btn-create-invite">Create invite</button>' : ''}<button class="btn danger" data-bulk-delete="1">Delete selected</button></div></div>
-      ${editingUser ? `<div class="card" style="margin-top:12px">
-        <h3 style="margin-top:0">Edit user</h3>
-        <form id="edit-user-form" class="grid two">
-          <div><label>First name</label><input name="firstName" type="text" required autocomplete="given-name" value="${Utils.escAttr(editingUser.firstName || '')}" /></div>
-          <div><label>Last name</label><input name="lastName" type="text" required autocomplete="family-name" value="${Utils.escAttr(editingUser.lastName || '')}" /></div>
-          <div style="grid-column:1/-1"><label>Email</label><input name="username" type="email" disabled value="${Utils.escAttr(editingUser.username || '')}" /></div>
-          <div style="grid-column:1/-1" class="row">
-            <button class="btn" type="submit">Save user</button>
-            <button class="btn secondary" type="button" id="btn-cancel-edit-user">Cancel</button>
-          </div>
-        </form>
-      </div>` : ''}
+    return `<div class="card"><div class="row between"><h2 style="margin:0">Users</h2><div class="row"><button class="btn" type="button" data-go="create_participant">Create participant</button>${this.isFirebaseMode() ? '<button class="btn" id="btn-create-invite">Create invite</button>' : ''}<button class="btn danger" data-bulk-delete="1">Delete selected</button></div></div>
       <div class="grid three" style="margin-top:8px">
         <div><label>Type</label><select id="users-filter-type"><option value="all" ${f.type==='all'?'selected':''}>All</option><option value="master" ${f.type==='master'?'selected':''}>Master</option><option value="admin" ${f.type==='admin'?'selected':''}>Admin</option><option value="user" ${f.type==='user'?'selected':''}>User</option><option value="participant" ${f.type==='participant'?'selected':''}>Participant</option>${this.isFirebaseMode() ? `<option value="invite" ${f.type==='invite'?'selected':''}>Invite</option>` : ''}</select></div>
         <div><label>Status</label><select id="users-filter-status"><option value="all" ${f.status==='all'?'selected':''}>All</option><option value="confirmed" ${f.status==='confirmed'?'selected':''}>Confirmed</option><option value="invited" ${f.status==='invited'?'selected':''}>Invited</option></select></div>
@@ -1726,6 +1760,80 @@ export const App = {
       <div style="overflow:auto;margin-top:8px">
         <table class="table"><thead><tr><th></th><th>User</th><th>Type</th><th>Last logged in</th>${this.isFirebaseMode() ? '<th>Active sessions</th>' : ''}<th>Rounds participated</th><th>Total cash won</th><th>Total weight lost/gained</th><th>In current round</th><th>Actions</th></tr></thead>
         <tbody>${rows || `<tr><td colspan="${this.isFirebaseMode() ? 10 : 9}" class="muted">No users found.</td></tr>`}</tbody></table>
+      </div>
+    </div>`;
+  },
+
+  renderUserAdmin() {
+    if (!this.isAdmin()) return this.renderDenied();
+    const user = this.selectedUser();
+    if (!user) {
+      return `<div class="card" style="max-width:640px;margin:0 auto">
+        <h2 style="margin-top:0">User not found</h2>
+        <p class="muted">The selected user no longer exists.</p>
+        <button class="btn secondary" type="button" data-go="users">Back to users</button>
+      </div>`;
+    }
+    const stats = this.userStats(user);
+    const typeOptions = this.managedUserTypeOptions(user);
+    const pendingInvites = this.isFirebaseMode() ? this.state.invites.filter((invite) => !invite.usedAt && invite.userId === user.id) : [];
+    const typeLocked = typeOptions.length === 1;
+    const canDelete = !user.isMaster && user.id !== this.state.currentUser?.id;
+    return `<div class="card" style="max-width:760px;margin:0 auto">
+      <div class="row between" style="margin-bottom:12px">
+        <div>
+          <h2 style="margin:0">${Utils.esc(Utils.fullName(user))}</h2>
+          <div class="small muted">${Utils.esc(this.roleLabel(user))} • ${Utils.esc(this.userLoginLabel(user))}</div>
+        </div>
+        <button class="btn secondary" type="button" data-go="users">Back to users</button>
+      </div>
+
+      <div class="grid two" style="margin-bottom:12px">
+        <div class="card">
+          <strong>Rounds participated</strong>
+          <div>${stats.roundsParticipated}</div>
+        </div>
+        <div class="card">
+          <strong>Current challenge</strong>
+          <div>${stats.inCurrentRound ? 'In current round' : 'Not in current round'}</div>
+        </div>
+        <div class="card">
+          <strong>Total cash won</strong>
+          <div>${Utils.money(stats.totalCashWon, this.state.appSettings.currency)}</div>
+        </div>
+        <div class="card">
+          <strong>Total weight lost/gained</strong>
+          <div>${stats.totalWeightDelta}${this.state.appSettings.weightFormat}</div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom:12px">
+        <h3 style="margin-top:0">User details</h3>
+        <form id="edit-user-form" class="grid two">
+          <div><label>First name</label><input name="firstName" type="text" required autocomplete="given-name" value="${Utils.escAttr(user.firstName || '')}" /></div>
+          <div><label>Last name</label><input name="lastName" type="text" autocomplete="family-name" value="${Utils.escAttr(user.lastName || '')}" /></div>
+          <div style="grid-column:1/-1"><label>Email / login</label><input name="username" type="text" disabled value="${Utils.escAttr(user.username || '')}" placeholder="No login email" /></div>
+          <div style="grid-column:1/-1" class="row"><button class="btn" type="submit">Save user</button></div>
+        </form>
+      </div>
+
+      <div class="card" style="margin-bottom:12px">
+        <h3 style="margin-top:0">User type</h3>
+        <form id="user-type-form" class="grid two">
+          <div><label>Type</label><select name="userType" ${typeLocked ? 'disabled' : ''}>${typeOptions.map((option) => `<option value="${option.value}" ${option.value === (user.userType || 'user') ? 'selected' : ''}>${option.label}</option>`).join('')}</select>${typeLocked ? `<input type="hidden" name="userType" value="${Utils.escAttr(user.userType || 'participant')}" />` : ''}</div>
+          <div class="small muted" style="align-self:end">${user.isMaster ? 'Master type is locked.' : typeLocked ? 'This participant cannot be promoted from this page.' : 'Changing to participant removes login access.'}</div>
+          <div style="grid-column:1/-1" class="row"><button class="btn secondary" type="submit" ${typeLocked ? 'disabled' : ''}>Save type</button></div>
+        </form>
+      </div>
+
+      <div class="card">
+        <h3 style="margin-top:0">Actions</h3>
+        <div class="row" style="flex-wrap:wrap">
+          ${((!this.isFirebaseMode() && user.canLogin !== false) || (this.isFirebaseMode() && !!user.firebaseUid)) ? '<button class="btn secondary" type="button" id="btn-reset-user-password">Reset password</button>' : ''}
+          ${(this.isFirebaseMode() && user.userType === 'participant' && !user.firebaseUid) ? '<button class="btn secondary" type="button" data-user-invite="user">Invite as user</button><button class="btn secondary" type="button" data-user-invite="admin">Invite as admin</button>' : ''}
+          ${pendingInvites.map((invite) => `<button class="btn secondary" type="button" data-view-invite="${Utils.escAttr(invite.id)}">View ${Utils.esc(invite.inviteType || 'user')} invite</button>`).join('')}
+          ${canDelete ? '<button class="btn danger" type="button" id="btn-delete-user">Delete user</button>' : ''}
+        </div>
       </div>
     </div>`;
   },
@@ -1949,6 +2057,33 @@ export const App = {
       e.preventDefault();
       this.navigate('join');
     };
+
+    document.querySelectorAll('[data-manage-user]').forEach((button) => button.onclick = () => {
+      this.navigate('user', { userId: button.dataset.manageUser });
+    });
+
+    const createParticipantForm = document.getElementById('create-participant-form');
+    if (createParticipantForm) {
+      this.bindAsyncFormSubmit(createParticipantForm, async () => {
+        const fullName = createParticipantForm.fullName.value.trim().replace(/\s+/g, ' ');
+        if (!fullName) return this.fail('Enter a participant name.');
+        const exists = this.state.users.find((user) => Utils.fullName(user).toLowerCase() === fullName.toLowerCase());
+        if (exists) return this.fail('A user with that name already exists.');
+        const parsed = Utils.parseName(fullName);
+        const participant = await Data.adapter.createUser({
+          name: fullName,
+          firstName: parsed.firstName,
+          lastName: parsed.lastName,
+          userType: 'participant',
+          isAdmin: false,
+          isMaster: false,
+          canLogin: false
+        });
+        await this.refresh();
+        this.setMessage('Participant created.');
+        this.navigate('user', { userId: participant.id, keepFlash: true });
+      });
+    }
 
     // Invite management (admin)
     const btnCreateInvite = document.getElementById('btn-create-invite');
@@ -2461,99 +2596,23 @@ export const App = {
       const select = document.querySelector(`[data-user-action-select="${CSS.escape(id)}"]`);
       const action = select?.value || '';
       if (!action) return;
-      if (id.startsWith('invite:')) {
-        const inviteId = id.split(':')[1];
-        const inv = this.state.invites.find((x) => x.id === inviteId);
-        if (!inv) return;
-        if (action === 'view-invite') {
-          this.state.inviteDetail = inv;
-          this.navigate('invite-detail');
-          return;
-        }
-        if (action === 'delete-invite') {
-          if (!confirm('Delete this invite?')) return;
-          await Data.adapter.deleteInvite(inv.id);
-          await this.refresh();
-          this.setMessage('Invite deleted.');
-          return this.render();
-        }
-        return;
-      }
-
-      const user = this.state.users.find((u) => u.id === id);
-      if (!user) return;
-      if (action === 'edit') {
-        this.state.editingUserId = user.id;
-        this.render();
-        return;
-      } else if (action === 'password') {
-        if (this.isFirebaseMode()) {
-          // Firebase mode: send a password reset email via Firebase Auth
-          const email = user.username;
-          if (!email) return this.fail('No email address on record for this user.');
-          try {
-            await FirestoreAdapter.sendPasswordResetEmail(email);
-            this.setMessage(`Password reset email sent to ${email}.`);
-            this.render();
-            return;
-          } catch (err) {
-            return this.fail(`Failed to send reset email: ${err.message || err}`);
-          }
-        }
-        // Offline mode: direct password reset
-        const password = prompt(`New password for ${Utils.fullName(user)}:`);
-        if (password === null) return;
-        if (!Utils.validPassword(password)) return this.fail('Password must include 8+ chars, letter, number and symbol.');
-        const confirmPwd = prompt('Confirm new password:');
-        if (confirmPwd !== password) return this.fail('Passwords do not match.');
-        const hash = await Security.createPasswordRecord(password);
-        const ok = await this._saveWithConflictResolver('User', { ...user, password: hash }, (payload) => Data.adapter.updateUser(payload));
-        if (!ok) return;
-      } else if (action === 'toggle-admin') {
-        if (user.isMaster) return this.fail('Master role cannot be changed.');
-        if (user.id === this.state.currentUser.id && user.isAdmin) return this.fail('You cannot remove your own admin access.');
-        const nextType = user.isAdmin ? 'user' : 'admin';
-        const ok = await this._saveWithConflictResolver('User', { ...user, userType: nextType, isAdmin: !user.isAdmin, canLogin: true }, (payload) => Data.adapter.updateUser(payload));
-        if (!ok) return;
-      } else if (action === 'delete') {
-        if (user.isMaster) return this.fail('Master admin cannot be deleted.');
-        if (user.id === this.state.currentUser.id) return this.fail('You cannot delete your own account.');
-        if (!confirm(`Delete ${Utils.fullName(user)}? This cannot be undone.`)) return;
-        await Data.adapter.deleteUser(user.id);
-        this.state.selectedUsers = this.state.selectedUsers.filter((x) => x !== user.id);
-      } else if (action === 'invite-user' || action === 'invite-admin') {
-        if (!this.isFirebaseMode()) return this.fail('Invites are unavailable in offline mode.');
-        const existing = this.state.invites.find((i) => !i.usedAt && i.userId === user.id && i.inviteType === (action === 'invite-admin' ? 'admin' : 'user'));
-        const code = existing?.code || this._generateInviteCode();
-        const invite = {
-          id: existing?.id || code,
-          code,
-          userId: user.id,
-          inviteType: action === 'invite-admin' ? 'admin' : 'user',
-          createdAt: new Date().toISOString(),
-          usedAt: null,
-          usedBy: null
-        };
-        await Data.adapter.createInvite(invite);
-        await this._saveFirebaseInvite(invite);
-        const ok = await this._saveWithConflictResolver('User', {
-          ...user,
-          userType: invite.inviteType,
-          isAdmin: invite.inviteType === 'admin',
-          canLogin: true,
-          inviteCode: code,
-          invitedAt: invite.createdAt,
-          inviteAcceptedAt: null
-        }, (payload) => Data.adapter.updateUser(payload));
-        if (!ok) return;
-        this.state.inviteDetail = invite;
+      if (!id.startsWith('invite:')) return;
+      const inviteId = id.split(':')[1];
+      const inv = this.state.invites.find((x) => x.id === inviteId);
+      if (!inv) return;
+      if (action === 'view-invite') {
+        this.state.inviteDetail = inv;
         this.navigate('invite-detail');
         return;
       }
-      await this.refresh();
-      if (this.state.editingUserId && this.state.editingUserId === id && action !== 'edit') this.state.editingUserId = null;
-      this.setMessage('User update saved.');
-      this.render();
+      if (action === 'delete-invite') {
+        if (!confirm('Delete this invite?')) return;
+        await Data.adapter.deleteInvite(inv.id);
+        await this._deleteFirebaseInvite(inv.id);
+        await this.refresh();
+        this.setMessage('Invite deleted.');
+        return this.render();
+      }
     });
 
     const bulkDelete = document.querySelector('[data-bulk-delete="1"]');
@@ -2651,24 +2710,120 @@ export const App = {
     }
 
     const editUserForm = document.getElementById('edit-user-form');
-    if (editUserForm && this.state.editingUserId) {
+    if (editUserForm && this.state.selectedUserId) {
       this.bindAsyncFormSubmit(editUserForm, async () => {
-        const user = this.state.users.find((entry) => entry.id === this.state.editingUserId);
+        const user = this.selectedUser();
         if (!user) return this.fail('User not found.');
         const firstName = editUserForm.firstName.value.trim();
         const lastName = editUserForm.lastName.value.trim();
+        if (!firstName) return this.fail('First name is required.');
         const ok = await this._saveWithConflictResolver('User', { ...user, firstName, lastName }, (payload) => Data.adapter.updateUser(payload));
         if (!ok) return;
-        this.state.editingUserId = null;
         await this.refresh();
         this.setMessage('User update saved.');
         this.render();
       });
     }
-    const cancelEditUser = document.getElementById('btn-cancel-edit-user');
-    if (cancelEditUser) cancelEditUser.onclick = () => {
-      this.state.editingUserId = null;
+
+    const userTypeForm = document.getElementById('user-type-form');
+    if (userTypeForm && this.state.selectedUserId) {
+      this.bindAsyncFormSubmit(userTypeForm, async () => {
+        const user = this.selectedUser();
+        if (!user) return this.fail('User not found.');
+        const nextType = userTypeForm.userType.value;
+        const allowed = this.managedUserTypeOptions(user).map((option) => option.value);
+        if (!allowed.includes(nextType)) return this.fail('This user type cannot be set from this page.');
+        if (user.isMaster || nextType === 'master') return this.fail('Master role cannot be changed.');
+        if (user.id === this.state.currentUser.id && nextType !== 'admin') return this.fail('You cannot remove your own admin access.');
+        const ok = await this._saveWithConflictResolver('User', {
+          ...user,
+          userType: nextType,
+          isAdmin: nextType === 'admin',
+          isMaster: false,
+          canLogin: nextType !== 'participant'
+        }, (payload) => Data.adapter.updateUser(payload));
+        if (!ok) return;
+        await this.refresh();
+        this.setMessage('User type updated.');
+        this.render();
+      });
+    }
+
+    const resetUserPassword = document.getElementById('btn-reset-user-password');
+    if (resetUserPassword) resetUserPassword.onclick = async () => {
+      const user = this.selectedUser();
+      if (!user) return this.fail('User not found.');
+      if (this.isFirebaseMode()) {
+        const email = user.username;
+        if (!email) return this.fail('No email address on record for this user.');
+        try {
+          await FirestoreAdapter.sendPasswordResetEmail(email);
+          this.setMessage(`Password reset email sent to ${email}.`);
+          this.render();
+        } catch (err) {
+          this.fail(`Failed to send reset email: ${err.message || err}`);
+        }
+        return;
+      }
+      const password = prompt(`New password for ${Utils.fullName(user)}:`);
+      if (password === null) return;
+      if (!Utils.validPassword(password)) return this.fail('Password must include 8+ chars, letter, number and symbol.');
+      const confirmPwd = prompt('Confirm new password:');
+      if (confirmPwd !== password) return this.fail('Passwords do not match.');
+      const hash = await Security.createPasswordRecord(password);
+      const ok = await this._saveWithConflictResolver('User', { ...user, password: hash }, (payload) => Data.adapter.updateUser(payload));
+      if (!ok) return;
+      await this.refresh();
+      this.setMessage('Password updated.');
       this.render();
+    };
+
+    document.querySelectorAll('[data-user-invite]').forEach((button) => button.onclick = async () => {
+      const user = this.selectedUser();
+      if (!user) return this.fail('User not found.');
+      if (!this.isFirebaseMode()) return this.fail('Invites are unavailable in offline mode.');
+      const inviteType = button.dataset.userInvite;
+      const existing = this.state.invites.find((invite) => !invite.usedAt && invite.userId === user.id && invite.inviteType === inviteType);
+      const code = existing?.code || this._generateInviteCode();
+      const invite = {
+        id: existing?.id || code,
+        code,
+        userId: user.id,
+        inviteType,
+        createdAt: new Date().toISOString(),
+        usedAt: null,
+        usedBy: null
+      };
+      await Data.adapter.createInvite(invite);
+      await this._saveFirebaseInvite(invite);
+      const ok = await this._saveWithConflictResolver('User', {
+        ...user,
+        userType: inviteType,
+        isAdmin: inviteType === 'admin',
+        canLogin: true,
+        inviteCode: code,
+        invitedAt: invite.createdAt,
+        inviteAcceptedAt: null
+      }, (payload) => Data.adapter.updateUser(payload));
+      if (!ok) return;
+      await this.refresh();
+      this.state.inviteDetail = invite;
+      this.navigate('invite-detail', { keepFlash: true });
+    });
+
+    const deleteUserButton = document.getElementById('btn-delete-user');
+    if (deleteUserButton) deleteUserButton.onclick = async () => {
+      const user = this.selectedUser();
+      if (!user) return this.fail('User not found.');
+      if (user.isMaster) return this.fail('Master admin cannot be deleted.');
+      if (user.id === this.state.currentUser.id) return this.fail('You cannot delete your own account.');
+      if (!confirm(`Delete ${Utils.fullName(user)}? This cannot be undone.`)) return;
+      await Data.adapter.deleteUser(user.id);
+      this.state.selectedUsers = this.state.selectedUsers.filter((id) => id !== user.id);
+      this.state.selectedUserId = null;
+      await this.refresh();
+      this.setMessage('User deleted.');
+      this.navigate('users', { keepFlash: true, replace: true });
     };
 
     const resetForm = document.getElementById('server-reset-form');
@@ -2712,6 +2867,7 @@ export const App = {
         this.state.pendingInviteCode = '';
         this.state.redirectAfterLogin = 'overview';
         this.state.inviteDetail = null;
+        this.state.selectedUserId = null;
         this.state.selectedUsers = [];
         this.setMessage('Server reset complete.');
         history.replaceState(null, '', window.location.pathname);

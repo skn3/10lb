@@ -213,7 +213,7 @@ All navigation uses hash routing. Routes:
 | `#/submit` | Authenticated users. |
 | `#/settings` | Authenticated users. |
 | `#/create`, `#/edit`, `#/delete` | Admin users only. |
-| `#/users`, `#/invite-detail` | Admin users only. |
+| `#/users`, `#/user?id=...`, `#/create_participant`, `#/invite-detail` | Admin users only. |
 | `#/denied` | Access denied fallback. |
 
 Route guards are implemented in `plugin.guardRoute()` and `plugin.canAccess()`. The App never directly checks `isInstalled()` in routing logic — it always delegates to the plugin.
@@ -230,7 +230,9 @@ Current form inventory:
 - `install-form` — install server
 - `login-form` — login
 - `join-form` — invite registration
+- `create-participant-form` — create participant
 - `edit-user-form` — edit user
+- `user-type-form` — change user type
 - `create-form` — start new round
 - `edit-form` — edit round
 - `delete-form` — delete round
