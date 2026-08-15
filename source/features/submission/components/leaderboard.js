@@ -58,6 +58,51 @@ export const Leaderboard = {
     </div>`;
   },
 
+  renderReact(view, round, appSettings, prizeRanks) {
+    const React = window.React;
+    if (!React) return null;
+    const e = React.createElement;
+    const unit = appSettings.weightFormat || 'lb';
+    const rows = view.ranked.map((r, i) => this.renderRow(r, i + 1, prizeRanks, unit));
+    return e('div', { className: 'card', style: { marginTop: '10px' } },
+      e('strong', null, 'Leaderboard'),
+      DataTable.renderReact({
+        headers: ['Rank', 'User', '% Lost', 'This Week', 'Total'],
+        rows,
+        emptyMessage: 'No leaderboard data yet.',
+        colSpan: 5
+      }),
+      view.holiday.length
+        ? e(React.Fragment, null,
+          e('h4', null, 'Holiday'),
+          DataTable.renderReact({
+            headers: ['Name', 'Holidays used / allowed'],
+            rows: view.holiday.map((x) => [
+              Utils.esc(Utils.fullName(x.user)),
+              `${x.holidaysUsed} / ${round.holidaysAllowed}`
+            ])
+          })
+        )
+        : null,
+      view.forfeit.length
+        ? e(React.Fragment, null,
+          e('h4', null, 'Forfeit'),
+          DataTable.renderReact({
+            headers: ['Name'],
+            rows: view.forfeit.map((x) => [Utils.esc(Utils.fullName(x.user))])
+          })
+        )
+        : null,
+      view.pending.length
+        ? e(React.Fragment, null,
+          e('h4', null, 'Pending'),
+          e('ul', null, ...view.pending.map((x, index) => e('li', { key: `${x.user?.id || index}` }, Utils.fullName(x.user))))
+        )
+        : null,
+      e('div', { style: { marginTop: '12px' } }, e('canvas', { id: WeightChart.CANVAS_ID, height: 220 }))
+    );
+  },
+
   /**
    * Single leaderboard table row.
    * @param {object} r          ranked entry from Domain.weekView().ranked

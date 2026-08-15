@@ -8,7 +8,10 @@ import { InvitesService } from '../../invites/classes/invitesService.js';
 import { AuthService } from '../../authentication/classes/authService.js';
 import { Security } from '../../../shared/classes/security.js';
 import { generateInviteCode } from '../../invites/utils/inviteCodeUtils.js';
+import { AppStore } from '../../../shared/classes/appStore.js';
 import { Tabs } from '../../../shared/components/tabs.js';
+
+const React = window.React;
 
 // =============================================================================
 // USER ADMIN PAGE — View/edit individual user, manage type, invite, delete
@@ -280,4 +283,296 @@ export function bindUserAdminEvents(app) {
     app.setMessage('User deleted.');
     app.navigate('users', { keepFlash: true, replace: true });
   };
+}
+
+export function UserAdminPage({ app }) {
+  const e = React.createElement;
+
+  // Compute user before hooks (hooks must be called unconditionally)
+  const user = app.state.users.find((entry) => entry.id === app.state.selectedUserId) || null;
+
+  // ── All hooks must be at the top, before any conditional returns ──────────
+  const editFormRef = React.useRef(null);
+  const settingsFormRef = React.useRef(null);
+  const passwordFormRef = React.useRef(null);
+  const typeFormRef = React.useRef(null);
+  const [theme, setTheme] = React.useState(user?.theme || null);
+  const [typeValue, setTypeValue] = React.useState(user?.userType || 'user');
+
+  React.useEffect(() => { setTheme(user?.theme || null); }, [user?.id, user?.theme]);
+  React.useEffect(() => { setTypeValue(user?.userType || 'user'); }, [user?.id, user?.userType]);
+
+  React.useEffect(() => {
+    const form = editFormRef.current;
+    if (!form) return;
+    app.bindAsyncFormSubmit(form, async () => {
+      const current = app.state.users.find((entry) => entry.id === app.state.selectedUserId) || null;
+      if (!current) return app.fail('User not found.');
+      const firstName = form.firstName.value.trim();
+      const lastName = form.lastName.value.trim();
+      if (!firstName) return app.fail('First name is required.');
+      const ok = await app._saveWithConflictResolver('User', { ...current, firstName, lastName }, (payload) => UsersService.updateUser(payload));
+      if (!ok) return;
+      await app.refresh();
+      app.setMessage('User update saved.');
+      AppStore.dispatch(app, {});
+    });
+  }, [app]);
+
+  React.useEffect(() => {
+    const form = settingsFormRef.current;
+    if (!form) return;
+    app.bindAsyncFormSubmit(form, async () => {
+      const current = app.state.users.find((entry) => entry.id === app.state.selectedUserId) || null;
+      if (!current) return app.fail('User not found.');
+      const ok = await app._saveWithConflictResolver('User', { ...current, theme: theme || null }, (payload) => UsersService.updateUser(payload));
+      if (!ok) return;
+      await app.refresh();
+      app.setMessage('Settings saved.');
+      AppStore.dispatch(app, {});
+    });
+  }, [app, theme]);
+
+  React.useEffect(() => {
+    const form = passwordFormRef.current;
+    if (!form) return;
+    app.bindAsyncFormSubmit(form, async () => {
+      const currentPassword = form.currentPassword.value;
+      const newPassword = form.newPassword.value;
+      const confirmPassword = form.confirmPassword.value;
+      if (!Utils.validPassword(newPassword)) return app.fail('New password must include 8+ chars, letter, number and symbol.');
+      if (newPassword !== confirmPassword) return app.fail('Passwords do not match.');
+      if (app.isFirebaseMode()) {
+        const email = app.state.currentUser?.username;
+        try { await AuthService.signInWithEmail(email, currentPassword); } catch { return app.fail('Current password is incorrect.'); }
+        try { await AuthService.updateFirebasePassword(newPassword); } catch (err) { return app.fail(`Password update failed: ${err.message || err}`); }
+        app.setMessage('Password changed.');
+        AppStore.dispatch(app, {});
+        return;
+      }
+      const ok = await Security.verifyPassword(currentPassword, app.state.currentUser.password);
+      if (!ok) return app.fail('Current password is incorrect.');
+      const hash = await Security.createPasswordRecord(newPassword);
+      const saved = await app._saveWithConflictResolver('User', { ...app.state.currentUser, password: hash }, (payload) => UsersService.updateUser(payload));
+      if (!saved) return;
+      await app.refresh();
+      app.setMessage('Password changed.');
+      AppStore.dispatch(app, {});
+    });
+  }, [app]);
+
+  React.useEffect(() => {
+    const form = typeFormRef.current;
+    if (!form) return;
+    app.bindAsyncFormSubmit(form, async () => {
+      const current = app.state.users.find((entry) => entry.id === app.state.selectedUserId) || null;
+      if (!current) return app.fail('User not found.');
+      const allowed = UsersService.managedUserTypeOptions(current).map((option) => option.value);
+      if (!allowed.includes(typeValue)) return app.fail('This user type cannot be set from this page.');
+      if (current.isMaster || typeValue === 'master') return app.fail('Master role cannot be changed.');
+      if (current.id === app.state.currentUser.id && typeValue !== 'admin') return app.fail('You cannot remove your own admin access.');
+      const ok = await app._saveWithConflictResolver('User', {
+        ...current,
+        userType: typeValue,
+        isAdmin: typeValue === 'admin',
+        isMaster: false,
+        canLogin: typeValue !== 'participant'
+      }, (payload) => UsersService.updateUser(payload));
+      if (!ok) return;
+      await app.refresh();
+      app.setMessage('User type updated.');
+      AppStore.dispatch(app, {});
+    });
+  }, [app, typeValue]);
+
+  // ── Early returns (after all hooks) ──────────────────────────────────────
+  if (!app.isAdmin()) return e('div', { dangerouslySetInnerHTML: { __html: app._renderDenied() } });
+  if (!user) {
+    return e('div', { className: 'card', style: { maxWidth: '640px', margin: '0 auto' } },
+      e('h2', { style: { marginTop: 0 } }, 'User not found'),
+      e('p', { className: 'muted' }, 'The selected user no longer exists.')
+    );
+  }
+
+  const isOwnAccount = user.id === app.state.currentUser?.id;
+  const stats = SubmissionService.userStats(user, app.state.rounds, app.state.submissions, app.state.users);
+  const typeOptions = UsersService.managedUserTypeOptions(user);
+  const pendingInvites = app.isFirebaseMode() ? app.state.invites.filter((invite) => !invite.usedAt && invite.userId === user.id) : [];
+  const typeLocked = typeOptions.length === 1;
+  const canDelete = !user.isMaster && !isOwnAccount;
+  const showUserTypeCard = app.isAdmin() && !isOwnAccount;
+  const showResetPassword = !isOwnAccount && ((!app.isFirebaseMode() && user.canLogin !== false) || (app.isFirebaseMode() && !!user.firebaseUid));
+  const serverDefaultTheme = app.state.appSettings?.theme || 'teal';
+
+  return e('div', { style: { maxWidth: '760px', margin: '0 auto' } },
+    e('div', { className: 'card', style: { marginBottom: '12px' } },
+      e('div', { style: { marginBottom: '12px' } },
+        e('h2', { style: { margin: 0 } }, Utils.fullName(user)),
+        e('div', { className: 'small muted' }, `${UsersService.roleLabel(user)} • ${UsersService.userLoginLabel(user)}`)
+      ),
+      e('div', { className: 'grid two', style: { marginBottom: 0 } },
+        e('div', { className: 'card' }, e('strong', null, 'Rounds participated'), e('div', null, String(stats.roundsParticipated))),
+        e('div', { className: 'card' }, e('strong', null, 'Current challenge'), e('div', null, stats.inCurrentRound ? 'In current round' : 'Not in current round')),
+        e('div', { className: 'card' }, e('strong', null, 'Total cash won'), e('div', null, Utils.money(stats.totalCashWon, app.state.appSettings.currency))),
+        e('div', { className: 'card' }, e('strong', null, 'Total weight lost/gained'), e('div', null, `${stats.totalWeightDelta}${app.state.appSettings.weightFormat}`))
+      )
+    ),
+    e('div', { className: 'card', style: { marginBottom: '12px' } },
+      e('h3', { style: { marginTop: 0 } }, 'User details'),
+      e('form', { id: 'edit-user-form', ref: editFormRef, action: '#', className: 'grid two' },
+        e('div', null, e('label', null, 'First name'), e('input', { name: 'firstName', type: 'text', required: true, autoComplete: 'given-name', defaultValue: user.firstName || '' })),
+        e('div', null, e('label', null, 'Last name'), e('input', { name: 'lastName', type: 'text', autoComplete: 'family-name', defaultValue: user.lastName || '' })),
+        e('div', { style: { gridColumn: '1/-1' } }, e('label', null, 'Email / login'), e('input', { name: 'username', type: 'text', disabled: true, defaultValue: user.username || '', placeholder: 'No login email' })),
+        e('div', { style: { gridColumn: '1/-1' }, className: 'row' },
+          e('button', { type: 'submit', className: 'btn' }, e('span', { className: 'material-symbols-rounded', 'aria-hidden': 'true' }, 'save'), 'Save user'))
+      )
+    ),
+    isOwnAccount
+      ? e('div', { className: 'card', style: { marginBottom: '12px' } },
+        e('h3', { style: { marginTop: 0 } }, 'Settings'),
+        e('form', { id: 'user-settings-form', ref: settingsFormRef, action: '#', className: 'grid two' },
+          e('div', { style: { gridColumn: '1/-1' } }, ThemePicker.renderReact({
+            options: ThemeOptions,
+            selectedValue: theme,
+            defaultTheme: serverDefaultTheme,
+            inputName: 'theme',
+            onChange: (value) => setTheme(value)
+          })),
+          e('div', { style: { gridColumn: '1/-1' }, className: 'row' },
+            e('button', { type: 'submit', className: 'btn secondary' }, e('span', { className: 'material-symbols-rounded', 'aria-hidden': 'true' }, 'save'), 'Save settings'))
+        )
+      )
+      : null,
+    isOwnAccount
+      ? e('div', { className: 'card', style: { marginBottom: '12px' } },
+        e('h3', { style: { marginTop: 0 } }, 'Change password'),
+        e('form', { id: 'user-password-form', ref: passwordFormRef, action: '#', className: 'grid two' },
+          e('div', null, e('label', null, 'Current password'), e('input', { name: 'currentPassword', type: 'password', required: true, autoComplete: 'current-password' })),
+          e('div'),
+          e('div', null, e('label', null, 'New password'), e('input', { name: 'newPassword', type: 'password', required: true, minLength: 8, pattern: '(?=.*[A-Za-z])(?=.*\\d)(?=.*[^A-Za-z\\d]).{8,}', title: 'Use at least 8 characters including a letter, a number, and a symbol.', autoComplete: 'new-password' })),
+          e('div', null, e('label', null, 'Confirm new password'), e('input', { name: 'confirmPassword', type: 'password', required: true, minLength: 8, pattern: '(?=.*[A-Za-z])(?=.*\\d)(?=.*[^A-Za-z\\d]).{8,}', title: 'Use at least 8 characters including a letter, a number, and a symbol.', autoComplete: 'new-password' })),
+          e('div', { style: { gridColumn: '1/-1' } }, e('button', { type: 'submit', className: 'btn secondary' }, e('span', { className: 'material-symbols-rounded', 'aria-hidden': 'true' }, 'password'), 'Change password'))
+        )
+      )
+      : null,
+    showUserTypeCard
+      ? e('div', { className: 'card', style: { marginBottom: '12px' } },
+        e('h3', { style: { marginTop: 0 } }, 'User type'),
+        e('form', { id: 'user-type-form', ref: typeFormRef, action: '#', className: 'grid two' },
+          e('div', null,
+            e('label', null, 'Type'),
+            e('select', {
+              name: 'userType',
+              disabled: typeLocked,
+              value: typeValue,
+              onChange: (event) => setTypeValue(event.target.value)
+            }, ...typeOptions.map((option) => e('option', { key: option.value, value: option.value }, option.label)))
+          ),
+          e('div', { className: 'small muted', style: { alignSelf: 'end' } }, user.isMaster ? 'Master type is locked.' : typeLocked ? 'This participant cannot be promoted from this page.' : 'Changing to participant removes login access.'),
+          e('div', { style: { gridColumn: '1/-1' }, className: 'row' },
+            e('button', { type: 'submit', className: 'btn secondary', disabled: typeLocked }, e('span', { className: 'material-symbols-rounded', 'aria-hidden': 'true' }, 'manage_accounts'), 'Save type'))
+        )
+      )
+      : null,
+    e('div', { className: 'card' },
+      e('h3', { style: { marginTop: 0 } }, 'Actions'),
+      e('div', { className: 'row', style: { flexWrap: 'wrap' } },
+        showResetPassword ? e('button', {
+          type: 'button',
+          className: 'btn secondary',
+          onClick: async () => {
+            const current = app.state.users.find((entry) => entry.id === app.state.selectedUserId) || null;
+            if (!current) return app.fail('User not found.');
+            if (app.isFirebaseMode()) {
+              const email = current.username;
+              if (!email) return app.fail('No email address on record for this user.');
+              try {
+                await AuthService.sendPasswordResetEmail(email);
+                app.setMessage(`Password reset email sent to ${email}.`);
+                AppStore.dispatch(app, {});
+              } catch (err) {
+                app.fail(`Failed to send reset email: ${err.message || err}`);
+              }
+              return;
+            }
+            const password = prompt(`New password for ${Utils.fullName(current)}:`);
+            if (password === null) return;
+            if (!Utils.validPassword(password)) return app.fail('Password must include 8+ chars, letter, number and symbol.');
+            const confirmPwd = prompt('Confirm new password:');
+            if (confirmPwd !== password) return app.fail('Passwords do not match.');
+            const hash = await Security.createPasswordRecord(password);
+            const ok = await app._saveWithConflictResolver('User', { ...current, password: hash }, (payload) => UsersService.updateUser(payload));
+            if (!ok) return;
+            await app.refresh();
+            app.setMessage('Password updated.');
+            AppStore.dispatch(app, {});
+          }
+        }, e('span', { className: 'material-symbols-rounded', 'aria-hidden': 'true' }, 'password'), 'Reset password') : null,
+        (app.isFirebaseMode() && user.userType === 'participant' && !user.firebaseUid)
+          ? ['user', 'admin'].map((inviteType) => e('button', {
+            key: inviteType,
+            type: 'button',
+            className: 'btn secondary',
+            onClick: async () => {
+              if (!app.isFirebaseMode()) return app.fail('Invites are unavailable in offline mode.');
+              const current = app.state.users.find((entry) => entry.id === app.state.selectedUserId) || null;
+              if (!current) return app.fail('User not found.');
+              const existing = app.state.invites.find((invite) => !invite.usedAt && invite.userId === current.id && invite.inviteType === inviteType);
+              const code = existing?.code || generateInviteCode();
+              const invite = {
+                id: existing?.id || code,
+                code,
+                userId: current.id,
+                inviteType,
+                createdAt: new Date().toISOString(),
+                usedAt: null,
+                usedBy: null
+              };
+              await InvitesService.createInvite(invite);
+              const ok = await app._saveWithConflictResolver('User', {
+                ...current,
+                userType: inviteType,
+                isAdmin: inviteType === 'admin',
+                canLogin: true,
+                inviteCode: code,
+                invitedAt: invite.createdAt,
+                inviteAcceptedAt: null
+              }, (payload) => UsersService.updateUser(payload));
+              if (!ok) return;
+              await app.refresh();
+              app.state.inviteDetail = invite;
+              app.navigate('invite-detail', { keepFlash: true });
+            }
+          }, e('span', { className: 'material-symbols-rounded', 'aria-hidden': 'true' }, 'person_add'), `Invite as ${inviteType}`))
+          : null,
+        ...pendingInvites.map((invite) => e('button', {
+          key: invite.id,
+          type: 'button',
+          className: 'btn secondary',
+          onClick: () => {
+            app.state.inviteDetail = invite;
+            app.navigate('invite-detail');
+          }
+        }, e('span', { className: 'material-symbols-rounded', 'aria-hidden': 'true' }, 'qr_code'), `View ${invite.inviteType || 'user'} invite`)),
+        canDelete ? e('button', {
+          type: 'button',
+          className: 'btn danger',
+          onClick: async () => {
+            const current = app.state.users.find((entry) => entry.id === app.state.selectedUserId) || null;
+            if (!current) return app.fail('User not found.');
+            if (current.isMaster) return app.fail('Master admin cannot be deleted.');
+            if (current.id === app.state.currentUser.id) return app.fail('You cannot delete your own account.');
+            if (!confirm(`Delete ${Utils.fullName(current)}? This cannot be undone.`)) return;
+            await UsersService.deleteUser(current.id);
+            app.state.selectedUsers = app.state.selectedUsers.filter((id) => id !== current.id);
+            app.state.selectedUserId = null;
+            await app.refresh();
+            app.setMessage('User deleted.');
+            app.navigate('users', { keepFlash: true, replace: true });
+          }
+        }, e('span', { className: 'material-symbols-rounded', 'aria-hidden': 'true' }, 'delete'), 'Delete user') : null,
+        isOwnAccount ? e('button', { type: 'button', className: 'btn secondary', onClick: () => app.logout() }, e('span', { className: 'material-symbols-rounded', 'aria-hidden': 'true' }, 'logout'), 'Logout') : null
+      )
+    )
+  );
 }

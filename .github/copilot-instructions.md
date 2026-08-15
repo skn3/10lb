@@ -4,7 +4,7 @@
 
 **10lb Challenge** is a single-page web application (SPA) for tracking weight-loss challenges. Participants record weekly weigh-ins; the app calculates progress, rankings, and prize distributions.
 
-The application is written in **vanilla JavaScript (ES2020)** using ES modules, bundled with esbuild. React 18 is used for a small number of UI components (nav bar, auth chip, snackbar); the rest of the UI is rendered via direct `innerHTML` assignment. There is no TypeScript, no JSX, no npm packages beyond esbuild (dev only).
+The application is written in **vanilla JavaScript (ES2020)** using ES modules, bundled with esbuild. React 18 is loaded from CDN and now drives the app shell plus migrated page components via `window.React` / `window.ReactDOM`; legacy pages and shared helpers may still expose HTML-string render paths for the non-React fallback. There is no TypeScript, no JSX, no npm packages beyond esbuild (dev only).
 
 ---
 
@@ -14,7 +14,7 @@ The application is written in **vanilla JavaScript (ES2020)** using ES modules, 
 |---|---|
 | Language | Vanilla JavaScript (ES2020, no TypeScript) |
 | Bundler | esbuild (dev dependency only — no runtime imports) |
-| UI | React 18 (CDN, loaded at runtime) + `innerHTML` rendering |
+| UI | React 18 (CDN, loaded at runtime) with React-first shell/page rendering and legacy HTML-string fallback paths |
 | Routing | Hash-based (`#/route`) — `hashchange` events, no React Router |
 | Local storage | IndexedDB via `OfflineAdapter` |
 | Remote storage | Firestore via `FirestoreAdapter` (optional) |
@@ -38,7 +38,7 @@ source/
   features/
     app/                     — App lifecycle, routing, nav, PWA
       classes/               — appService.js, appController.js
-      components/            — breadcrumb.js, menuBar.js, snackbar.js, siteHeader.js, siteFooter.js
+      components/            — appShell.js, breadcrumb.js, menuBar.js, pageOutlet.js, snackbar.js, siteHeader.js, siteFooter.js
       pages/                 — deniedPage.js, installPage.js, joinPage.js, loginPage.js
       utils/                 — utils.js
     authentication/          — plugins (offline/firebase), auth helpers
@@ -76,6 +76,7 @@ source/
       models/                — data.js
   shared/
     utils/utils.js            — Utils (esc, id, validEmail, …) — used by all features
+    classes/appStore.js       — thin React context wrapper over App.state for unified shell rendering
     classes/security.js       — Security (PBKDF2 hashing) — used by auth, settings, users, app
     classes/device.js         — Device (stable client ID) — used by auth, storage, app
     components/
@@ -250,9 +251,9 @@ Specifically:
 
 - `App.state` — all mutable UI state (route, message, error, rounds, users, currentUser, …)
 - `App.plugin` — active `ServerPlugin` (set in `App.init()`)
-- `App.react` — React root references
+- `App.react` — unified React shell root metadata
 
-Key lifecycle methods: `init()`, `render()`, `refresh()`, `navigate(route)`, `resolveScreen()`.
+Key lifecycle methods: `init()`, `render()`, `refresh()`, `navigate(route)`, `resolveScreen()`. In React mode, `render()` triggers `AppStore.dispatch()` and the unified `AppShell` diff-updates chrome + page content instead of replacing DOM nodes.
 
 Navigation helpers include `createBreadcrumb(label, route, options)`, `getBreadcrumbs(route)`, and `getActiveMenuKey(route)` (resolves the correct top-level menu item for sub-pages via `PageMenuMap`); `AppService` re-exports these APIs for cross-feature callers.
 
@@ -374,7 +375,7 @@ Then copy `source/index.html`, `source/sw.js`, `source/fonts/` into `dist/`. See
 
 ## Coding Conventions
 
-- **No TypeScript**. No JSX (except in the 3 React component files).
+- **No TypeScript**. No JSX — use `window.React.createElement(...)` in every React component.
 - **1 class per file** — models, enums, services, controllers each in their own file.
 - **ES module imports** — use relative paths. Paths from `features/foo/classes/` to `shared/` need `../../../shared/`. Paths from `features/foo/components/` to the owning feature's classes need `../classes/`.
 - **No side effects at module level** — no code runs on import.
