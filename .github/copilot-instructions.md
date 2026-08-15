@@ -252,6 +252,8 @@ Specifically:
 
 Key lifecycle methods: `init()`, `render()`, `refresh()`, `navigate(route)`, `resolveScreen()`.
 
+Navigation helpers include `createBreadcrumb(label, route, options)` and `getBreadcrumbs(route)`; `AppService` re-exports the same breadcrumb API for cross-feature callers.
+
 Helpers available to all page modules:
 ```js
 app.bindAsyncFormSubmit(form, handler)  // required for every form
