@@ -10,6 +10,7 @@ import { AuthService } from '../../authentication/classes/authService.js';
 import { MenuBar } from '../components/menuBar.js';
 import { Snackbar } from '../components/snackbar.js';
 import { SiteHeader } from '../components/siteHeader.js';
+import { Breadcrumb } from '../components/breadcrumb.js';
 import { renderSiteFooter } from '../components/siteFooter.js';
 import { WeightChart } from '../../../shared/components/weightChart.js';
 import { AppStore } from '../../../shared/classes/appStore.js';
@@ -82,6 +83,7 @@ export const App = {
     weekCursor: {},
     createDraft: null,
     settingsTab: 'server',
+    userAdminTab: 'info',
     currentUser: null,
     appSettings: null,
     sessionToken: null,
@@ -178,8 +180,13 @@ export const App = {
     const parsed = this._readHashRoute();
     const invite = parsed.params.get('invite');
     const selectedUserId = parsed.route === 'user' ? String(parsed.params.get('id') || '').trim() : '';
+    const tabParam = parsed.params.get('tab');
     if (invite) this.state.pendingInviteCode = invite.toUpperCase();
     this.state.selectedUserId = selectedUserId || null;
+    if (tabParam) {
+      if (parsed.route === 'user') this.state.userAdminTab = tabParam;
+      else if (parsed.route === 'settings') this.state.settingsTab = tabParam;
+    }
     const requested = parsed.route || this._defaultRoute();
     if (this.isInstalled() && !this.isAuthenticated() && !['login', 'join', 'install'].includes(requested)) {
       this.state.redirectAfterLogin = requested;
@@ -192,7 +199,7 @@ export const App = {
     }
     this.state.route = resolved;
     const expectedHash = this._buildHashRoute(resolved);
-    if (window.location.hash !== expectedHash) {
+    if (!tabParam && window.location.hash !== expectedHash) {
       history.replaceState(null, '', `${window.location.pathname}${expectedHash}`);
     }
   },
@@ -739,12 +746,14 @@ export const App = {
     const nav = document.getElementById('nav');
     const authChip = document.getElementById('auth-chip');
     const syncBar = document.getElementById('sync-bar');
+    const headerBreadcrumb = document.getElementById('header-breadcrumb');
     const model = this._baseNavModel();
     if (!this.isInstalled() || !this.isAuthenticated()) {
       if (!this.react.enabled) {
         nav.innerHTML = '';
         authChip.innerHTML = '';
         if (syncBar) syncBar.style.display = 'none';
+        if (headerBreadcrumb) { headerBreadcrumb.innerHTML = ''; headerBreadcrumb.classList.remove('visible'); }
       }
       this._syncNavVisibility(nav, false);
       return model;
@@ -758,11 +767,19 @@ export const App = {
     model.authUserType = this.state.currentUser?.userType || (this.state.currentUser?.isMaster ? 'master' : (this.state.currentUser?.isAdmin ? 'admin' : 'user'));
     model.authUserId = this.state.currentUser?.id || '';
     if (!this.react.enabled) {
-      nav.innerHTML = MenuBar.render(model.items, model.breadcrumbs, this.state.route, (key, options = {}) => this._buildHashRoute(key, options));
+      nav.innerHTML = MenuBar.render(model.items, this.state.route, (key, options = {}) => this._buildHashRoute(key, options));
       MenuBar.attachClickHandler(nav, (route) => this.navigate(route));
       authChip.innerHTML = SiteHeader.renderHTML(model.authName, model.authRole, model.authUserType, model.authUserId);
       const userChipBtn = document.getElementById('btn-auth-chip');
       if (userChipBtn) userChipBtn.onclick = () => this.navigate('user', { userId: model.authUserId });
+      if (headerBreadcrumb) {
+        const bcHtml = Breadcrumb.render(model.breadcrumbs, (key, options = {}) => this._buildHashRoute(key, options));
+        headerBreadcrumb.innerHTML = bcHtml;
+        headerBreadcrumb.classList.toggle('visible', model.breadcrumbs.length > 0);
+        headerBreadcrumb.querySelectorAll('a').forEach((a) => {
+          a.onclick = (event) => { event.preventDefault(); const href = a.getAttribute('href').replace(/^#\/?/, ''); const [routeKey, qs] = href.split('?'); const params = new URLSearchParams(qs || ''); const opts = {}; if (params.has('id')) opts.userId = params.get('id'); this.navigate(routeKey, opts); };
+        });
+      }
     }
     const syncStatus = this._buildSyncStatus(this.state.syncMeta);
     model.syncVisible = syncStatus.syncVisible;
@@ -774,6 +791,7 @@ export const App = {
     this._syncNavVisibility(nav, model.items.length > 0);
     return model;
   },
+
 
   // ---------------------------------------------------------------------------
   // Render
@@ -946,7 +964,6 @@ export const App = {
   // ---------------------------------------------------------------------------
   iconForButton(button) {
     if (!button) return '';
-    if (button.id === 'btn-auth-chip') return 'person';
     if (button.id === 'btn-go-login') return 'login';
     if (button.id === 'btn-create-invite') return 'person_add';
     if (button.id === 'btn-delete-all-invites') return 'delete_sweep';

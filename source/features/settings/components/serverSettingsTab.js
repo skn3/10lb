@@ -28,10 +28,16 @@ export function renderServerSettingsTab(app, ThemeOptions) {
     <div><label>Firebase App ID</label><input disabled value="${app.isMaster() ? Utils.escAttr(firebase.appId || '') : ''}" /></div>
     <div style="grid-column:1/-1" class="small muted">Runtime mode and Firebase settings are read from config.js and cannot be changed from UI.</div>
     <div class="row" style="align-items:flex-end">${SubmitButton.render({ text: 'Save server settings', icon: 'save', submit: true })}</div>
-  </form>
+  </form>`;
+}
 
-  <div class="card" style="margin-top:12px">
-    <h3 style="margin-top:0">Reset server</h3>
+// =============================================================================
+// RESET SERVER TAB component
+// =============================================================================
+export function renderResetServerTab(app) {
+  if (!app.isAdmin()) return `<p class="error">Access denied.</p>`;
+  return `<div>
+    <p class="muted" style="margin-top:0">Resetting the server will remove all data and return the app to the initial install state.</p>
     ${app.state.currentUser.isMaster ? `<form id="server-reset-form" class="grid two">
         <div><label>Master password</label><input name="password" type="password" required autocomplete="current-password" /></div>
         <div><label for="server-reset-form-confirm-1">Confirm reset</label><label class="row"><input id="server-reset-form-confirm-1" data-label="Confirm reset" style="width:auto" type="checkbox" name="confirm" required /> Yes, uninstall this server</label></div>

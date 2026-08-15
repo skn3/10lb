@@ -24,9 +24,10 @@ export const SiteHeader = {
   renderHTML(authName, authRole, authUserType, authUserId) {
     if (!authName) return '';
     const icon = UserTypeIcon[authUserType] || UserTypeIcon['user'];
-    return `<button type="button" class="btn secondary small" id="btn-auth-chip" data-user-id="${Utils.escAttr(authUserId)}">` +
-      `<span class="material-symbols-rounded" aria-hidden="true" style="font-size:1em;vertical-align:middle">${Utils.esc(icon)}</span>` +
-      ` ${Utils.esc(authName)} <span class="tag">${Utils.esc(authRole)}</span>` +
+    return `<button type="button" class="btn secondary small auth-chip" id="btn-auth-chip" data-icon-skip="1" data-icon-default="${Utils.escAttr(icon)}" data-user-id="${Utils.escAttr(authUserId)}">` +
+      `<span class="btn-icon material-symbols-rounded" aria-hidden="true">${Utils.esc(icon)}</span>` +
+      `<span class="btn-label">${Utils.esc(authName)}</span>` +
+      ` <span class="tag">${Utils.esc(authRole)}</span>` +
       `</button>`;
   },
 
@@ -47,13 +48,13 @@ export const SiteHeader = {
     const icon = UserTypeIcon[authUserType] || UserTypeIcon['user'];
     return e('button', {
       type: 'button',
-      className: 'btn secondary small',
+      className: 'btn secondary small auth-chip',
       id: 'btn-auth-chip',
+      'data-icon-skip': '1',
       onClick: () => onNavigate && onNavigate(authUserId)
     },
-      e('span', { className: 'material-symbols-rounded', 'aria-hidden': 'true', style: { fontSize: '1em', verticalAlign: 'middle' } }, icon),
-      ' ',
-      authName,
+      e('span', { className: 'btn-icon material-symbols-rounded', 'aria-hidden': 'true' }, icon),
+      e('span', { className: 'btn-label' }, authName),
       ' ',
       e('span', { className: 'tag' }, authRole)
     );

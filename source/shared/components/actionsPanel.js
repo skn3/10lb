@@ -18,9 +18,9 @@ export const ActionsPanel = {
       const theme = a.color ? ` ${Utils.esc(a.color)}` : '';
       const disabled = a.disabled ? ' disabled' : '';
       const dataGo = a.route ? ` data-go="${Utils.escAttr(a.route)}"` : '';
-      return `<button type="button" class="btn${theme}"${disabled}${dataGo}>` +
-        `<span class="material-symbols-rounded" aria-hidden="true">${Utils.esc(a.icon)}</span>` +
-        `${Utils.esc(a.title)}</button>`;
+      const iconHtml = a.icon ? `<span class="btn-icon material-symbols-rounded" aria-hidden="true">${Utils.esc(a.icon)}</span>` : '';
+      return `<button type="button" class="btn${theme}" data-icon-skip="1"${disabled}${dataGo}${a.icon ? ` data-icon-default="${Utils.escAttr(a.icon)}"` : ''}>` +
+        `${iconHtml}<span class="btn-label">${Utils.esc(a.title)}</span></button>`;
     }).join('');
     return `<div class="card" style="margin-top:10px"><h3 style="margin-top:0">Actions</h3><div class="row" style="flex-wrap:wrap;gap:8px">${buttons}</div></div>`;
   },

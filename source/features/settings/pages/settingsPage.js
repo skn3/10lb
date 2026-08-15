@@ -5,12 +5,12 @@ import { SyncButton } from '../components/syncButton.js';
 import { AuthService } from '../../authentication/classes/authService.js';
 import { StorageService } from '../../storage/classes/storageService.js';
 import { SettingsService } from '../classes/settingsService.js';
-import { renderServerSettingsTab } from '../components/serverSettingsTab.js';
+import { renderServerSettingsTab, renderResetServerTab } from '../components/serverSettingsTab.js';
 import { renderSyncSettingsTab } from '../components/syncSettingsTab.js';
 import { RuntimeConfig } from '../../../config.js';
-import { SubmitButton } from '../../../shared/components/submitButton.js';
 import { ThemePicker } from '../../../shared/components/themePicker.js';
 import { AppStore } from '../../../shared/classes/appStore.js';
+import { Tabs } from '../../../shared/components/tabs.js';
 
 const React = window.React;
 
@@ -18,41 +18,41 @@ const React = window.React;
 // SETTINGS PAGE
 // =============================================================================
 
-export function renderSettingsPage(app) {
-  const isAdminMode = app.isAdmin();
-  const hasSyncTab = app.isMaster() && app.isFirebaseMode();
-  const showAdminTabs = isAdminMode || hasSyncTab;
+function _buildSettingsTabs(app) {
+  const tabs = [];
+  if (app.isAdmin()) {
+    tabs.push({ key: 'server', label: 'Server settings', content: renderServerSettingsTab(app, ThemeOptions) });
+    tabs.push({ key: 'reset', label: 'Reset server', content: renderResetServerTab(app) });
+  }
+  if (app.isMaster() && app.isFirebaseMode()) {
+    tabs.push({ key: 'sync', label: 'Storage & Sync', content: renderSyncSettingsTab(app) });
+  }
+  return tabs;
+}
 
-  const tab = app.state.settingsTab || 'server';
+export function renderSettingsPage(app) {
+  const tabs = _buildSettingsTabs(app);
+  if (!tabs.length) return `<div class="card"><h2 style="margin-top:0">Settings</h2><p class="muted">No settings available for your account level.</p></div>`;
+
+  const activeTab = app.state.settingsTab || tabs[0].key;
   return `<div class="card">
     <h2 style="margin-top:0">Settings</h2>
-
-    <div class="card" style="margin-bottom:12px">
-      <h3 style="margin-top:0">Your account</h3>
-      <p class="muted" style="margin-top:0">Edit your profile, theme and password on your account page.</p>
-      ${SubmitButton.render({ text: 'User settings', icon: 'person', theme: 'secondary', attrs: { 'type': 'button', 'id': 'btn-go-user-settings' } })}
-    </div>
-
-    ${showAdminTabs ? `<div class="tabs">
-      ${isAdminMode ? `<button data-settings-tab="server" class="${tab === 'server' ? 'active' : ''}">Server settings</button>` : ''}
-      ${hasSyncTab ? `<button data-settings-tab="sync" class="${tab === 'sync' ? 'active' : ''}">Storage &amp; Sync</button>` : ''}
-    </div>
-    ${tab === 'server' ? renderServerSettingsTab(app, ThemeOptions) : renderSyncSettingsTab(app)}` : ''}
+    ${Tabs.render(tabs, activeTab)}
   </div>`;
 }
 
 export function bindSettingsEvents(app) {
-  const goUserSettings = document.getElementById('btn-go-user-settings');
-  if (goUserSettings) goUserSettings.onclick = () => app.navigate('user', { userId: app.state.currentUser?.id });
-
-  document.querySelectorAll('[data-settings-tab]').forEach((b) => b.onclick = () => {
-    app.state.settingsTab = b.dataset.settingsTab;
-    app.render();
-  });
+  const container = document.querySelector('.tabs-component');
+  if (container) {
+    Tabs.bind(container, (key) => {
+      app.state.settingsTab = key;
+      Tabs.pushTabToUrl('settings', key);
+      app.render();
+    });
+  }
 
   const serverSettingsForm = document.getElementById('server-settings-form');
   if (serverSettingsForm) {
-    // Wire ThemePicker live preview within the form
     ThemePicker.bind(serverSettingsForm);
     app.bindAsyncFormSubmit(serverSettingsForm, async () => {
       const rawInstalledAt = serverSettingsForm.installedAt?.value;
