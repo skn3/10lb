@@ -38,7 +38,7 @@ source/
   features/
     app/                     — App lifecycle, routing, nav, PWA
       classes/               — appService.js, appController.js
-      components/            — menuBar.js, snackbar.js, siteHeader.js
+      components/            — breadcrumb.js, menuBar.js, snackbar.js, siteHeader.js
       pages/                 — deniedPage.js, installPage.js, joinPage.js, loginPage.js
       utils/                 — utils.js
     authentication/          — plugins (offline/firebase), auth helpers
@@ -251,6 +251,8 @@ Specifically:
 - `App.react` — React root references
 
 Key lifecycle methods: `init()`, `render()`, `refresh()`, `navigate(route)`, `resolveScreen()`.
+
+Navigation helpers include `createBreadcrumb(label, route, options)` and `getBreadcrumbs(route)`; `AppService` re-exports the same breadcrumb API for cross-feature callers.
 
 Helpers available to all page modules:
 ```js
