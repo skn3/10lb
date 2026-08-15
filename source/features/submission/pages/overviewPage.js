@@ -27,7 +27,10 @@ export function renderOverviewPage(app) {
     ? SubmissionStatusPanel.render(round, app.state.users, subs, selectedWeek, {})
     : '';
 
-  return `<div class="card">
+  return `${round.status === 'active' && app.isAdmin() ? ActionsPanel.render([
+    { icon: 'edit', title: 'Edit Round', route: 'edit', color: 'secondary' },
+    ...(isSelectedWeekComplete ? [{ icon: 'image', title: 'Generate SOTD Image', route: 'sotd-image' }] : [])
+  ]) : ''}<div class="card">
     <div class="row between">
       <h2 style="margin:0">${Utils.esc(round.title)}</h2>
       <span class="tag">${round.status}</span>
@@ -45,11 +48,7 @@ export function renderOverviewPage(app) {
   ${statusPanel ? `<div class="card" style="margin-top:10px">${statusPanel}</div>` : ''}
   ${selectedWeek === 1 ? `<div class="card" style="margin-top:10px"><strong>Start weights</strong>${view.startWeights.length ? `<ul>${view.startWeights.map((x) => `<li>${Utils.esc(Utils.fullName(x.user))}: ${x.weight}${unit}</li>`).join('')}</ul>` : '<p class="muted">No start weights submitted yet.</p>'}</div>` : ''}
   ${selectedWeek >= 2 ? Leaderboard.render(view, round, app.state.appSettings, prizeRanks) : ''}
-  ${selectedWeek === round.weeksCount && isFinalComplete ? `<div class="card" style="margin-top:10px"><strong>Final winners</strong><ol>${view.ranked.slice(0, prizeRanks.length).map((r, i) => `<li>${Utils.esc(Utils.fullName(r.user))} — ${Utils.money(round.prizeSplits[i] || 0, app.state.appSettings.currency)}</li>`).join('')}</ol></div>` : ''}
-  ${round.status === 'active' && app.isAdmin() ? ActionsPanel.render([
-    { icon: 'edit', title: 'Edit Round', route: 'edit', color: 'secondary' },
-    ...(isSelectedWeekComplete ? [{ icon: 'image', title: 'Generate SOTD Image', route: 'sotd-image' }] : [])
-  ]) : ''}`;
+  ${selectedWeek === round.weeksCount && isFinalComplete ? `<div class="card" style="margin-top:10px"><strong>Final winners</strong><ol>${view.ranked.slice(0, prizeRanks.length).map((r, i) => `<li>${Utils.esc(Utils.fullName(r.user))} — ${Utils.money(round.prizeSplits[i] || 0, app.state.appSettings.currency)}</li>`).join('')}</ol></div>` : ''}`;
 }
 
 export function bindOverviewEvents(app) {

@@ -8,6 +8,7 @@ import { InvitesService } from '../../invites/classes/invitesService.js';
 import { AuthService } from '../../authentication/classes/authService.js';
 import { Security } from '../../../shared/classes/security.js';
 import { generateInviteCode } from '../../invites/utils/inviteCodeUtils.js';
+import { Tabs } from '../../../shared/components/tabs.js';
 
 // =============================================================================
 // USER ADMIN PAGE — View/edit individual user, manage type, invite, delete
@@ -29,54 +30,22 @@ export function renderUserAdminPage(app) {
   const canDelete = !user.isMaster && !isOwnAccount;
   const showUserTypeCard = app.isAdmin() && !isOwnAccount;
   const showResetPassword = !isOwnAccount && ((!app.isFirebaseMode() && user.canLogin !== false) || (app.isFirebaseMode() && !!user.firebaseUid));
-
   const serverDefaultTheme = app.state.appSettings?.theme || 'teal';
+  const currency = app.state.appSettings?.currency || '£';
+  const weightFormat = app.state.appSettings?.weightFormat || 'lb';
 
-  return `<div style="max-width:760px;margin:0 auto">
-    <div class="card" style="margin-bottom:12px">
-      <div style="margin-bottom:12px">
-        <h2 style="margin:0">${Utils.esc(Utils.fullName(user))}</h2>
-        <div class="small muted">${Utils.esc(UsersService.roleLabel(user))} • ${Utils.esc(UsersService.userLoginLabel(user))}</div>
-      </div>
-
-      <div class="grid two" style="margin-bottom:0">
-        <div class="card"><strong>Rounds participated</strong><div>${stats.roundsParticipated}</div></div>
-        <div class="card"><strong>Current challenge</strong><div>${stats.inCurrentRound ? 'In current round' : 'Not in current round'}</div></div>
-        <div class="card"><strong>Total cash won</strong><div>${Utils.money(stats.totalCashWon, app.state.appSettings.currency)}</div></div>
-        <div class="card"><strong>Total weight lost/gained</strong><div>${stats.totalWeightDelta}${app.state.appSettings.weightFormat}</div></div>
-      </div>
+  const infoContent = `
+    <div style="margin-bottom:12px">
+      <h2 style="margin:0">${Utils.esc(Utils.fullName(user))}</h2>
+      <div class="small muted">${Utils.esc(UsersService.roleLabel(user))} • ${Utils.esc(UsersService.userLoginLabel(user))}</div>
     </div>
-
-    <div class="card" style="margin-bottom:12px">
-      <h3 style="margin-top:0">User details</h3>
-      <form id="edit-user-form" class="grid two">
-        <div><label>First name</label><input name="firstName" type="text" required autocomplete="given-name" value="${Utils.escAttr(user.firstName || '')}" /></div>
-        <div><label>Last name</label><input name="lastName" type="text" autocomplete="family-name" value="${Utils.escAttr(user.lastName || '')}" /></div>
-        <div style="grid-column:1/-1"><label>Email / login</label><input name="username" type="text" disabled value="${Utils.escAttr(user.username || '')}" placeholder="No login email" /></div>
-        <div style="grid-column:1/-1" class="row">${SubmitButton.render({ text: 'Save user', icon: 'save', submit: true })}</div>
-      </form>
+    <div class="grid two" style="margin-bottom:12px">
+      <div class="card"><strong>Rounds participated</strong><div>${stats.roundsParticipated}</div></div>
+      <div class="card"><strong>Current challenge</strong><div>${stats.inCurrentRound ? 'In current round' : 'Not in current round'}</div></div>
+      <div class="card"><strong>Total cash won</strong><div>${Utils.money(stats.totalCashWon, currency)}</div></div>
+      <div class="card"><strong>Total weight lost/gained</strong><div>${stats.totalWeightDelta}${weightFormat}</div></div>
     </div>
-
-    ${isOwnAccount ? `<div class="card" style="margin-bottom:12px">
-      <h3 style="margin-top:0">Settings</h3>
-      <form id="user-settings-form" class="grid two">
-        <div style="grid-column:1/-1">${ThemePicker.render({ options: ThemeOptions, selectedValue: user.theme || null, defaultTheme: serverDefaultTheme, inputName: 'theme' })}</div>
-        <div style="grid-column:1/-1" class="row">${SubmitButton.render({ text: 'Save settings', icon: 'save', theme: 'secondary', submit: true })}</div>
-      </form>
-    </div>` : ''}
-
-    ${isOwnAccount ? `<div class="card" style="margin-bottom:12px">
-      <h3 style="margin-top:0">Change password</h3>
-      <form id="user-password-form" class="grid two">
-        <div><label>Current password</label><input name="currentPassword" type="password" required autocomplete="current-password" /></div>
-        <div></div>
-        <div><label>New password</label><input name="newPassword" type="password" required ${Utils.passwordInputAttrs('new-password')} /></div>
-        <div><label>Confirm new password</label><input name="confirmPassword" type="password" required ${Utils.passwordInputAttrs('new-password')} /></div>
-        <div style="grid-column:1/-1">${SubmitButton.render({ text: 'Change password', icon: 'password', theme: 'secondary', submit: true })}</div>
-      </form>
-    </div>` : ''}
-
-    ${showUserTypeCard ? `<div class="card" style="margin-bottom:12px">
+    ${showUserTypeCard ? `<div style="margin-bottom:12px">
       <h3 style="margin-top:0">User type</h3>
       <form id="user-type-form" class="grid two">
         <div><label>Type</label><select name="userType" ${typeLocked ? 'disabled' : ''}>${typeOptions.map((option) => `<option value="${option.value}" ${option.value === (user.userType || 'user') ? 'selected' : ''}>${option.label}</option>`).join('')}</select></div>
@@ -84,8 +53,7 @@ export function renderUserAdminPage(app) {
         <div style="grid-column:1/-1" class="row">${SubmitButton.render({ text: 'Save type', icon: 'manage_accounts', theme: 'secondary', submit: true, attrs: typeLocked ? { disabled: 'true' } : {} })}</div>
       </form>
     </div>` : ''}
-
-    <div class="card">
+    <div>
       <h3 style="margin-top:0">Actions</h3>
       <div class="row" style="flex-wrap:wrap">
         ${showResetPassword ? SubmitButton.render({ text: 'Reset password', icon: 'password', theme: 'secondary', id: 'btn-reset-user-password', attrs: { 'type': 'button' } }) : ''}
@@ -94,15 +62,61 @@ export function renderUserAdminPage(app) {
         ${canDelete ? SubmitButton.render({ text: 'Delete user', icon: 'delete', theme: 'danger', id: 'btn-delete-user', attrs: { 'type': 'button' } }) : ''}
         ${isOwnAccount ? SubmitButton.render({ text: 'Logout', icon: 'logout', theme: 'secondary', id: 'btn-logout-user', attrs: { 'type': 'button' } }) : ''}
       </div>
+    </div>`;
+
+  const detailsContent = `<form id="edit-user-form" class="grid two">
+    <div><label>First name</label><input name="firstName" type="text" required autocomplete="given-name" value="${Utils.escAttr(user.firstName || '')}" /></div>
+    <div><label>Last name</label><input name="lastName" type="text" autocomplete="family-name" value="${Utils.escAttr(user.lastName || '')}" /></div>
+    <div style="grid-column:1/-1"><label>Email / login</label><input name="username" type="text" disabled value="${Utils.escAttr(user.username || '')}" placeholder="No login email" /></div>
+    <div style="grid-column:1/-1" class="row">${SubmitButton.render({ text: 'Save user', icon: 'save', submit: true })}</div>
+  </form>`;
+
+  const tabs = [
+    { key: 'info', label: 'Info', content: infoContent },
+    { key: 'details', label: 'User Details', content: detailsContent }
+  ];
+
+  if (isOwnAccount) {
+    tabs.push({ key: 'settings', label: 'Settings', content: `<form id="user-settings-form" class="grid two">
+      <div style="grid-column:1/-1">${ThemePicker.render({ options: ThemeOptions, selectedValue: user.theme || null, defaultTheme: serverDefaultTheme, inputName: 'theme' })}</div>
+      <div style="grid-column:1/-1" class="row">${SubmitButton.render({ text: 'Save settings', icon: 'save', theme: 'secondary', submit: true })}</div>
+    </form>` });
+    tabs.push({ key: 'password', label: 'Change Password', content: `<form id="user-password-form" class="grid two">
+      <div><label>Current password</label><input name="currentPassword" type="password" required autocomplete="current-password" /></div>
+      <div></div>
+      <div><label>New password</label><input name="newPassword" type="password" required ${Utils.passwordInputAttrs('new-password')} /></div>
+      <div><label>Confirm new password</label><input name="confirmPassword" type="password" required ${Utils.passwordInputAttrs('new-password')} /></div>
+      <div style="grid-column:1/-1">${SubmitButton.render({ text: 'Change password', icon: 'password', theme: 'secondary', submit: true })}</div>
+    </form>` });
+  }
+
+  const activeTab = app.state.userAdminTab || 'info';
+  return `<div style="max-width:760px;margin:0 auto">
+    <div class="card">
+      ${Tabs.render(tabs, activeTab)}
     </div>
   </div>`;
 }
 
 export function bindUserAdminEvents(app) {
-  // Wire ThemePicker live preview for own account settings card
-  const settingsCard = document.querySelector('#user-settings-form')?.closest('.card');
-  if (settingsCard) {
-    ThemePicker.bind(settingsCard);
+  const container = document.querySelector('.tabs-component');
+  if (container) {
+    Tabs.bind(container, (key) => {
+      app.state.userAdminTab = key;
+      const userId = app.state.selectedUserId;
+      const rawHash = String(window.location.hash || '').replace(/^#\/?/, '');
+      const [, queryPart = ''] = rawHash.split('?');
+      const params = new URLSearchParams(queryPart);
+      params.set('tab', key);
+      history.replaceState(null, '', `${window.location.pathname}#/user?${params.toString()}`);
+      app.render();
+    });
+  }
+
+  // Wire ThemePicker live preview for own account settings tab
+  const settingsForm = document.getElementById('user-settings-form');
+  if (settingsForm) {
+    ThemePicker.bind(settingsForm);
   }
 
   const editUserForm = document.getElementById('edit-user-form');
