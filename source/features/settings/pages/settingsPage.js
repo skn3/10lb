@@ -5,86 +5,62 @@ import { SyncButton } from '../components/syncButton.js';
 import { AuthService } from '../../authentication/classes/authService.js';
 import { StorageService } from '../../storage/classes/storageService.js';
 import { SettingsService } from '../classes/settingsService.js';
-import { renderUserSettingsTab } from '../components/userSettingsTab.js';
 import { renderServerSettingsTab } from '../components/serverSettingsTab.js';
 import { renderSyncSettingsTab } from '../components/syncSettingsTab.js';
 import { RuntimeConfig } from '../../../config.js';
+import { SubmitButton } from '../../../shared/components/submitButton.js';
+import { ThemePicker } from '../../../shared/components/themePicker.js';
 
 // =============================================================================
 // SETTINGS PAGE
 // =============================================================================
 
 export function renderSettingsPage(app) {
-  const tab = app.state.settingsTab || 'user';
-  return `<div class="card"><h2 style="margin-top:0">Settings</h2>
-    <div class="tabs">
-      <button data-settings-tab="user" class="${tab === 'user' ? 'active' : ''}">User settings</button>
-      ${app.isAdmin() ? `<button data-settings-tab="server" class="${tab === 'server' ? 'active' : ''}">Server settings</button>` : ''}
-      ${(app.isMaster() && app.isFirebaseMode()) ? `<button data-settings-tab="sync" class="${tab === 'sync' ? 'active' : ''}">Storage &amp; Sync</button>` : ''}
+  const isAdminMode = app.isAdmin();
+  const hasSyncTab = app.isMaster() && app.isFirebaseMode();
+  const showAdminTabs = isAdminMode || hasSyncTab;
+
+  const tab = app.state.settingsTab || (isAdminMode ? 'server' : 'sync');
+  return `<div class="card">
+    <h2 style="margin-top:0">Settings</h2>
+
+    <div class="card" style="margin-bottom:12px">
+      <h3 style="margin-top:0">Your account</h3>
+      <p class="muted" style="margin-top:0">Edit your profile, theme and password on your account page.</p>
+      ${SubmitButton.render({ text: 'User settings', icon: 'person', theme: 'secondary', attrs: { 'type': 'button', 'id': 'btn-go-user-settings' } })}
     </div>
 
-    ${tab === 'user' ? renderUserSettingsTab(app) : tab === 'server' ? renderServerSettingsTab(app, ThemeOptions) : renderSyncSettingsTab(app)}
+    ${showAdminTabs ? `<div class="tabs">
+      ${isAdminMode ? `<button data-settings-tab="server" class="${tab === 'server' ? 'active' : ''}">Server settings</button>` : ''}
+      ${hasSyncTab ? `<button data-settings-tab="sync" class="${tab === 'sync' ? 'active' : ''}">Storage &amp; Sync</button>` : ''}
+    </div>
+    ${tab === 'server' ? renderServerSettingsTab(app, ThemeOptions) : renderSyncSettingsTab(app)}` : ''}
   </div>`;
 }
 
 export function bindSettingsEvents(app) {
+  const goUserSettings = document.getElementById('btn-go-user-settings');
+  if (goUserSettings) goUserSettings.onclick = () => app.navigate('user', { userId: app.state.currentUser?.id });
+
   document.querySelectorAll('[data-settings-tab]').forEach((b) => b.onclick = () => {
     app.state.settingsTab = b.dataset.settingsTab;
     app.render();
   });
 
-  const userSettingsForm = document.getElementById('user-settings-form');
-  if (userSettingsForm) {
-    app.bindAsyncFormSubmit(userSettingsForm, async () => {
-      const firstName = userSettingsForm.firstName.value.trim();
-      const lastName = userSettingsForm.lastName.value.trim();
-      if (!firstName || !lastName) return app.fail('First and last name are required.');
-      const ok = await app._saveWithConflictResolver('User', { ...app.state.currentUser, firstName, lastName }, (payload) => SettingsService.saveUserProfile(payload, payload.firstName, payload.lastName));
-      if (!ok) return;
-      await app.refresh();
-      app.setMessage('Profile updated.');
-      app.render();
-    });
-  }
-
-  const userPwdForm = document.getElementById('user-password-form');
-  if (userPwdForm) {
-    app.bindAsyncFormSubmit(userPwdForm, async () => {
-      const currentPassword = userPwdForm.currentPassword.value;
-      const newPassword = userPwdForm.newPassword.value;
-      const confirmPassword = userPwdForm.confirmPassword.value;
-      if (!Utils.validPassword(newPassword)) return app.fail('New password must include 8+ chars, letter, number and symbol.');
-      if (newPassword !== confirmPassword) return app.fail('Passwords do not match.');
-
-      if (app.isFirebaseMode()) {
-        const email = app.state.currentUser?.username;
-        try { await AuthService.signInWithEmail(email, currentPassword); } catch { return app.fail('Current password is incorrect.'); }
-        try { await AuthService.updateFirebasePassword(newPassword); } catch (err) { return app.fail(`Password update failed: ${err.message || err}`); }
-        app.setMessage('Password changed.');
-        app.render();
-        return;
-      }
-
-      const ok = await Security.verifyPassword(currentPassword, app.state.currentUser.password);
-      if (!ok) return app.fail('Current password is incorrect.');
-      const hash = await Security.createPasswordRecord(newPassword);
-      const saved = await app._saveWithConflictResolver('User', { ...app.state.currentUser, password: hash }, (payload) => SettingsService.saveUserProfile(payload, payload.firstName, payload.lastName));
-      if (!saved) return;
-      await app.refresh();
-      app.setMessage('Password changed.');
-      app.render();
-    });
-  }
-
   const serverSettingsForm = document.getElementById('server-settings-form');
   if (serverSettingsForm) {
+    // Wire ThemePicker live preview within the form
+    ThemePicker.bind(serverSettingsForm);
     app.bindAsyncFormSubmit(serverSettingsForm, async () => {
+      const rawInstalledAt = serverSettingsForm.installedAt?.value;
+      const installedAt = rawInstalledAt ? new Date(rawInstalledAt).toISOString() : (app.state.appSettings.installedAt || null);
       const next = await SettingsService.saveAppSettings(app.state.appSettings, {
         serverName: serverSettingsForm.serverName.value.trim() || '10lb Challenge',
         weightFormat: serverSettingsForm.weightFormat.value,
         currency: serverSettingsForm.currency.value,
-        theme: serverSettingsForm.theme.value,
-        sessionDurationDays: Math.max(1, Utils.safeNum(serverSettingsForm.sessionDurationDays.value, 7))
+        theme: serverSettingsForm.theme?.value || app.state.appSettings.theme,
+        sessionDurationDays: Math.max(1, Utils.safeNum(serverSettingsForm.sessionDurationDays.value, 7)),
+        installedAt
       });
       app.state.appSettings = next;
       if (!app.isFirebaseMode() && app.state.sessionToken) {

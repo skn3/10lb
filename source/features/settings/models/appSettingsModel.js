@@ -9,6 +9,7 @@ export class AppSettingsModel {
     this.currency = data.currency || '£';
     this.theme = data.theme || 'teal';
     this.sessionDurationDays = data.sessionDurationDays || 7;
+    this.installedAt = data.installedAt || null;
     this.installLockedAt = data.installLockedAt || null;
     this.updatedAt = data.updatedAt || null;
   }

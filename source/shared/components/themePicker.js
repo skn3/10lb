@@ -1,0 +1,74 @@
+import { Utils } from '../utils/utils.js';
+import { ThemeAlias } from '../../constants.js';
+
+// =============================================================================
+// THEME PICKER — reusable theme selector component.
+//
+// ThemePicker.render({ options, selectedValue, defaultTheme, inputName })
+//   options       — ThemeOptions array: { key, label }[]
+//   selectedValue — currently saved theme key (may be null = "Default")
+//   defaultTheme  — the fallback theme key (used for "Use Default" button + preview)
+//   inputName     — name attribute for the <select> (default: 'theme')
+//
+// ThemePicker.bind(container)
+//   Wires live-preview onChange and "Use Default" button inside `container`.
+//   Call after rendering. The live preview writes to document.body data-theme
+//   but does NOT persist the value.
+//
+// ThemePicker.resolveTheme(userTheme, appTheme, configTheme)
+//   Returns the first non-null theme, falling back to 'teal'.
+// =============================================================================
+export const ThemePicker = {
+  resolveTheme(userTheme, appTheme, configTheme) {
+    const raw = userTheme || appTheme || configTheme || 'teal';
+    return ThemeAlias[raw] || raw;
+  },
+
+  render({ options = [], selectedValue = null, defaultTheme = 'teal', inputName = 'theme' }) {
+    const resolvedDisplay = selectedValue || defaultTheme || 'teal';
+    const resolvedLabel = options.find((o) => o.key === resolvedDisplay)?.label || resolvedDisplay;
+    const showUseDefault = selectedValue !== null && selectedValue !== defaultTheme;
+    return `<div class="theme-picker" data-default-theme="${Utils.escAttr(defaultTheme || '')}">
+      <label>Theme</label>
+      <div class="row" style="gap:8px;align-items:center">
+        <select name="${Utils.escAttr(inputName)}" data-theme-picker-select style="flex:1">
+          <option value="" ${!selectedValue ? 'selected' : ''}>Default</option>
+          ${options.map((t) => `<option value="${Utils.escAttr(t.key)}" ${selectedValue === t.key ? 'selected' : ''}>${Utils.esc(t.label)}</option>`).join('')}
+        </select>
+        ${showUseDefault ? `<button type="button" class="btn danger small" data-theme-use-default>Use Default</button>` : ''}
+      </div>
+      <div class="small muted" style="margin-top:4px">Theme: <strong>${Utils.esc(resolvedLabel)}</strong></div>
+    </div>`;
+  },
+
+  bind(container) {
+    if (!container) return;
+    const select = container.querySelector('[data-theme-picker-select]');
+    const picker = container.querySelector('.theme-picker');
+    if (!select || !picker) return;
+    const defaultTheme = picker.dataset.defaultTheme || 'teal';
+
+    const applyLiveTheme = (key) => {
+      const resolved = key || defaultTheme || 'teal';
+      document.body.setAttribute('data-theme', ThemeAlias[resolved] || resolved);
+    };
+
+    select.onchange = () => applyLiveTheme(select.value);
+
+    const wireUseDefault = () => {
+      const btn = container.querySelector('[data-theme-use-default]');
+      if (btn) btn.onclick = () => {
+        select.value = '';
+        applyLiveTheme('');
+        // Re-render the helper text / button inline without a full page render
+        const muted = picker.querySelector('.small.muted');
+        if (muted) {
+          const label = select.options[select.selectedIndex]?.text || defaultTheme;
+          muted.innerHTML = `Theme: <strong>${Utils.esc(label)}</strong>`;
+        }
+        btn.remove();
+      };
+    };
+    wireUseDefault();
+  }
+};

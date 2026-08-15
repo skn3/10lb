@@ -8,7 +8,7 @@ export const Breadcrumb = {
     if (!items?.length) return '';
     const crumbs = items.map((item, index) => {
       const href = buildHref(item.route, item.options || {});
-      const separator = index ? '<span class="breadcrumb-separator" aria-hidden="true">/</span>' : '';
+      const separator = index ? '<span class="breadcrumb-separator" aria-hidden="true"><span class="material-symbols-rounded" style="font-size:inherit;vertical-align:middle">arrow_right</span></span>' : '';
       return `${separator}<a href="${Utils.escAttr(href)}" class="breadcrumb-link">${Utils.esc(item.label)}</a>`;
     }).join('');
     return `<nav class="menu-breadcrumb" aria-label="Breadcrumb">${crumbs}</nav>`;
@@ -22,7 +22,9 @@ export const Breadcrumb = {
     const fallbackPath = (route) => `#/${route}`;
     const crumbs = [];
     items.forEach((item, index) => {
-      if (index) crumbs.push(e('span', { key: `sep-${index}`, className: 'breadcrumb-separator', 'aria-hidden': 'true' }, '/'));
+      if (index) crumbs.push(e('span', { key: `sep-${index}`, className: 'breadcrumb-separator', 'aria-hidden': 'true' },
+        e('span', { className: 'material-symbols-rounded', style: { fontSize: 'inherit', verticalAlign: 'middle' } }, 'arrow_right')
+      ));
       crumbs.push(e('a', {
         key: `${item.route}-${index}`,
         href: buildPath ? buildPath(item.route, item.options || {}) : fallbackPath(item.route),

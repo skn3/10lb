@@ -1,7 +1,10 @@
 import { Utils } from '../../../shared/utils/utils.js';
 import { SubmitButton } from '../../../shared/components/submitButton.js';
+import { ThemePicker } from '../../../shared/components/themePicker.js';
+import { ThemeOptions } from '../../../constants.js';
 import { SubmissionService } from '../../submission/classes/submissionService.js';
 import { UsersService } from '../classes/usersService.js';
+import { SettingsService } from '../../settings/classes/settingsService.js';
 import { InvitesService } from '../../invites/classes/invitesService.js';
 import { AuthService } from '../../authentication/classes/authService.js';
 import { Security } from '../../../shared/classes/security.js';
@@ -17,28 +20,32 @@ export function renderUserAdminPage(app) {
     return `<div class="card" style="max-width:640px;margin:0 auto">
       <h2 style="margin-top:0">User not found</h2>
       <p class="muted">The selected user no longer exists.</p>
-      ${SubmitButton.render({ text: 'Back to users', icon: 'arrow_back', theme: 'secondary', attrs: { 'type': 'button', 'data-go': 'users' } })}
     </div>`;
   }
+  const isOwnAccount = user.id === app.state.currentUser?.id;
   const stats = SubmissionService.userStats(user, app.state.rounds, app.state.submissions, app.state.users);
   const typeOptions = UsersService.managedUserTypeOptions(user);
   const pendingInvites = app.isFirebaseMode() ? app.state.invites.filter((invite) => !invite.usedAt && invite.userId === user.id) : [];
   const typeLocked = typeOptions.length === 1;
-  const canDelete = !user.isMaster && user.id !== app.state.currentUser?.id;
-  return `<div class="card" style="max-width:760px;margin:0 auto">
-    <div class="row between" style="margin-bottom:12px">
-      <div>
+  const canDelete = !user.isMaster && !isOwnAccount;
+  const showUserTypeCard = app.isAdmin() && !isOwnAccount;
+  const showResetPassword = !isOwnAccount && ((!app.isFirebaseMode() && user.canLogin !== false) || (app.isFirebaseMode() && !!user.firebaseUid));
+
+  const serverDefaultTheme = app.state.appSettings?.theme || 'teal';
+
+  return `<div style="max-width:760px;margin:0 auto">
+    <div class="card" style="margin-bottom:12px">
+      <div style="margin-bottom:12px">
         <h2 style="margin:0">${Utils.esc(Utils.fullName(user))}</h2>
         <div class="small muted">${Utils.esc(UsersService.roleLabel(user))} • ${Utils.esc(UsersService.userLoginLabel(user))}</div>
       </div>
-      ${SubmitButton.render({ text: 'Back to users', icon: 'arrow_back', theme: 'secondary', attrs: { 'type': 'button', 'data-go': 'users' } })}
-    </div>
 
-    <div class="grid two" style="margin-bottom:12px">
-      <div class="card"><strong>Rounds participated</strong><div>${stats.roundsParticipated}</div></div>
-      <div class="card"><strong>Current challenge</strong><div>${stats.inCurrentRound ? 'In current round' : 'Not in current round'}</div></div>
-      <div class="card"><strong>Total cash won</strong><div>${Utils.money(stats.totalCashWon, app.state.appSettings.currency)}</div></div>
-      <div class="card"><strong>Total weight lost/gained</strong><div>${stats.totalWeightDelta}${app.state.appSettings.weightFormat}</div></div>
+      <div class="grid two" style="margin-bottom:0">
+        <div class="card"><strong>Rounds participated</strong><div>${stats.roundsParticipated}</div></div>
+        <div class="card"><strong>Current challenge</strong><div>${stats.inCurrentRound ? 'In current round' : 'Not in current round'}</div></div>
+        <div class="card"><strong>Total cash won</strong><div>${Utils.money(stats.totalCashWon, app.state.appSettings.currency)}</div></div>
+        <div class="card"><strong>Total weight lost/gained</strong><div>${stats.totalWeightDelta}${app.state.appSettings.weightFormat}</div></div>
+      </div>
     </div>
 
     <div class="card" style="margin-bottom:12px">
@@ -51,28 +58,54 @@ export function renderUserAdminPage(app) {
       </form>
     </div>
 
-    <div class="card" style="margin-bottom:12px">
+    ${isOwnAccount ? `<div class="card" style="margin-bottom:12px">
+      <h3 style="margin-top:0">Settings</h3>
+      <form id="user-settings-form" class="grid two">
+        <div style="grid-column:1/-1">${ThemePicker.render({ options: ThemeOptions, selectedValue: user.theme || null, defaultTheme: serverDefaultTheme, inputName: 'theme' })}</div>
+        <div style="grid-column:1/-1" class="row">${SubmitButton.render({ text: 'Save settings', icon: 'save', theme: 'secondary', submit: true })}</div>
+      </form>
+    </div>` : ''}
+
+    ${isOwnAccount ? `<div class="card" style="margin-bottom:12px">
+      <h3 style="margin-top:0">Change password</h3>
+      <form id="user-password-form" class="grid two">
+        <div><label>Current password</label><input name="currentPassword" type="password" required autocomplete="current-password" /></div>
+        <div></div>
+        <div><label>New password</label><input name="newPassword" type="password" required ${Utils.passwordInputAttrs('new-password')} /></div>
+        <div><label>Confirm new password</label><input name="confirmPassword" type="password" required ${Utils.passwordInputAttrs('new-password')} /></div>
+        <div style="grid-column:1/-1">${SubmitButton.render({ text: 'Change password', icon: 'password', theme: 'secondary', submit: true })}</div>
+      </form>
+    </div>` : ''}
+
+    ${showUserTypeCard ? `<div class="card" style="margin-bottom:12px">
       <h3 style="margin-top:0">User type</h3>
       <form id="user-type-form" class="grid two">
         <div><label>Type</label><select name="userType" ${typeLocked ? 'disabled' : ''}>${typeOptions.map((option) => `<option value="${option.value}" ${option.value === (user.userType || 'user') ? 'selected' : ''}>${option.label}</option>`).join('')}</select></div>
         <div class="small muted" style="align-self:end">${user.isMaster ? 'Master type is locked.' : typeLocked ? 'This participant cannot be promoted from this page.' : 'Changing to participant removes login access.'}</div>
         <div style="grid-column:1/-1" class="row">${SubmitButton.render({ text: 'Save type', icon: 'manage_accounts', theme: 'secondary', submit: true, attrs: typeLocked ? { disabled: 'true' } : {} })}</div>
       </form>
-    </div>
+    </div>` : ''}
 
     <div class="card">
       <h3 style="margin-top:0">Actions</h3>
       <div class="row" style="flex-wrap:wrap">
-        ${((!app.isFirebaseMode() && user.canLogin !== false) || (app.isFirebaseMode() && !!user.firebaseUid)) ? SubmitButton.render({ text: 'Reset password', icon: 'password', theme: 'secondary', id: 'btn-reset-user-password', attrs: { 'type': 'button' } }) : ''}
+        ${showResetPassword ? SubmitButton.render({ text: 'Reset password', icon: 'password', theme: 'secondary', id: 'btn-reset-user-password', attrs: { 'type': 'button' } }) : ''}
         ${(app.isFirebaseMode() && user.userType === 'participant' && !user.firebaseUid) ? `${SubmitButton.render({ text: 'Invite as user', icon: 'person_add', theme: 'secondary', attrs: { 'type': 'button', 'data-user-invite': 'user' } })}${SubmitButton.render({ text: 'Invite as admin', icon: 'person_add', theme: 'secondary', attrs: { 'type': 'button', 'data-user-invite': 'admin' } })}` : ''}
         ${pendingInvites.map((invite) => SubmitButton.render({ text: `View ${Utils.esc(invite.inviteType || 'user')} invite`, icon: 'qr_code', theme: 'secondary', attrs: { 'type': 'button', 'data-view-invite': invite.id } })).join('')}
         ${canDelete ? SubmitButton.render({ text: 'Delete user', icon: 'delete', theme: 'danger', id: 'btn-delete-user', attrs: { 'type': 'button' } }) : ''}
+        ${isOwnAccount ? SubmitButton.render({ text: 'Logout', icon: 'logout', theme: 'secondary', id: 'btn-logout-user', attrs: { 'type': 'button' } }) : ''}
       </div>
     </div>
   </div>`;
 }
 
 export function bindUserAdminEvents(app) {
+  // Wire ThemePicker live preview for own account settings card
+  const settingsCard = document.querySelector('#user-settings-form')?.closest('.card');
+  if (settingsCard) {
+    ThemePicker.bind(settingsCard);
+  }
+
   const editUserForm = document.getElementById('edit-user-form');
   if (editUserForm && app.state.selectedUserId) {
     app.bindAsyncFormSubmit(editUserForm, async () => {
@@ -85,6 +118,49 @@ export function bindUserAdminEvents(app) {
       if (!ok) return;
       await app.refresh();
       app.setMessage('User update saved.');
+      app.render();
+    });
+  }
+
+  const userSettingsForm = document.getElementById('user-settings-form');
+  if (userSettingsForm && app.state.selectedUserId) {
+    app.bindAsyncFormSubmit(userSettingsForm, async () => {
+      const user = app.state.users.find((u) => u.id === app.state.selectedUserId) || null;
+      if (!user) return app.fail('User not found.');
+      const theme = userSettingsForm.theme?.value || null;
+      const ok = await app._saveWithConflictResolver('User', { ...user, theme: theme || null }, (payload) => UsersService.updateUser(payload));
+      if (!ok) return;
+      await app.refresh();
+      app.setMessage('Settings saved.');
+      app.render();
+    });
+  }
+
+  const userPwdForm = document.getElementById('user-password-form');
+  if (userPwdForm) {
+    app.bindAsyncFormSubmit(userPwdForm, async () => {
+      const currentPassword = userPwdForm.currentPassword.value;
+      const newPassword = userPwdForm.newPassword.value;
+      const confirmPassword = userPwdForm.confirmPassword.value;
+      if (!Utils.validPassword(newPassword)) return app.fail('New password must include 8+ chars, letter, number and symbol.');
+      if (newPassword !== confirmPassword) return app.fail('Passwords do not match.');
+
+      if (app.isFirebaseMode()) {
+        const email = app.state.currentUser?.username;
+        try { await AuthService.signInWithEmail(email, currentPassword); } catch { return app.fail('Current password is incorrect.'); }
+        try { await AuthService.updateFirebasePassword(newPassword); } catch (err) { return app.fail(`Password update failed: ${err.message || err}`); }
+        app.setMessage('Password changed.');
+        app.render();
+        return;
+      }
+
+      const ok = await Security.verifyPassword(currentPassword, app.state.currentUser.password);
+      if (!ok) return app.fail('Current password is incorrect.');
+      const hash = await Security.createPasswordRecord(newPassword);
+      const saved = await app._saveWithConflictResolver('User', { ...app.state.currentUser, password: hash }, (payload) => SettingsService.saveUserProfile(payload, payload.firstName, payload.lastName));
+      if (!saved) return;
+      await app.refresh();
+      app.setMessage('Password changed.');
       app.render();
     });
   }
@@ -141,6 +217,9 @@ export function bindUserAdminEvents(app) {
     app.setMessage('Password updated.');
     app.render();
   };
+
+  const logoutBtn = document.getElementById('btn-logout-user');
+  if (logoutBtn) logoutBtn.onclick = () => app.logout();
 
   document.querySelectorAll('[data-user-invite]').forEach((button) => button.onclick = async () => {
     const user = app.state.users.find((u) => u.id === app.state.selectedUserId) || null;

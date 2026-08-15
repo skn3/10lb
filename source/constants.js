@@ -142,3 +142,22 @@ export const NavigationItems = Object.freeze({
     { key: 'settings', label: 'Settings', icon: 'settings' }
   ])
 });
+
+// Maps sub-routes to their owning top-level menu item key so the nav can
+// highlight the correct menu item when on a sub-page.
+export const PageMenuMap = Object.freeze({
+  overview: 'overview',
+  rounds: 'rounds',
+  create: 'create',
+  edit: 'create',
+  delete: 'create',
+  'finish-week': 'create',
+  'sotd-image': 'create',
+  submit: 'submit',
+  users: 'users',
+  user: 'users',
+  create_participant: 'users',
+  invites: 'users',
+  'invite-detail': 'users',
+  settings: 'settings'
+});

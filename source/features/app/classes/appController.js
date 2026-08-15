@@ -1,5 +1,5 @@
 import { loadRuntimeConfig, RuntimeConfig } from '../../../config.js';
-import { MenuConfig, MenuState, NavigationItems, ROUTES, SyncStatus, SyncStatusIcon, ThemeAlias } from '../../../constants.js';
+import { MenuConfig, MenuState, NavigationItems, PageMenuMap, ROUTES, SyncStatus, SyncStatusIcon, ThemeAlias } from '../../../constants.js';
 import { Utils } from '../../../shared/utils/utils.js';
 import { Device } from '../../../shared/classes/device.js';
 import { Data } from '../../storage/models/data.js';
@@ -10,6 +10,7 @@ import { AuthService } from '../../authentication/classes/authService.js';
 import { MenuBar } from '../components/menuBar.js';
 import { Snackbar } from '../components/snackbar.js';
 import { SiteHeader } from '../components/siteHeader.js';
+import { renderSiteFooter } from '../components/siteFooter.js';
 import { WeightChart } from '../../../shared/components/weightChart.js';
 // App pages
 import { renderDeniedPage } from '../pages/deniedPage.js';
@@ -226,6 +227,10 @@ export const App = {
   getBreadcrumbs(route) {
     const targetRoute = route === undefined ? this.state.route : route;
     return this._defaultBreadcrumbs(targetRoute).filter(Boolean);
+  },
+
+  getActiveMenuKey(route) {
+    return PageMenuMap[route] || route;
   },
 
   _defaultBreadcrumbs(route) {
@@ -478,7 +483,10 @@ export const App = {
   // Nav / UI helpers
   // ---------------------------------------------------------------------------
   applyTheme() {
-    const theme = this.state.appSettings?.theme || 'teal';
+    const userTheme = this.state.currentUser?.theme;
+    const serverTheme = this.state.appSettings?.theme;
+    const configTheme = RuntimeConfig?.theme;
+    const theme = userTheme || serverTheme || configTheme || 'teal';
     document.body.setAttribute('data-theme', ThemeAlias[theme] || theme);
   },
 
@@ -488,7 +496,7 @@ export const App = {
   },
 
   _baseNavModel() {
-    return { items: [], breadcrumbs: [], authName: '', authRole: '', syncVisible: false, syncText: '' };
+    return { items: [], breadcrumbs: [], authName: '', authRole: '', authUserType: '', authUserId: '', syncVisible: false, syncText: '' };
   },
 
   _syncNavVisibility(nav, hasItems) {
@@ -723,12 +731,14 @@ export const App = {
     model.items.push(...NavigationItems.secondary);
     model.authName = Utils.fullName(this.state.currentUser);
     model.authRole = this.roleLabel(this.state.currentUser);
+    model.authUserType = this.state.currentUser?.userType || (this.state.currentUser?.isMaster ? 'master' : (this.state.currentUser?.isAdmin ? 'admin' : 'user'));
+    model.authUserId = this.state.currentUser?.id || '';
     if (!this.react.enabled) {
       nav.innerHTML = MenuBar.render(model.items, model.breadcrumbs, this.state.route, (key, options = {}) => this._buildHashRoute(key, options));
       MenuBar.attachClickHandler(nav, (route) => this.navigate(route));
-      authChip.innerHTML = SiteHeader.renderHTML(model.authName, model.authRole);
-      const logoutBtn = document.getElementById('btn-logout');
-      if (logoutBtn) logoutBtn.onclick = () => this.logout();
+      authChip.innerHTML = SiteHeader.renderHTML(model.authName, model.authRole, model.authUserType, model.authUserId);
+      const userChipBtn = document.getElementById('btn-auth-chip');
+      if (userChipBtn) userChipBtn.onclick = () => this.navigate('user', { userId: model.authUserId });
     }
     const syncStatus = this._buildSyncStatus(this.state.syncMeta);
     model.syncVisible = syncStatus.syncVisible;
@@ -758,7 +768,7 @@ export const App = {
         buildPath: (key, options = {}) => this._buildHashRoute(key, options)
       })
     ));
-    this.react.authRoot.render(SiteHeader.renderReact(navModel.authName, navModel.authRole, () => this.logout()));
+    this.react.authRoot.render(SiteHeader.renderReact(navModel.authName, navModel.authRole, navModel.authUserType, navModel.authUserId, (userId) => this.navigate('user', { userId })));
     this.react.syncRoot.render(navModel.syncVisible ? e('span', { dangerouslySetInnerHTML: { __html: navModel.syncText } }) : null);
     this.react.appRoot.render(e('div', { dangerouslySetInnerHTML: { __html: screen } }));
     return true;
@@ -776,6 +786,8 @@ export const App = {
     const syncBanner = (this.isAuthenticated() && this.isInstalled()) ? this._syncWarnBanner() : '';
     const screen = syncBanner + this.resolveScreen();
     if (!this.renderWithReact(navModel, screen)) appEl.innerHTML = screen;
+    const footerEl = document.getElementById('site-footer');
+    if (footerEl) footerEl.innerHTML = renderSiteFooter(this);
     this._setupNavBurger();
     this.updateStickyOffsets();
     this.renderSnackbar();
@@ -923,7 +935,7 @@ export const App = {
   // ---------------------------------------------------------------------------
   iconForButton(button) {
     if (!button) return '';
-    if (button.id === 'btn-logout') return 'logout';
+    if (button.id === 'btn-auth-chip') return 'person';
     if (button.id === 'btn-go-login') return 'login';
     if (button.id === 'btn-create-invite') return 'person_add';
     if (button.id === 'btn-delete-all-invites') return 'delete_sweep';

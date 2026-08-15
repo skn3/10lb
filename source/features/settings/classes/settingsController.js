@@ -26,6 +26,10 @@ export const SettingsController = {
     return updated;
   },
 
+  getResolvedTheme(user, appSettings, configTheme) {
+    return user?.theme || appSettings?.theme || configTheme || 'teal';
+  },
+
   async resetServer(isFirebaseMode) {
     if (isFirebaseMode && StorageService.isSyncRunning()) await StorageService.stopSync();
     if (isFirebaseMode && StorageService.isFirestoreReady()) await StorageService.resetChallengeData();
