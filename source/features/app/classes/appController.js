@@ -223,8 +223,9 @@ export const App = {
     };
   },
 
-  getBreadcrumbs(route = this.state.route) {
-    return this._defaultBreadcrumbs(route).filter(Boolean);
+  getBreadcrumbs(route) {
+    const targetRoute = route === undefined ? this.state.route : route;
+    return this._defaultBreadcrumbs(targetRoute).filter(Boolean);
   },
 
   _defaultBreadcrumbs(route) {
@@ -253,6 +254,7 @@ export const App = {
     };
     return map[this._sanitizeRoute(route)] || [home];
   },
+
   async navigate(route, options = {}) {
     const target = this._sanitizeRoute(route || this._defaultRoute());
     if (!options.keepFlash) {
