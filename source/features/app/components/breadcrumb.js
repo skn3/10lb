@@ -11,7 +11,7 @@ export const Breadcrumb = {
       const separator = index ? '<span class="breadcrumb-separator" aria-hidden="true">/</span>' : '';
       return `${separator}<a href="${Utils.escAttr(href)}" class="breadcrumb-link">${Utils.esc(item.label)}</a>`;
     }).join('');
-    return `<div class="menu-breadcrumb" aria-label="Breadcrumb">${crumbs}</div>`;
+    return `<nav class="menu-breadcrumb" aria-label="Breadcrumb">${crumbs}</nav>`;
   },
 
   renderReact(items, opts = {}) {
@@ -33,6 +33,6 @@ export const Breadcrumb = {
         }
       }, item.label));
     });
-    return e('div', { className: 'menu-breadcrumb', 'aria-label': 'Breadcrumb' }, ...crumbs);
+    return e('nav', { className: 'menu-breadcrumb', 'aria-label': 'Breadcrumb' }, ...crumbs);
   }
 };

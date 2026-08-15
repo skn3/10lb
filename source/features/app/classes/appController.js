@@ -248,8 +248,8 @@ export const App = {
       users: [home, this.createBreadcrumb('Users', 'users')],
       user: [home, this.createBreadcrumb('Users', 'users'), this.createBreadcrumb(userLabel, 'user', { userId: this.state.selectedUserId })],
       create_participant: [home, this.createBreadcrumb('Users', 'users'), this.createBreadcrumb('Create participant', 'create_participant')],
-      invites: [home, this.createBreadcrumb('Users', 'users'), this.createBreadcrumb('Invites', 'invites')],
-      'invite-detail': [home, this.createBreadcrumb('Users', 'users'), this.createBreadcrumb('Invites', 'invites'), this.createBreadcrumb(inviteLabel, 'invite-detail')],
+      invites: [home, this.createBreadcrumb('Invites', 'invites')],
+      'invite-detail': [home, this.createBreadcrumb('Invites', 'invites'), this.createBreadcrumb(inviteLabel, 'invite-detail')],
       settings: [home, this.createBreadcrumb('Settings', 'settings')]
     };
     return map[this._sanitizeRoute(route)] || [home];
