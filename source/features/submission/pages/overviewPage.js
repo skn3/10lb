@@ -1,6 +1,7 @@
 import { Domain } from '../../../domain.js';
 import { Utils } from '../../../shared/utils/utils.js';
 import { SubmitButton } from '../../../shared/components/submitButton.js';
+import { ActionsPanel } from '../../../shared/components/actionsPanel.js';
 import { SubmissionStatusPanel } from '../../../shared/components/submissionStatusPanel.js';
 import { WeekPager } from '../components/weekPager.js';
 import { Leaderboard } from '../components/leaderboard.js';
@@ -45,7 +46,10 @@ export function renderOverviewPage(app) {
   ${selectedWeek === 1 ? `<div class="card" style="margin-top:10px"><strong>Start weights</strong>${view.startWeights.length ? `<ul>${view.startWeights.map((x) => `<li>${Utils.esc(Utils.fullName(x.user))}: ${x.weight}${unit}</li>`).join('')}</ul>` : '<p class="muted">No start weights submitted yet.</p>'}</div>` : ''}
   ${selectedWeek >= 2 ? Leaderboard.render(view, round, app.state.appSettings, prizeRanks) : ''}
   ${selectedWeek === round.weeksCount && isFinalComplete ? `<div class="card" style="margin-top:10px"><strong>Final winners</strong><ol>${view.ranked.slice(0, prizeRanks.length).map((r, i) => `<li>${Utils.esc(Utils.fullName(r.user))} — ${Utils.money(round.prizeSplits[i] || 0, app.state.appSettings.currency)}</li>`).join('')}</ol></div>` : ''}
-  ${round.status === 'active' && app.isAdmin() ? `<div class="row" style="margin-top:10px">${SubmitButton.render({ text: 'Edit Round', icon: 'edit', theme: 'secondary', attrs: { 'data-go': 'edit' } })}${isSelectedWeekComplete ? SubmitButton.render({ text: 'Generate SOTD Image', icon: 'image', attrs: { 'data-go': 'sotd-image' } }) : ''}</div>` : ''}`;
+  ${round.status === 'active' && app.isAdmin() ? ActionsPanel.render([
+    { icon: 'edit', title: 'Edit Round', route: 'edit', color: 'secondary' },
+    ...(isSelectedWeekComplete ? [{ icon: 'image', title: 'Generate SOTD Image', route: 'sotd-image' }] : [])
+  ]) : ''}`;
 }
 
 export function bindOverviewEvents(app) {

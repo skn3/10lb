@@ -13,6 +13,9 @@ export const SettingsService = {
   changeOfflinePassword: (currentUser, currentPassword, newPassword, Security) =>
     SettingsController.changeOfflinePassword(currentUser, currentPassword, newPassword, Security),
 
+  getResolvedTheme: (user, appSettings, configTheme) =>
+    SettingsController.getResolvedTheme(user, appSettings, configTheme),
+
   resetServer: (isFirebaseMode) =>
     SettingsController.resetServer(isFirebaseMode)
 };

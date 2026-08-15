@@ -126,6 +126,7 @@ export function bindInstallEvents(app) {
       currency,
       theme,
       sessionDurationDays,
+      installedAt: new Date().toISOString(),
       installLockedAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };

@@ -1,18 +1,15 @@
 import { Utils } from '../../../shared/utils/utils.js';
 import { Breadcrumb } from './breadcrumb.js';
+import { PageMenuMap } from '../../../constants.js';
 
 // =============================================================================
 // MENU BAR — navigation bar component.
-//
-// render(items, breadcrumbs, activeRoute, buildHref) — returns the nav inner HTML string
-//   (menu-track + menu-burger).
-//
-// renderReact(items, breadcrumbs, activeRoute, opts) — returns a React element tree for
-//   use inside renderWithReact().  opts: { onNavigate, onBurgerClick }
-//
-// attachBurger(nav, callbacks) — wires up burger open/close behaviour.
-//   callbacks: { onNavigate(route) }
 // =============================================================================
+
+function activeMenuKey(route) {
+  return PageMenuMap[route] || route;
+}
+
 export const MenuBar = {
   /**
    * Returns the innerHTML for the <nav> element.
@@ -23,9 +20,10 @@ export const MenuBar = {
    * @returns {string}
    */
   render(items, breadcrumbs, activeRoute, buildHref) {
+    const activeKey = activeMenuKey(activeRoute);
     const links = items.map((item) => {
       const href = buildHref(item.key);
-      const isActive = activeRoute === item.key;
+      const isActive = activeKey === item.key;
       return `<a href="${Utils.escAttr(href)}" class="menu-item${isActive ? ' active' : ''}" role="menuitem" data-route="${Utils.escAttr(item.key)}" aria-current="${isActive ? 'page' : 'false'}">` +
         `<span class="material-symbols-rounded" aria-hidden="true">${Utils.esc(item.icon)}</span>` +
         `<span class="menu-item-label">${Utils.esc(item.label)}</span></a>`;
@@ -56,6 +54,7 @@ export const MenuBar = {
     const { Link } = Router;
     const e = React.createElement;
     const { onNavigate, onBurgerClick, buildPath } = opts;
+    const activeKey = activeMenuKey(activeRoute);
     return e('div', { className: 'nav-inner' },
       e('div', { className: 'menu-header' },
         Breadcrumb.renderReact(breadcrumbs, { onNavigate, buildPath }),
@@ -76,9 +75,9 @@ export const MenuBar = {
           e(Link, {
             key: item.key,
             to: `/${item.key}`,
-            className: `menu-item${activeRoute === item.key ? ' active' : ''}`,
+            className: `menu-item${activeKey === item.key ? ' active' : ''}`,
             role: 'menuitem',
-            'aria-current': activeRoute === item.key ? 'page' : 'false',
+            'aria-current': activeKey === item.key ? 'page' : 'false',
             onClick: (event) => { event.preventDefault(); if (onNavigate) onNavigate(item.key); }
           },
           e('span', { className: 'material-symbols-rounded', 'aria-hidden': 'true' }, item.icon),

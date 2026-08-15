@@ -6,5 +6,6 @@ import { App } from './appController.js';
 export const AppService = {
   init: () => App.init(),
   createBreadcrumb: (label, route, options) => App.createBreadcrumb(label, route, options),
-  getBreadcrumbs: (route) => App.getBreadcrumbs(route)
+  getBreadcrumbs: (route) => App.getBreadcrumbs(route),
+  getActiveMenuKey: (route) => App.getActiveMenuKey(route)
 };

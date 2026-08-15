@@ -2,6 +2,7 @@ import { UserType, UserTypeIcon } from '../../../constants.js';
 import { Utils } from '../../../shared/utils/utils.js';
 import { SubmitButton } from '../../../shared/components/submitButton.js';
 import { DataTable } from '../../../shared/components/dataTable.js';
+import { ActionsPanel } from '../../../shared/components/actionsPanel.js';
 import { SubmissionService } from '../../submission/classes/submissionService.js';
 import { UsersService } from '../classes/usersService.js';
 
@@ -127,7 +128,7 @@ export function renderUsersPage(app) {
     `</tr>`;
   });
 
-  return `<div class="card"><div class="row between"><h2 style="margin:0">User filters</h2><span class="small muted">${shown.length} shown</span></div>
+  return `<div class="card"><div class="row between"><h2 style="margin:0">Filters</h2><span class="small muted">${shown.length} shown</span></div>
     <div class="grid two" style="margin-top:8px">
       <div><label>Type</label><select id="users-filter-type"><option value="all" ${f.type === 'all' ? 'selected' : ''}>All</option><option value="master" ${f.type === 'master' ? 'selected' : ''}>Master</option><option value="admin" ${f.type === 'admin' ? 'selected' : ''}>Admin</option><option value="user" ${f.type === 'user' ? 'selected' : ''}>User</option><option value="participant" ${f.type === 'participant' ? 'selected' : ''}>Participant</option>${app.isFirebaseMode() ? `<option value="invite" ${f.type === 'invite' ? 'selected' : ''}>Invite</option>` : ''}</select></div>
       <div><label>Status</label><select id="users-filter-status"><option value="all" ${f.status === 'all' ? 'selected' : ''}>All</option><option value="confirmed" ${f.status === 'confirmed' ? 'selected' : ''}>Confirmed</option><option value="invited" ${f.status === 'invited' ? 'selected' : ''}>Invited</option></select></div>
@@ -136,7 +137,7 @@ export function renderUsersPage(app) {
       <div><label class="row"><input type="checkbox" id="users-filter-current" style="width:auto" ${f.currentChallengeOnly ? 'checked' : ''}/> Only users in current challenge</label></div>
     </div>
   </div>
-  <div class="card"><div class="row between"><h2 style="margin:0">Users</h2><div class="row">${SubmitButton.render({ text: 'Create participant', icon: 'person_add', attrs: { 'type': 'button', 'data-go': 'create_participant' } })}${app.isFirebaseMode() ? SubmitButton.render({ text: 'Create invite', icon: 'add_link', id: 'btn-create-invite' }) : ''}</div></div>
+  <div class="card"><div class="row between"><h2 style="margin:0">Users</h2></div>
     <div class="row between" style="margin-top:12px">
     <span class="selection-status">${selectedCount} selected</span>
     ${SubmitButton.render({ text: 'Delete selected', icon: 'delete_sweep', theme: 'danger', attrs: { 'data-bulk-delete': '1', 'type': 'button', ...(selectedCount ? {} : { disabled: 'disabled' }) } })}
@@ -144,7 +145,11 @@ export function renderUsersPage(app) {
     <div style="overflow:auto;margin-top:8px">
     ${DataTable.render({ headers: tableHeaders, rows: tableRows, emptyMessage: 'No users found.', colSpan: tableHeaders.length })}
     </div>
-  </div>`;
+  </div>
+  ${ActionsPanel.render([
+    { icon: 'person_add', title: 'Create participant', route: 'create_participant' },
+    ...(app.isFirebaseMode() ? [{ icon: 'add_link', title: 'Create invite', route: 'invites' }] : [])
+  ])}`;
 }
 
 export function bindUsersPageEvents(app) {
