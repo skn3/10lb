@@ -257,6 +257,8 @@ Key lifecycle methods: `init()`, `render()`, `refresh()`, `navigate(route)`, `re
 
 Navigation helpers include `createBreadcrumb(label, route, options)`, `getBreadcrumbs(route)`, and `getActiveMenuKey(route)` (resolves the correct top-level menu item for sub-pages via `PageMenuMap`); `AppService` re-exports these APIs for cross-feature callers.
 
+Cache versioning: `app.getVersionedPath(path)` returns `path?v=N` using the global version counter stored in `localStorage` (`tenlb_cache_version`). `app.flushBrowserCache()` increments the counter, persists it, and reloads the page. These are also re-exported from `AppService`.
+
 The site footer (`siteFooter.js`) is rendered on every page render when logged in; it shows aggregate totals and the copyright line using `app.state.appSettings.installedAt` for the install year.
 
 Helpers available to all page modules:
@@ -267,6 +269,8 @@ app.setMessage(msg)                     // success snackbar
 app.isAdmin()  app.isMaster()  app.isFirebaseMode()
 app.navigate(route, opts)
 app.refresh()
+app.getVersionedPath(path)              // returns path?v=N (cache busting)
+app.flushBrowserCache()                 // increments version counter and reloads
 ```
 
 ---

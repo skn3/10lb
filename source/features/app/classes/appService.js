@@ -7,5 +7,7 @@ export const AppService = {
   init: () => App.init(),
   createBreadcrumb: (label, route, options) => App.createBreadcrumb(label, route, options),
   getBreadcrumbs: (route) => App.getBreadcrumbs(route),
-  getActiveMenuKey: (route) => App.getActiveMenuKey(route)
+  getActiveMenuKey: (route) => App.getActiveMenuKey(route),
+  getVersionedPath: (path) => App.getVersionedPath(path),
+  flushBrowserCache: () => App.flushBrowserCache()
 };

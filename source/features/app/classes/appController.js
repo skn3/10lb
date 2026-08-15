@@ -103,6 +103,37 @@ export const App = {
   },
 
   // ---------------------------------------------------------------------------
+  // Cache versioning
+  // ---------------------------------------------------------------------------
+  _CACHE_VERSION_KEY: 'tenlb_cache_version',
+  _CACHE_FLUSH_MSG_KEY: 'tenlb_cache_flush_msg',
+
+  getCacheVersion() {
+    return parseInt(localStorage.getItem(this._CACHE_VERSION_KEY) || '0', 10);
+  },
+
+  getVersionedPath(path) {
+    const v = this.getCacheVersion();
+    const sep = path.includes('?') ? '&' : '?';
+    return `${path}${sep}v=${v}`;
+  },
+
+  flushBrowserCache() {
+    const next = this.getCacheVersion() + 1;
+    localStorage.setItem(this._CACHE_VERSION_KEY, String(next));
+    localStorage.setItem(this._CACHE_FLUSH_MSG_KEY, 'Browser cache flushed!');
+    window.location.reload();
+  },
+
+  _checkCacheFlushMessage() {
+    const msg = localStorage.getItem(this._CACHE_FLUSH_MSG_KEY);
+    if (msg) {
+      localStorage.removeItem(this._CACHE_FLUSH_MSG_KEY);
+      this.setMessage(msg);
+    }
+  },
+
+  // ---------------------------------------------------------------------------
   // Auth helpers
   // ---------------------------------------------------------------------------
   isInstalled() { return this.plugin ? this.plugin.isInstalled() : !!this.state.appSettings?.installed; },
@@ -500,6 +531,7 @@ export const App = {
     await this.plugin.onInit();
     window.addEventListener('tenlb:remotechange', this._debouncedRefresh.bind(this));
     window.addEventListener('tenlb:syncstate', () => this.loadSyncMeta().then(() => AppStore.dispatch(this, {})));
+    this._checkCacheFlushMessage();
   },
 
   // ---------------------------------------------------------------------------
