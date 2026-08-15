@@ -25,10 +25,10 @@ export function renderSotdImagePage(app) {
     <canvas id="${CANVAS_ID}" style="width:100%;border:1px solid var(--color-border);border-radius:8px;margin-top:8px"></canvas>
     <div class="row" style="margin-top:12px">
       ${SubmitButton.render({ text: 'Download Image', icon: 'download', attrs: { id: 'sotd-download' } })}
-      ${SubmitButton.render({ text: 'Share to Facebook', icon: 'share', theme: 'secondary', attrs: { id: 'sotd-facebook' } })}
+      ${_canUseWebShare() ? SubmitButton.render({ text: 'Share', icon: 'share', theme: 'secondary', attrs: { id: 'sotd-share' } }) : ''}
       ${SubmitButton.render({ text: 'Back', icon: 'arrow_back', theme: 'secondary', attrs: { 'data-go': 'overview' } })}
     </div>
-    <p class="muted small" style="margin-top:8px">Note: Facebook image sharing requires the image to be hosted at a public URL. Use "Download Image" first, then upload to your post.</p>
+    <p class="muted small" style="margin-top:8px">Use Download Image to save the PNG. Share opens your device share sheet when supported.</p>
   </div>`;
 }
 
@@ -142,19 +142,25 @@ export function bindSotdImageEvents(app) {
   // --- Wire up buttons ---
   const dlBtn = document.getElementById('sotd-download');
   if (dlBtn) {
-    dlBtn.onclick = () => {
-      const a = document.createElement('a');
-      a.download = `sotd-week-${selectedWeek}.png`;
-      a.href = canvas.toDataURL('image/png');
-      a.click();
+    dlBtn.onclick = async () => {
+      try {
+        const blob = await _canvasToBlob(canvas);
+        await _downloadImage(blob, `sotd-week-${selectedWeek}.png`);
+      } catch {
+        app.fail('Could not prepare the image download.');
+      }
     };
   }
 
-  const fbBtn = document.getElementById('sotd-facebook');
-  if (fbBtn) {
-    fbBtn.onclick = () => {
-      const shareUrl = encodeURIComponent(window.location.href);
-      window.open(`https://www.facebook.com/sharer/sharer.php?u=${shareUrl}`, '_blank', 'width=600,height=400');
+  const shareBtn = document.getElementById('sotd-share');
+  if (shareBtn) {
+    shareBtn.onclick = async () => {
+      try {
+        const blob = await _canvasToBlob(canvas);
+        await _shareImage(blob, round.title || '10lb Challenge', selectedWeek);
+      } catch (err) {
+        if (err?.name !== 'AbortError') app.fail('Could not open the share sheet.');
+      }
     };
   }
 }
@@ -251,4 +257,59 @@ function _drawChart(ctx, round, users, subs, selectedWeek, unit, x, y, w, h) {
 
   chart.destroy();
   document.body.removeChild(offscreen);
+}
+
+function _canUseWebShare() {
+  return typeof navigator !== 'undefined' && typeof navigator.share === 'function';
+}
+
+function _canvasToBlob(canvas) {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (blob) resolve(blob);
+      else reject(new Error('Canvas export failed.'));
+    }, 'image/png');
+  });
+}
+
+async function _downloadImage(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const isIOS = _isIOSDevice();
+  try {
+    if (!isIOS && 'download' in HTMLAnchorElement.prototype) {
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      return;
+    }
+    const opened = window.open(url, '_blank', 'noopener,noreferrer');
+    if (!opened) window.location.assign(url);
+  } finally {
+    window.setTimeout(() => URL.revokeObjectURL(url), isIOS ? 60000 : 1000);
+  }
+}
+
+async function _shareImage(blob, roundTitle, selectedWeek) {
+  const title = `${roundTitle} — Week ${selectedWeek}`;
+  const shareData = {
+    title,
+    text: title,
+    url: window.location.href
+  };
+  if (typeof navigator.canShare === 'function' && typeof File !== 'undefined') {
+    const file = new File([blob], `sotd-week-${selectedWeek}.png`, { type: 'image/png' });
+    if (navigator.canShare({ files: [file] })) {
+      delete shareData.url;
+      shareData.files = [file];
+    }
+  }
+  await navigator.share(shareData);
+}
+
+function _isIOSDevice() {
+  const ua = navigator.userAgent || '';
+  return /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 }
