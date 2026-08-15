@@ -187,7 +187,7 @@ export const App = {
     this.state.selectedUserId = selectedUserId || null;
     if (tabParam) {
       if (parsed.route === 'user') this.state.userAdminTab = tabParam;
-      else this.state.settingsTab = tabParam;
+      else if (parsed.route === 'settings') this.state.settingsTab = tabParam;
     }
     const requested = parsed.route || this._defaultRoute();
     if (this.isInstalled() && !this.isAuthenticated() && !['login', 'join', 'install'].includes(requested)) {
@@ -753,7 +753,7 @@ export const App = {
         headerBreadcrumb.innerHTML = bcHtml;
         headerBreadcrumb.classList.toggle('visible', model.breadcrumbs.length > 0);
         headerBreadcrumb.querySelectorAll('a').forEach((a) => {
-          a.onclick = (event) => { event.preventDefault(); this.navigate(a.getAttribute('href').replace(/^#\/?/, '').split('?')[0]); };
+          a.onclick = (event) => { event.preventDefault(); const href = a.getAttribute('href').replace(/^#\/?/, ''); const [routeKey, qs] = href.split('?'); const params = new URLSearchParams(qs || ''); const opts = {}; if (params.has('id')) opts.userId = params.get('id'); this.navigate(routeKey, opts); };
         });
       }
     }
@@ -783,7 +783,7 @@ export const App = {
       headerBreadcrumb.innerHTML = bcHtml;
       headerBreadcrumb.classList.toggle('visible', navModel.breadcrumbs.length > 0);
       headerBreadcrumb.querySelectorAll('a').forEach((a) => {
-        a.onclick = (event) => { event.preventDefault(); this.navigate(a.getAttribute('href').replace(/^#\/?/, '').split('?')[0]); };
+        a.onclick = (event) => { event.preventDefault(); const href = a.getAttribute('href').replace(/^#\/?/, ''); const [routeKey, qs] = href.split('?'); const params = new URLSearchParams(qs || ''); const opts = {}; if (params.has('id')) opts.userId = params.get('id'); this.navigate(routeKey, opts); };
       });
     }
     this._syncNavVisibility(document.getElementById('nav'), navModel.items.length > 0);
