@@ -527,7 +527,7 @@ export const App = {
   },
 
   _baseNavModel() {
-    return { items: [], breadcrumbs: [], authName: '', authRole: '', authUserType: '', authUserId: '', syncVisible: false, syncText: '' };
+    return { items: [], breadcrumbs: [], authName: '', authRole: '', authUserType: '', authUserId: '', syncVisible: false, syncStatus: '', syncSpinning: false, syncLabel: '', syncText: '' };
   },
 
   _syncNavVisibility(nav, hasItems) {
@@ -716,7 +716,8 @@ export const App = {
       [SyncStatus.PENDING]: 'Changes pending',
       [SyncStatus.ERROR]: 'Sync error'
     };
-    return { syncVisible: true, syncText: `${SyncStatusIcon[status] || ''} ONLINE — ${statusText[status] || Utils.esc(status)}` };
+    const label = statusText[status] ? `ONLINE — ${statusText[status]}` : `ONLINE — ${Utils.esc(status)}`;
+    return { syncVisible: true, syncStatus: status, syncSpinning: status === SyncStatus.SYNCING, syncLabel: label, syncText: `${SyncStatusIcon[status] || ''} ${label}` };
   },
 
   _isSyncing() {

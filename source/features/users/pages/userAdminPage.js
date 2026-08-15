@@ -10,6 +10,7 @@ import { Security } from '../../../shared/classes/security.js';
 import { generateInviteCode } from '../../invites/utils/inviteCodeUtils.js';
 import { AppStore } from '../../../shared/classes/appStore.js';
 import { Tabs } from '../../../shared/components/tabs.js';
+import { DeniedPage } from '../../app/pages/deniedPage.js';
 
 const React = window.React;
 
@@ -386,7 +387,7 @@ export function UserAdminPage({ app }) {
   }, [app, typeValue]);
 
   // ── Early returns (after all hooks) ──────────────────────────────────────
-  if (!app.isAdmin()) return e('div', { dangerouslySetInnerHTML: { __html: app._renderDenied() } });
+  if (!app.isAdmin()) return e(DeniedPage, { app });
   if (!user) {
     return e('div', { className: 'card', style: { maxWidth: '640px', margin: '0 auto' } },
       e('h2', { style: { marginTop: 0 } }, 'User not found'),

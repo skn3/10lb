@@ -6,6 +6,7 @@ import { ActionsPanel } from '../../../shared/components/actionsPanel.js';
 import { AppStore } from '../../../shared/classes/appStore.js';
 import { SubmissionService } from '../../submission/classes/submissionService.js';
 import { UsersService } from '../classes/usersService.js';
+import { DeniedPage } from '../../app/pages/deniedPage.js';
 
 const React = window.React;
 
@@ -128,6 +129,57 @@ function buildUsersPageView(app, filters, selectedUsers) {
   return { shown, deletableSelectedIds, tableHeaders, tableRows };
 }
 
+function buildUsersTableReactRows(app, shown, deletableSelectedIds) {
+  const React = window.React;
+  const e = React.createElement;
+  return shown.map((row) => {
+    if (row.kind === 'invite') {
+      const cells = [
+        e('td', { key: 'cb' }),
+        e('td', { key: 'name' },
+          e('span', { className: 'user-linkish' },
+            e('span', { className: 'material-symbols-rounded', 'aria-hidden': 'true' }, UserTypeIcon.invite || 'mail'),
+            e('span', null, 'Invite')
+          ),
+          e('div', { className: 'small muted' }, e('code', null, row.invite.code))
+        ),
+        e('td', { key: 'role' }, row.role),
+        e('td', { key: 'last' }, '—'),
+        ...(app.isFirebaseMode() ? [e('td', { key: 'sess' }, '—')] : []),
+        e('td', { key: 'rounds' }, '0'),
+        e('td', { key: 'cash' }, Utils.money(0, app.state.appSettings.currency)),
+        e('td', { key: 'weight' }, `0${app.state.appSettings.weightFormat}`),
+        e('td', { key: 'current' }, 'No')
+      ];
+      return e('tr', { key: row.id, className: 'is-clickable', tabIndex: 0, role: 'button', 'data-open-invite': row.inviteId }, ...cells);
+    }
+    const u = row.user;
+    const protectedUser = isProtectedUser(app, u);
+    const activeSessions = app.isFirebaseMode() ? app.state.sessions.filter((s) => s?.userId === u.id).length : 0;
+    const icon = UserTypeIcon[resolveRowType(row)] || UserTypeIcon[UserType.USER];
+    const cells = [
+      e('td', { key: 'cb' },
+        e('input', { type: 'checkbox', 'data-bulk-user': u.id, checked: deletableSelectedIds.includes(u.id), disabled: protectedUser, readOnly: true, onChange: () => {} })
+      ),
+      e('td', { key: 'name' },
+        e('span', { className: 'user-linkish' },
+          e('span', { className: 'material-symbols-rounded', 'aria-hidden': 'true' }, icon),
+          e('span', null, Utils.fullName(u))
+        ),
+        e('div', { className: 'small muted' }, UsersService.userLoginLabel(u) + (row.invited ? ' • invited' : ''))
+      ),
+      e('td', { key: 'role' }, row.role),
+      e('td', { key: 'last' }, Utils.timeAgo(u.lastLoginAt)),
+      ...(app.isFirebaseMode() ? [e('td', { key: 'sess' }, String(activeSessions))] : []),
+      e('td', { key: 'rounds' }, String(row.roundsParticipated)),
+      e('td', { key: 'cash' }, Utils.money(row.totalCashWon, app.state.appSettings.currency)),
+      e('td', { key: 'weight' }, `${row.totalWeightDelta}${app.state.appSettings.weightFormat}`),
+      e('td', { key: 'current' }, row.inCurrentRound ? 'Yes' : 'No')
+    ];
+    return e('tr', { key: u.id, className: 'is-clickable', tabIndex: 0, role: 'button', 'data-open-user': u.id }, ...cells);
+  });
+}
+
 export function renderUsersPage(app) {
   if (!app.isAdmin()) return app._renderDenied();
   const f = app.state.userFilters || {};
@@ -176,7 +228,7 @@ export function UsersPage({ app }) {
   );
 
   if (!app.isAdmin()) {
-    return e('div', { dangerouslySetInnerHTML: { __html: app._renderDenied() } });
+    return e(DeniedPage, { app });
   }
 
   const openInvite = (inviteId) => {
@@ -317,7 +369,7 @@ export function UsersPage({ app }) {
           }
         }
       },
-      DataTable.renderReact({ headers: view.tableHeaders, rows: view.tableRows, emptyMessage: 'No users found.', colSpan: view.tableHeaders.length }))
+      DataTable.renderReact({ headers: view.tableHeaders, rows: buildUsersTableReactRows(app, view.shown, view.deletableSelectedIds), emptyMessage: 'No users found.', colSpan: view.tableHeaders.length }))
     ),
     ActionsPanel.renderReact([
       { icon: 'person_add', title: 'Create participant', route: 'create_participant' },

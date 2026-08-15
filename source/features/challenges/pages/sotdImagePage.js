@@ -2,6 +2,7 @@ import { Domain } from '../../../domain.js';
 import { PrizeMedals } from '../../../constants.js';
 import { Utils } from '../../../shared/utils/utils.js';
 import { SubmitButton } from '../../../shared/components/submitButton.js';
+import { DeniedPage } from '../../app/pages/deniedPage.js';
 
 // =============================================================================
 // SOTD IMAGE PAGE — Snapshot Of The Day: renders leaderboard + chart to canvas
@@ -312,4 +313,38 @@ async function _shareImage(blob, roundTitle, selectedWeek) {
 function _isIOSDevice() {
   const ua = navigator.userAgent || '';
   return /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+}
+
+const React = window.React;
+
+export function SotdImagePage({ app }) {
+  const e = React.createElement;
+  const canvasRef = React.useRef(null);
+
+  if (!app.isAdmin()) {
+    return e(DeniedPage, { app });
+  }
+
+  const round = app.currentRound();
+  if (!round) return e('div', { className: 'card' }, e('p', { className: 'muted' }, 'No round selected.'));
+
+  const subs = Domain.submissionsByRound(app.state.submissions, round.id);
+  const currentWeek = Domain.calcCurrentWeek(round, app.state.users, subs);
+  const selectedWeek = app.state.weekCursor[round.id] || Math.min(currentWeek, round.weeksCount);
+
+  React.useEffect(() => {
+    if (canvasRef.current) bindSotdImageEvents(app);
+  }, [round.id, selectedWeek]);
+
+  return e('div', { className: 'card' },
+    e('h2', { style: { marginTop: 0 } }, `SOTD Image — Week ${selectedWeek}`),
+    e('p', { className: 'muted small' }, 'Snapshot Of The Day: leaderboard and weight chart rendered as a shareable image.'),
+    e('canvas', { ref: canvasRef, id: CANVAS_ID, style: { width: '100%', border: '1px solid var(--color-border)', borderRadius: '8px', marginTop: '8px' } }),
+    e('div', { className: 'row', style: { marginTop: '12px' } },
+      e('button', { id: 'sotd-download', type: 'button', className: 'btn' }, e('span', { className: 'material-symbols-rounded', 'aria-hidden': 'true' }, 'download'), ' Download Image'),
+      _canUseWebShare() ? e('button', { id: 'sotd-share', type: 'button', className: 'btn secondary' }, e('span', { className: 'material-symbols-rounded', 'aria-hidden': 'true' }, 'share'), ' Share') : null,
+      e('button', { type: 'button', className: 'btn secondary', onClick: () => app.navigate('overview') }, e('span', { className: 'material-symbols-rounded', 'aria-hidden': 'true' }, 'arrow_back'), ' Back')
+    ),
+    e('p', { className: 'muted small', style: { marginTop: '8px' } }, 'Use Download Image to save the PNG. Share opens your device share sheet when supported.')
+  );
 }

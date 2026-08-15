@@ -2,6 +2,7 @@ import { Domain } from '../../../domain.js';
 import { Utils } from '../../../shared/utils/utils.js';
 import { SubmitButton } from '../../../shared/components/submitButton.js';
 import { ChallengeService } from '../classes/challengeService.js';
+import { DeniedPage } from '../../app/pages/deniedPage.js';
 
 // =============================================================================
 // CREATE ROUND PAGE
@@ -142,4 +143,181 @@ export function bindCreateRoundEvents(app) {
     app.setMessage('Challenge round created.');
     app.navigate('overview', { keepFlash: true });
   });
+}
+
+const React = window.React;
+const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+export function CreateRoundPage({ app }) {
+  const e = React.createElement;
+  const formRef = React.useRef(null);
+
+  if (!app.isAdmin()) return e(DeniedPage, { app });
+
+  const active = Domain.activeRound(app.state.rounds);
+  if (active) {
+    return e('div', { className: 'card' },
+      e('p', { className: 'error' }, 'A challenge is already active.'),
+      e('button', { type: 'button', className: 'btn secondary', onClick: () => app.navigate('rounds') },
+        e('span', { className: 'material-symbols-rounded', 'aria-hidden': 'true' }, 'list_alt'), ' Go to round list')
+    );
+  }
+
+  if (!app.state.createDraft) app.state.createDraft = ChallengeService.buildCreateDefaults(app.state.rounds, app.state.users);
+  const d = app.state.createDraft;
+
+  const currency = app.state.appSettings?.currency || '£';
+  const count = d.selectedNames.length;
+  const totalPrize = Utils.round2(Utils.safeNum(d.entryFee) * count);
+  const rows = d.payoutMode === 'custom' ? d.customMemory : d.presetCurrent;
+  const sum = Utils.round2(rows.reduce((a, b) => a + Utils.safeNum(b), 0));
+  const over = sum > totalPrize;
+
+
+  React.useEffect(() => {
+    const form = formRef.current;
+    if (!form) return;
+
+    app.bindAsyncFormSubmit(form, async () => {
+      const d = app.state.createDraft;
+      const payout = (d.payoutMode === 'custom' ? d.customMemory : d.presetCurrent).map((v) => Utils.round2(Utils.safeNum(v)));
+      const totalPrize = Utils.round2(Utils.safeNum(d.entryFee) * d.selectedNames.length);
+      const sum = Utils.round2(payout.reduce((a, b) => a + b, 0));
+      if (!d.selectedNames.length) return app.fail('Select at least one participant.');
+      if (sum > totalPrize) return app.fail('Prize splits cannot exceed prize pool.');
+      if (Domain.activeRound(app.state.rounds)) return app.fail('Only one active round is allowed.');
+      await ChallengeService.createRound({
+        title: d.title.trim(),
+        weeksCount: Utils.safeNum(d.weeksCount),
+        holidaysAllowed: Utils.safeNum(d.holidaysAllowed),
+        entryFee: Utils.safeNum(d.entryFee),
+        startDate: d.startDate,
+        weighDay: Utils.safeNum(d.weighDay),
+        userNames: d.selectedNames,
+        payoutMode: d.payoutMode,
+        prizeSplits: payout
+      });
+      app.state.createDraft = null;
+      await app.refresh();
+      app.setMessage('Challenge round created.');
+      app.navigate('overview', { keepFlash: true });
+    });
+  });
+
+  const handleFieldChange = (ev) => {
+    const t = ev.target;
+    if (['title', 'weeksCount', 'holidaysAllowed', 'entryFee', 'startDate', 'weighDay'].includes(t.name)) d[t.name] = t.value;
+    if (t.name === 'payoutMode') {
+      d.payoutMode = t.value;
+      const size = d.payoutMode === 'preset3' ? 3 : d.payoutMode === 'preset5' ? 5 : d.payoutMode === 'preset7' ? 7 : d.customMemory.length || 3;
+      if (d.payoutMode !== 'custom') {
+        const pool = Utils.round2(Utils.safeNum(d.entryFee) * d.selectedNames.length);
+        const even = size ? Utils.round2(pool / size) : 0;
+        d.presetCurrent = Array.from({ length: size }, (_, i) => i === size - 1 ? String(Utils.round2(pool - (even * (size - 1)))) : String(even));
+      }
+      app.render();
+      return;
+    }
+    if (t.dataset.payIndex !== undefined && t.type === 'number') {
+      const idx = Number(t.dataset.payIndex);
+      const arr = d.payoutMode === 'custom' ? d.customMemory : d.presetCurrent;
+      arr[idx] = t.value;
+    }
+  };
+
+  const handleUserCheck = (name, checked) => {
+    if (checked) d.selectedNames = [...new Set([...d.selectedNames, name])];
+    else d.selectedNames = d.selectedNames.filter((x) => x !== name);
+    app.render();
+  };
+
+  const handleToggleAll = () => {
+    d.selectedNames = d.selectedNames.length === d.allNames.length ? [] : [...d.allNames];
+    app.render();
+  };
+
+  const handleAddUser = () => {
+    const input = formRef.current?.querySelector('#new-user-name');
+    const val = input?.value.trim();
+    if (!val) return;
+    if (!d.allNames.includes(val)) d.allNames.push(val);
+    if (!d.selectedNames.includes(val)) d.selectedNames.push(val);
+    d.newName = '';
+    app.render();
+  };
+
+  const handlePayAdjust = (idx, inc) => {
+    const arr = d.payoutMode === 'custom' ? d.customMemory : d.presetCurrent;
+    arr[idx] = String(Math.max(0, Utils.round2(Utils.safeNum(arr[idx]) + inc)));
+    app.render();
+  };
+
+  return e('div', { className: 'card' },
+    e('h2', { style: { marginTop: 0 } }, 'Create Challenge Round'),
+    e('form', { ref: formRef, action: '#', className: 'grid two', onChange: handleFieldChange },
+      e('div', null, e('label', null, 'Round title'), e('input', { name: 'title', type: 'text', required: true, defaultValue: d.title })),
+      e('div', null, e('label', null, 'Number of weeks'), e('input', { type: 'number', min: '1', max: '52', name: 'weeksCount', defaultValue: d.weeksCount, required: true })),
+      e('div', null, e('label', null, 'Number of holidays'), e('input', { type: 'number', min: '0', max: '12', name: 'holidaysAllowed', defaultValue: d.holidaysAllowed, required: true })),
+      e('div', null, e('label', null, `Entry fee (${currency})`), e('input', { type: 'number', step: '0.01', min: '0', name: 'entryFee', defaultValue: d.entryFee, required: true })),
+      e('div', null, e('label', null, 'Start date'), e('input', { type: 'date', name: 'startDate', defaultValue: d.startDate, required: true })),
+      e('div', null, e('label', null, 'Weigh day'),
+        e('select', { name: 'weighDay' },
+          ...DAYS.map((day, i) => e('option', { key: i, value: String(i), selected: String(i) === String(d.weighDay) || undefined }, day))
+        )
+      ),
+      e('div', { className: 'card', style: { gridColumn: '1/-1' } },
+        e('div', { className: 'row between' },
+          e('strong', null, `Users (${count})`),
+          e('div', { className: 'row' },
+            e('button', { type: 'button', className: 'btn secondary small', onClick: handleToggleAll }, e('span', { className: 'material-symbols-rounded', 'aria-hidden': 'true' }, 'select_all'), ' Toggle all')
+          )
+        ),
+        e('div', { className: 'grid three', style: { marginTop: '8px' } },
+          d.allNames.length
+            ? d.allNames.map((n) => e('label', { key: n, className: 'row' },
+                e('input', { type: 'checkbox', 'data-user-name': n, 'data-label': n, checked: d.selectedNames.includes(n), style: { width: 'auto' }, onChange: (ev) => handleUserCheck(n, ev.target.checked) }),
+                ' ', n
+              ))
+            : e('p', { className: 'muted' }, 'No users yet.')
+        ),
+        e('div', { style: { marginTop: '8px' } },
+          e('label', { htmlFor: 'new-user-name' }, 'Add user full name'),
+          e('div', { className: 'row' },
+            e('input', { id: 'new-user-name', type: 'text', autoComplete: 'name', placeholder: 'Add new user full name', defaultValue: d.newName || '' }),
+            e('button', { type: 'button', className: 'btn', onClick: handleAddUser }, e('span', { className: 'material-symbols-rounded', 'aria-hidden': 'true' }, 'person_add'), ' Add')
+          )
+        )
+      ),
+      e('div', { className: 'card', style: { gridColumn: '1/-1' } },
+        e('div', { className: 'row between' },
+          e('strong', null, 'Prize payout calculator'),
+          e('span', { className: 'tag' }, `Pool ${Utils.money(totalPrize, currency)}`)
+        ),
+        e('label', null, 'Mode'),
+        e('select', { name: 'payoutMode' },
+          e('option', { value: 'preset3', selected: d.payoutMode === 'preset3' || undefined }, 'Pay top 3'),
+          e('option', { value: 'preset5', selected: d.payoutMode === 'preset5' || undefined }, 'Pay top 5'),
+          e('option', { value: 'preset7', selected: d.payoutMode === 'preset7' || undefined }, 'Pay top 7'),
+          e('option', { value: 'custom', selected: d.payoutMode === 'custom' || undefined }, 'Custom')
+        ),
+        e('div', { className: 'grid three', style: { marginTop: '8px' } },
+          ...rows.map((v, i) =>
+            e('div', { key: i },
+              e('label', null, `Rank ${i + 1}`),
+              e('div', { className: 'row' },
+                e('button', { type: 'button', className: 'btn secondary', onClick: () => handlePayAdjust(i, -1) }, e('span', { className: 'material-symbols-rounded', 'aria-hidden': 'true' }, 'remove')),
+                e('input', { type: 'number', step: '0.01', 'data-pay-index': String(i), defaultValue: Utils.safeNum(v) }),
+                e('button', { type: 'button', className: 'btn secondary', onClick: () => handlePayAdjust(i, 1) }, e('span', { className: 'material-symbols-rounded', 'aria-hidden': 'true' }, 'add'))
+              )
+            )
+          )
+        ),
+        e('p', { className: `small ${over ? 'error' : 'muted'}` }, `Entered total: ${Utils.money(sum, currency)}${over ? ' (cannot exceed pool)' : ''}`)
+      ),
+      e('div', { style: { gridColumn: '1/-1' }, className: 'row' },
+        e('button', { type: 'submit', className: 'btn' }, e('span', { className: 'material-symbols-rounded', 'aria-hidden': 'true' }, 'add_circle'), ' Create Round'),
+        e('button', { type: 'button', className: 'btn secondary', onClick: () => app.navigate('rounds') }, e('span', { className: 'material-symbols-rounded', 'aria-hidden': 'true' }, 'close'), ' Cancel')
+      )
+    )
+  );
 }

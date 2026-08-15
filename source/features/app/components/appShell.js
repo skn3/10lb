@@ -60,7 +60,11 @@ export function AppShell({ app: initialApp }) {
           padding: '2px 0 4px',
           opacity: '.85'
         }
-      }, navModel.syncVisible ? e('span', { dangerouslySetInnerHTML: { __html: navModel.syncText } }) : null)
+      }, navModel.syncVisible ? e('span', null,
+        navModel.syncSpinning ? e('span', { className: 'sync-spin' }, '↻') : null,
+        navModel.syncSpinning ? ' ' : null,
+        navModel.syncLabel
+      ) : null)
     ),
     e('nav', { id: 'nav', className: navModel.items.length ? 'has-items' : '' },
       navModel.items.length
