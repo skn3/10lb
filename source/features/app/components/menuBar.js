@@ -1,12 +1,13 @@
 import { Utils } from '../../../shared/utils/utils.js';
+import { Breadcrumb } from './breadcrumb.js';
 
 // =============================================================================
 // MENU BAR — navigation bar component.
 //
-// render(items, activeRoute, buildHref) — returns the nav inner HTML string
+// render(items, breadcrumbs, activeRoute, buildHref) — returns the nav inner HTML string
 //   (menu-track + menu-burger).
 //
-// renderReact(items, activeRoute, opts) — returns a React element tree for
+// renderReact(items, breadcrumbs, activeRoute, opts) — returns a React element tree for
 //   use inside renderWithReact().  opts: { onNavigate, onBurgerClick }
 //
 // attachBurger(nav, callbacks) — wires up burger open/close behaviour.
@@ -16,11 +17,12 @@ export const MenuBar = {
   /**
    * Returns the innerHTML for the <nav> element.
    * @param {{ key: string, icon: string, label: string }[]} items
+   * @param {{ label: string, route: string, options?: object }[]} breadcrumbs
    * @param {string} activeRoute
-   * @param {function(string): string} buildHref  e.g. (key) => `#/${key}`
+   * @param {function(string, object=): string} buildHref  e.g. (key) => `#/${key}`
    * @returns {string}
    */
-  render(items, activeRoute, buildHref) {
+  render(items, breadcrumbs, activeRoute, buildHref) {
     const links = items.map((item) => {
       const href = buildHref(item.key);
       const isActive = activeRoute === item.key;
@@ -30,9 +32,9 @@ export const MenuBar = {
     }).join('');
     return `<div class="nav-inner">` +
       `<div class="menu-header">` +
-      `<span class="menu-active-indicator" data-menu-active aria-hidden="true"></span>` +
+      Breadcrumb.render(breadcrumbs, buildHref) +
       `<button class="menu-burger" type="button" aria-label="Expand menu" aria-expanded="false" title="Expand menu" data-icon-skip="1">` +
-      `<span class="menu-burger-glyph" aria-hidden="true">☰</span><span class="menu-burger-label">Menu</span></button>` +
+      `<span class="material-symbols-rounded menu-burger-glyph" aria-hidden="true">menu</span><span class="menu-burger-label">Menu</span></button>` +
       `</div>` +
       `<div class="menu-track" role="menubar">${links}</div>` +
       `</div>`;
@@ -42,20 +44,21 @@ export const MenuBar = {
    * Returns a React element tree for the nav inner content.
    * Requires window.React and window.ReactRouterDOM.
    * @param {{ key: string, icon: string, label: string }[]} items
+   * @param {{ label: string, route: string, options?: object }[]} breadcrumbs
    * @param {string} activeRoute
-   * @param {{ onNavigate: function, onBurgerClick?: function }} opts
+   * @param {{ onNavigate: function, onBurgerClick?: function, buildPath?: function }} opts
    * @returns {*} React element
    */
-  renderReact(items, activeRoute, opts = {}) {
+  renderReact(items, breadcrumbs, activeRoute, opts = {}) {
     const React = window.React;
     const Router = window.ReactRouterDOM;
     if (!React || !Router?.Link) return null;
     const { Link } = Router;
     const e = React.createElement;
-    const { onNavigate, onBurgerClick } = opts;
+    const { onNavigate, onBurgerClick, buildPath } = opts;
     return e('div', { className: 'nav-inner' },
       e('div', { className: 'menu-header' },
-        e('span', { className: 'menu-active-indicator', 'data-menu-active': '1', 'aria-hidden': 'true' }),
+        Breadcrumb.renderReact(breadcrumbs, { onNavigate, buildPath }),
         e('button', {
           className: 'menu-burger',
           type: 'button',
@@ -65,7 +68,7 @@ export const MenuBar = {
           'data-icon-skip': '1',
           onClick: onBurgerClick || undefined
         },
-        e('span', { className: 'menu-burger-glyph', 'aria-hidden': 'true' }, '☰'),
+        e('span', { className: 'material-symbols-rounded menu-burger-glyph', 'aria-hidden': 'true' }, 'menu'),
         e('span', { className: 'menu-burger-label' }, 'Menu'))
       ),
       e('div', { className: 'menu-track', role: 'menubar' },

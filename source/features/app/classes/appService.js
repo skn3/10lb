@@ -1,5 +1,11 @@
+import { App } from './appController.js';
+
 // =============================================================================
-// APP SERVICE — Public API for the app feature
-// Re-exports the App object from appController for use in main.js
+// APP SERVICE — Public API for the app feature.
 // =============================================================================
-export { App } from './appController.js';
+export const AppService = {
+  createBreadcrumb: (label, route, options) => App.createBreadcrumb(label, route, options),
+  getBreadcrumbs: (route) => App.getBreadcrumbs(route)
+};
+
+export { App };

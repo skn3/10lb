@@ -212,6 +212,47 @@ export const App = {
     const target = route && route !== 'login' ? route : (this.state.redirectAfterLogin || 'overview');
     return this._guardRoute(target);
   },
+
+  createBreadcrumb(label, route, options = {}) {
+    const text = String(label || '').trim();
+    if (!text) return null;
+    return {
+      label: text,
+      route: this._sanitizeRoute(route || this.state.route),
+      options: { ...options }
+    };
+  },
+
+  getBreadcrumbs(route = this.state.route) {
+    return this._defaultBreadcrumbs(route).filter(Boolean);
+  },
+
+  _defaultBreadcrumbs(route) {
+    const home = this.createBreadcrumb('Home', 'overview');
+    const round = this.currentRound();
+    const selectedUser = this.selectedUser();
+    const invite = this.state.inviteDetail;
+    const roundTitle = round?.title || 'Current round';
+    const userLabel = selectedUser ? Utils.fullName(selectedUser) : 'User';
+    const inviteLabel = invite?.code ? `Invite ${invite.code}` : 'Invite detail';
+    const map = {
+      overview: [home],
+      rounds: [home, this.createBreadcrumb('Rounds', 'rounds')],
+      create: [home, this.createBreadcrumb('Rounds', 'rounds'), this.createBreadcrumb('Create', 'create')],
+      edit: [home, this.createBreadcrumb('Rounds', 'rounds'), this.createBreadcrumb(roundTitle, 'edit')],
+      delete: [home, this.createBreadcrumb('Rounds', 'rounds'), this.createBreadcrumb(`Delete ${roundTitle}`, 'delete')],
+      'finish-week': [home, this.createBreadcrumb('Rounds', 'rounds'), this.createBreadcrumb('Finish week', 'finish-week')],
+      'sotd-image': [home, this.createBreadcrumb('Rounds', 'rounds'), this.createBreadcrumb('SOTD image', 'sotd-image')],
+      submit: [home, this.createBreadcrumb('Submit', 'submit')],
+      users: [home, this.createBreadcrumb('Users', 'users')],
+      user: [home, this.createBreadcrumb('Users', 'users'), this.createBreadcrumb(userLabel, 'user', { userId: this.state.selectedUserId })],
+      create_participant: [home, this.createBreadcrumb('Users', 'users'), this.createBreadcrumb('Create participant', 'create_participant')],
+      invites: [home, this.createBreadcrumb('Users', 'users'), this.createBreadcrumb('Invites', 'invites')],
+      'invite-detail': [home, this.createBreadcrumb('Users', 'users'), this.createBreadcrumb('Invites', 'invites'), this.createBreadcrumb(inviteLabel, 'invite-detail')],
+      settings: [home, this.createBreadcrumb('Settings', 'settings')]
+    };
+    return map[this._sanitizeRoute(route)] || [home];
+  },
   async navigate(route, options = {}) {
     const target = this._sanitizeRoute(route || this._defaultRoute());
     if (!options.keepFlash) {
@@ -445,7 +486,7 @@ export const App = {
   },
 
   _baseNavModel() {
-    return { items: [], authName: '', authRole: '', syncVisible: false, syncText: '' };
+    return { items: [], breadcrumbs: [], authName: '', authRole: '', syncVisible: false, syncText: '' };
   },
 
   _syncNavVisibility(nav, hasItems) {
@@ -468,13 +509,15 @@ export const App = {
     const expanded = state === MenuState.EXPANDING || state === MenuState.EXPANDED;
     const isBurgerMode = state !== MenuState.INLINE;
     nb.nav.classList.toggle('needs-burger', isBurgerMode);
-    const label = expanded ? 'Collapse' : 'Menu';
+    const label = expanded ? 'Close' : 'Menu';
     if (nb.burger) {
       nb.burger.setAttribute('aria-expanded', expanded ? 'true' : 'false');
-      nb.burger.setAttribute('aria-label', expanded ? 'Collapse menu' : 'Expand menu');
-      nb.burger.setAttribute('title', expanded ? 'Collapse menu' : 'Expand menu');
+      nb.burger.setAttribute('aria-label', expanded ? 'Close menu' : 'Expand menu');
+      nb.burger.setAttribute('title', expanded ? 'Close menu' : 'Expand menu');
       const labelEl = nb.burger.querySelector('.menu-burger-label');
       if (labelEl) labelEl.textContent = label;
+      const glyphEl = nb.burger.querySelector('.menu-burger-glyph');
+      if (glyphEl) glyphEl.textContent = expanded ? 'close' : 'menu';
     }
   },
 
@@ -598,11 +641,10 @@ export const App = {
     const header = nav.querySelector('.menu-header');
     const track = nav.querySelector('.menu-track');
     const burger = nav.querySelector('.menu-burger');
-    const activeIndicator = nav.querySelector('[data-menu-active]');
     if (!inner || !header || !track || !burger) { this._teardownNavBurger(); return; }
     if (this._navBurger?.nav === nav && this._navBurger?.track === track) { this._queueNavOverflowCheck(this._navBurger, 0); return; }
     this._teardownNavBurger();
-    const nb = { nav, inner, header, track, burger, activeIndicator, collapsedHeight: 0, state: MenuState.INLINE, resizeTimer: null, fadeTimer: null };
+    const nb = { nav, inner, header, track, burger, collapsedHeight: 0, state: MenuState.INLINE, resizeTimer: null, fadeTimer: null };
     nb.onBurgerClick = () => {
       if (nb.state === MenuState.EXPANDED || nb.state === MenuState.EXPANDING) this._closeNavMenu(nb);
       else if (nb.nav.classList.contains('needs-burger')) this._openNavMenu(nb);
@@ -619,26 +661,6 @@ export const App = {
     this._navBurger = nb;
     this._setNavState(nb, MenuState.INLINE);
     this._queueNavOverflowCheck(nb, 0);
-    this._updateNavActive(nb);
-  },
-
-  _updateNavActive(nb) {
-    if (!nb?.activeIndicator) return;
-    const active = nb.track?.querySelector('.menu-item.active');
-    nb.activeIndicator.textContent = '';
-    if (!active) return;
-    const icon = active.querySelector('.material-symbols-rounded')?.textContent?.trim() || '';
-    const label = active.querySelector('.menu-item-label')?.textContent || '';
-    if (icon) {
-      const iconEl = document.createElement('span');
-      iconEl.className = 'material-symbols-rounded';
-      iconEl.setAttribute('aria-hidden', 'true');
-      iconEl.textContent = icon;
-      nb.activeIndicator.appendChild(iconEl);
-    }
-    const labelEl = document.createElement('span');
-    labelEl.textContent = label;
-    nb.activeIndicator.appendChild(labelEl);
   },
 
   _buildSyncStatus(syncMeta) {
@@ -694,12 +716,13 @@ export const App = {
       return model;
     }
     model.items = [...NavigationItems.primary];
+    model.breadcrumbs = this.getBreadcrumbs();
     if (this.isAdmin()) model.items.push(...NavigationItems.admin);
     model.items.push(...NavigationItems.secondary);
     model.authName = Utils.fullName(this.state.currentUser);
     model.authRole = this.roleLabel(this.state.currentUser);
     if (!this.react.enabled) {
-      nav.innerHTML = MenuBar.render(model.items, this.state.route, (key) => this._buildHashRoute(key));
+      nav.innerHTML = MenuBar.render(model.items, model.breadcrumbs, this.state.route, (key, options = {}) => this._buildHashRoute(key, options));
       MenuBar.attachClickHandler(nav, (route) => this.navigate(route));
       authChip.innerHTML = SiteHeader.renderHTML(model.authName, model.authRole);
       const logoutBtn = document.getElementById('btn-logout');
@@ -727,9 +750,10 @@ export const App = {
     if (syncBar) syncBar.style.display = navModel.syncVisible ? 'block' : 'none';
     this._syncNavVisibility(document.getElementById('nav'), navModel.items.length > 0);
     this.react.navRoot.render(e(HashRouter, null,
-      MenuBar.renderReact(navModel.items, this.state.route, {
-        onNavigate: (key) => this.navigate(key),
-        onBurgerClick: () => this._navBurger?.onBurgerClick?.()
+      MenuBar.renderReact(navModel.items, navModel.breadcrumbs, this.state.route, {
+        onNavigate: (key, options = {}) => this.navigate(key, options),
+        onBurgerClick: () => this._navBurger?.onBurgerClick?.(),
+        buildPath: (key, options = {}) => this._buildHashRoute(key, options)
       })
     ));
     this.react.authRoot.render(SiteHeader.renderReact(navModel.authName, navModel.authRole, () => this.logout()));
