@@ -31,14 +31,14 @@ The application is written in **vanilla JavaScript (ES2020)** using ES modules, 
 ```
 source/
   main.js                    — esbuild entry point
-  constants.js               — app-wide constants, enums, nav config, and theme options
+  constants.js               — app-wide constants, enums, nav config, theme options, and PageMenuMap (page→menu mapping)
   config.js                  — RuntimeConfig + DB config wiring
   domain.js                  — pure business logic (no I/O)
   routes.js                  — route re-export from `source/constants.js`
   features/
     app/                     — App lifecycle, routing, nav, PWA
       classes/               — appService.js, appController.js
-      components/            — breadcrumb.js, menuBar.js, snackbar.js, siteHeader.js
+      components/            — breadcrumb.js, menuBar.js, snackbar.js, siteHeader.js, siteFooter.js
       pages/                 — deniedPage.js, installPage.js, joinPage.js, loginPage.js
       utils/                 — utils.js
     authentication/          — plugins (offline/firebase), auth helpers
@@ -68,7 +68,7 @@ source/
       utils/                 — inviteCodeUtils.js
     settings/                — user profile, server, sync settings
       classes/               — settingsService.js, settingsController.js
-      components/            — serverSettingsTab.js, syncSettingsTab.js, syncButton.js, userSettingsTab.js
+      components/            — serverSettingsTab.js, syncSettingsTab.js, syncButton.js
       models/                — appSettingsModel.js
       pages/                 — settingsPage.js
     storage/                 — IndexedDB, Firestore, SyncEngine, Data
@@ -83,6 +83,8 @@ source/
       submissionStatusPanel.js — used by submission AND challenges
       weightChart.js          — used by app and submission
       dataTable.js            — generic table component; used by users, submission (leaderboard)
+      actionsPanel.js         — renders action button rows; used by users, submission/overview, app
+      themePicker.js          — theme selector with live preview; used by settings, user edit page
 dist/
   bundle.js                  — esbuild output
   index.html                 — copied from source/
@@ -252,7 +254,9 @@ Specifically:
 
 Key lifecycle methods: `init()`, `render()`, `refresh()`, `navigate(route)`, `resolveScreen()`.
 
-Navigation helpers include `createBreadcrumb(label, route, options)` and `getBreadcrumbs(route)`; `AppService` re-exports the same breadcrumb API for cross-feature callers.
+Navigation helpers include `createBreadcrumb(label, route, options)`, `getBreadcrumbs(route)`, and `getActiveMenuKey(route)` (resolves the correct top-level menu item for sub-pages via `PageMenuMap`); `AppService` re-exports these APIs for cross-feature callers.
+
+The site footer (`siteFooter.js`) is rendered on every page render when logged in; it shows aggregate totals and the copyright line using `app.state.appSettings.installedAt` for the install year.
 
 Helpers available to all page modules:
 ```js
@@ -306,8 +310,8 @@ Current form inventory:
 | `edit-form` | challenges | Edit round (also contains delete-form below) |
 | `delete-form` | challenges | Delete round (embedded in edit round page) |
 | `submit-form` | submission | Submit weight / holiday / forfeit |
-| `user-settings-form` | settings | Update profile |
-| `user-password-form` | settings | Change password |
+| `user-settings-form` | users | Save user settings (theme) — shown on own user edit page |
+| `user-password-form` | users | Change password — shown on own user edit page |
 | `server-settings-form` | settings | Server settings |
 | `server-reset-form` | settings | Reset server |
 | `firebase-config-form` | settings | Firebase connection test |
