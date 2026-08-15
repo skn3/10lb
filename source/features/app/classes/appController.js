@@ -81,7 +81,7 @@ export const App = {
     selectedRoundId: null,
     weekCursor: {},
     createDraft: null,
-    settingsTab: 'user',
+    settingsTab: 'server',
     currentUser: null,
     appSettings: null,
     sessionToken: null,

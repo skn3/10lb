@@ -207,6 +207,7 @@ export function SubmitPage({ app }) {
   const [action, setAction] = React.useState('weight');
   const [weight, setWeight] = React.useState('');
   const [forfeitConfirm, setForfeitConfirm] = React.useState(false);
+  const [editMode, setEditMode] = React.useState(false);
 
   // Sync selectedUserId if available users changes (e.g. after submission)
   React.useEffect(() => {
@@ -292,7 +293,7 @@ export function SubmitPage({ app }) {
       );
     }
     const existing = Domain.submissionFor(subs, week, userId);
-    if (existing) {
+    if (existing && !editMode) {
       let submittedMsg = e('p', null, `Submission recorded for week ${week}: `, e('strong', null, existing.type));
       if (existing.type === 'weight') submittedMsg = e('p', null, `Your submitted weight for week ${week}: `, e('strong', null, `${existing.weight}${unit}`));
       else if (existing.type === 'holiday') submittedMsg = e('p', null, `You are on holiday this week (week ${week}).`);
@@ -304,7 +305,7 @@ export function SubmitPage({ app }) {
         canEdit
           ? e(React.Fragment, null,
             e('p', { className: 'small muted' }, 'The week has not been finalised yet. You may edit your submission.'),
-            e('button', { type: 'button', className: 'btn secondary' },
+            e('button', { type: 'button', className: 'btn secondary', onClick: () => setEditMode(true) },
               e('span', { className: 'material-symbols-rounded', 'aria-hidden': 'true' }, 'edit'),
               'Edit Submission')
           )

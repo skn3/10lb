@@ -1,18 +1,41 @@
-const React = window.React;
+// =============================================================================
+// APP STORE — React context wrapper around the app state.
+//
+// AppStore.createProvider(app, children)
+//   Wraps children in a context Provider that makes `app` available via hook.
+//
+// AppStore.useAppState()
+//   Hook: returns the `app` object from context.
+//
+// AppStore.dispatch(app, patch)
+//   Merges `patch` into `app.state` and triggers a React re-render.
+// =============================================================================
 
 export const AppStore = {
-  _ctx: React ? React.createContext(null) : null,
+  _ctx: null,
   _forceUpdate: null,
 
+  _getCtx() {
+    if (!this._ctx) {
+      const React = window.React;
+      if (React) this._ctx = React.createContext(null);
+    }
+    return this._ctx;
+  },
+
   createProvider(app, children) {
-    if (!React || !this._ctx) return children || null;
+    const React = window.React;
+    const ctx = this._getCtx();
+    if (!React || !ctx) return children || null;
     const e = React.createElement;
     return e(AppStoreProvider, { app }, children);
   },
 
   useAppState() {
-    if (!React || !this._ctx) return null;
-    return React.useContext(this._ctx);
+    const React = window.React;
+    const ctx = this._getCtx();
+    if (!React || !ctx) return null;
+    return React.useContext(ctx);
   },
 
   dispatch(app, patch) {
@@ -28,11 +51,12 @@ export const AppStore = {
 };
 
 function AppStoreProvider({ app, children }) {
+  const React = window.React;
   const e = React.createElement;
   const [, setTick] = React.useState(0);
   React.useEffect(() => {
     AppStore._setForceUpdate(setTick);
     return () => AppStore._setForceUpdate(null);
   }, []);
-  return e(AppStore._ctx.Provider, { value: app }, children);
+  return e(AppStore._getCtx().Provider, { value: app }, children);
 }

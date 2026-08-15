@@ -20,6 +20,13 @@ export function AppShell({ app: initialApp }) {
     const configTheme = window.__RuntimeConfig?.theme;
     const theme = userTheme || serverTheme || configTheme || 'teal';
     document.body.setAttribute('data-theme', ThemeAlias[theme] || theme);
+  }, [app.state.currentUser?.theme, app.state.appSettings?.theme]);
+
+  // bindScreenEvents and _setupNavBurger use .onclick property assignment, which is
+  // idempotent (each call overwrites the previous handler). _setupNavBurger also has
+  // an identity guard. We must re-run after every render so that newly rendered HTML
+  // elements (in non-React page fallback) get their click handlers wired up.
+  React.useEffect(() => {
     document.body.classList.toggle('is-syncing', app._isSyncing());
     app.updateStickyOffsets();
     app._setupNavBurger();
