@@ -27,8 +27,9 @@ export const Breadcrumb = {
         href: buildPath ? buildPath(item.route, item.options || {}) : '#',
         className: 'breadcrumb-link',
         onClick: (event) => {
+          if (!onNavigate) return;
           event.preventDefault();
-          if (onNavigate) onNavigate(item.route, item.options || {});
+          onNavigate(item.route, item.options || {});
         }
       }, item.label));
     });
