@@ -128,7 +128,10 @@ export function renderUsersPage(app) {
     `</tr>`;
   });
 
-  return `<div class="card"><div class="row between"><h2 style="margin:0">Filters</h2><span class="small muted">${shown.length} shown</span></div>
+  return `${ActionsPanel.render([
+    { icon: 'person_add', title: 'Create participant', route: 'create_participant' },
+    ...(app.isFirebaseMode() ? [{ icon: 'add_link', title: 'Create invite', route: 'invites' }] : [])
+  ])}<div class="card"><div class="row between"><h2 style="margin:0">Filters</h2><span class="small muted">${shown.length} shown</span></div>
     <div class="grid two" style="margin-top:8px">
       <div><label>Type</label><select id="users-filter-type"><option value="all" ${f.type === 'all' ? 'selected' : ''}>All</option><option value="master" ${f.type === 'master' ? 'selected' : ''}>Master</option><option value="admin" ${f.type === 'admin' ? 'selected' : ''}>Admin</option><option value="user" ${f.type === 'user' ? 'selected' : ''}>User</option><option value="participant" ${f.type === 'participant' ? 'selected' : ''}>Participant</option>${app.isFirebaseMode() ? `<option value="invite" ${f.type === 'invite' ? 'selected' : ''}>Invite</option>` : ''}</select></div>
       <div><label>Status</label><select id="users-filter-status"><option value="all" ${f.status === 'all' ? 'selected' : ''}>All</option><option value="confirmed" ${f.status === 'confirmed' ? 'selected' : ''}>Confirmed</option><option value="invited" ${f.status === 'invited' ? 'selected' : ''}>Invited</option></select></div>
@@ -145,11 +148,7 @@ export function renderUsersPage(app) {
     <div style="overflow:auto;margin-top:8px">
     ${DataTable.render({ headers: tableHeaders, rows: tableRows, emptyMessage: 'No users found.', colSpan: tableHeaders.length })}
     </div>
-  </div>
-  ${ActionsPanel.render([
-    { icon: 'person_add', title: 'Create participant', route: 'create_participant' },
-    ...(app.isFirebaseMode() ? [{ icon: 'add_link', title: 'Create invite', route: 'invites' }] : [])
-  ])}`;
+  </div>`;
 }
 
 export function bindUsersPageEvents(app) {

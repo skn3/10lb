@@ -216,6 +216,19 @@
     .tabs { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px; }
     .tabs button { border:1px solid var(--border); background:#fff; border-radius:999px; padding:6px 10px; font-weight:600; }
     .tabs button.active { background:var(--brand); color:#fff; border-color:var(--brand); }
+    /* Tabs component */
+    .tabs-component { margin-top:0; }
+    .tab-list { display:flex; flex-wrap:wrap; border-bottom:2px solid var(--border); margin-bottom:0; gap:0; }
+    .tab-btn { background:none; border:none; border-bottom:3px solid transparent; margin-bottom:-2px; padding:9px 16px; font-size:.9rem; font-weight:600; color:var(--muted); cursor:pointer; transition:color .15s, border-color .15s; }
+    .tab-btn:hover { color:var(--text); }
+    .tab-btn.active { color:var(--brand); border-bottom-color:var(--brand); }
+    .tab-panel { padding:14px 0 0; }
+    /* Header breadcrumb (Task 7) */
+    .header-breadcrumb { font-size:.75rem; font-weight:700; color:rgba(255,255,255,.9); margin-top:3px; display:none; }
+    .header-breadcrumb.visible { display:block; }
+    .header-breadcrumb .breadcrumb-link { color:rgba(255,255,255,.9); text-decoration:none; }
+    .header-breadcrumb .breadcrumb-link:hover { text-decoration:underline; }
+    .header-breadcrumb .breadcrumb-separator { opacity:.72; }
     .right { margin-left:auto; }
 
     body[data-theme="teal"] { --brand:#0f766e; --bg:#f6f8fb; --card:#ffffff; --text:#0f172a; --muted:#64748b; --border:#e2e8f0; --nav-bg:#ecfeff; --nav-border:#bae6fd; }
@@ -246,7 +259,7 @@
     .sync-warn-banner { background:#fef3c7; color:#92400e; border:1px solid #fcd34d; border-radius:10px; padding:10px 14px; margin-bottom:12px; display:flex; align-items:center; gap:8px; font-size:.9rem; }
     .sync-warn-banner .material-symbols-rounded { font-size:20px; flex-shrink:0; }
     body.is-syncing form { pointer-events:none; opacity:0.65; }
-    .site-footer { border-top:1px solid var(--border); margin-top:24px; padding:16px 12px; color:var(--muted); font-size:.82rem; }
+    .site-footer { border-top:1px solid var(--border); margin-top:24px; padding:16px 12px; padding-bottom:calc(16px + env(safe-area-inset-bottom, 0px)); color:var(--muted); font-size:.82rem; }
     .site-footer-inner { max-width:1100px; margin:0 auto; display:flex; flex-direction:column; gap:4px; }
   </style>
 </head>
@@ -257,6 +270,7 @@
       <div class="row small" id="auth-chip"></div>
     </div>
     <div id="sync-bar" style="display:none;font-size:.75rem;padding:2px 0 4px;opacity:.85"></div>
+    <div id="header-breadcrumb" class="header-breadcrumb"></div>
   </header>
   <nav id="nav"></nav>
   <div id="snackbar-root" class="snackbar-host" aria-live="polite" aria-atomic="true"></div>
