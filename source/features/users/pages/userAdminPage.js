@@ -4,7 +4,6 @@ import { ThemePicker } from '../../../shared/components/themePicker.js';
 import { ThemeOptions } from '../../../constants.js';
 import { SubmissionService } from '../../submission/classes/submissionService.js';
 import { UsersService } from '../classes/usersService.js';
-import { SettingsService } from '../../settings/classes/settingsService.js';
 import { InvitesService } from '../../invites/classes/invitesService.js';
 import { AuthService } from '../../authentication/classes/authService.js';
 import { Security } from '../../../shared/classes/security.js';
@@ -157,7 +156,7 @@ export function bindUserAdminEvents(app) {
       const ok = await Security.verifyPassword(currentPassword, app.state.currentUser.password);
       if (!ok) return app.fail('Current password is incorrect.');
       const hash = await Security.createPasswordRecord(newPassword);
-      const saved = await app._saveWithConflictResolver('User', { ...app.state.currentUser, password: hash }, (payload) => SettingsService.saveUserProfile(payload, payload.firstName, payload.lastName));
+      const saved = await app._saveWithConflictResolver('User', { ...app.state.currentUser, password: hash }, (payload) => UsersService.updateUser(payload));
       if (!saved) return;
       await app.refresh();
       app.setMessage('Password changed.');

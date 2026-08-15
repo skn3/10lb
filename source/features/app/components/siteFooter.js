@@ -27,7 +27,7 @@ export function renderSiteFooter(app) {
 
   return `<footer class="site-footer">
     <div class="site-footer-inner">
-      <div>Fighting the flab since 2026 <span class="material-symbols-rounded" aria-hidden="true" style="vertical-align:middle;font-size:1.1em">lunch_dining</span></div>
+      <div>Fighting the flab since ${Utils.esc(String(installYear || currentYear))} <span class="material-symbols-rounded" aria-hidden="true" style="vertical-align:middle;font-size:1.1em">lunch_dining</span></div>
       <div>Total weight loss: <strong>${Utils.esc(String(Utils.round2(totalWeight)))}${Utils.esc(unit)}</strong></div>
       <div>Total prize money won: <strong>${Utils.esc(Utils.money(Utils.round2(totalCash), currency))}</strong></div>
       <div class="muted">Website created by skn3. Copyright ${Utils.esc(copyrightYears)}</div>

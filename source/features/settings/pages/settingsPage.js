@@ -20,7 +20,7 @@ export function renderSettingsPage(app) {
   const hasSyncTab = app.isMaster() && app.isFirebaseMode();
   const showAdminTabs = isAdminMode || hasSyncTab;
 
-  const tab = app.state.settingsTab || (isAdminMode ? 'server' : 'sync');
+  const tab = app.state.settingsTab || 'server';
   return `<div class="card">
     <h2 style="margin-top:0">Settings</h2>
 
