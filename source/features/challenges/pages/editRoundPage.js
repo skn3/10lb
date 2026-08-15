@@ -79,14 +79,8 @@ export function EditRoundPage({ app }) {
   const deleteFormRef = React.useRef(null);
   const confirmDeleteRef = React.useRef(null);
 
-  if (!app.isAdmin()) return e(DeniedPage, { app });
-
-  const round = app.currentRound();
-  if (!round) return e('div', { className: 'card' }, e('p', { className: 'muted' }, 'No round selected.'));
-
-  const totalPrize = Utils.round2(round.entryFee * round.participantIds.length);
-
   React.useEffect(() => {
+    if (!app.isAdmin() || !app.currentRound()) return;
     const form = editFormRef.current;
     if (!form) return;
     app.bindAsyncFormSubmit(form, async () => {
@@ -106,6 +100,7 @@ export function EditRoundPage({ app }) {
   });
 
   React.useEffect(() => {
+    if (!app.isAdmin() || !app.currentRound()) return;
     const form = deleteFormRef.current;
     if (!form) return;
     app.bindAsyncFormSubmit(form, async () => {
@@ -119,6 +114,13 @@ export function EditRoundPage({ app }) {
       app.navigate('rounds', { keepFlash: true });
     });
   });
+
+  if (!app.isAdmin()) return e(DeniedPage, { app });
+
+  const round = app.currentRound();
+  if (!round) return e('div', { className: 'card' }, e('p', { className: 'muted' }, 'No round selected.'));
+
+  const totalPrize = Utils.round2(round.entryFee * round.participantIds.length);
 
   return e(React.Fragment, null,
     e('div', { className: 'card' },

@@ -51,9 +51,8 @@ export function CreateParticipantPage({ app }) {
   const e = React.createElement;
   const formRef = React.useRef(null);
 
-  if (!app.isAdmin()) return e(DeniedPage, { app });
-
   React.useEffect(() => {
+    if (!app.isAdmin()) return;
     const form = formRef.current;
     if (!form) return;
     app.bindAsyncFormSubmit(form, async () => {
@@ -75,6 +74,8 @@ export function CreateParticipantPage({ app }) {
       app.navigate('user', { userId: participant.id, keepFlash: true });
     });
   });
+
+  if (!app.isAdmin()) return e(DeniedPage, { app });
 
   return e('div', { className: 'card', style: { maxWidth: '640px', margin: '0 auto' } },
     e('div', { className: 'row between', style: { marginBottom: '12px' } },

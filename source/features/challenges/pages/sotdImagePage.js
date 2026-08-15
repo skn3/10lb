@@ -321,20 +321,18 @@ export function SotdImagePage({ app }) {
   const e = React.createElement;
   const canvasRef = React.useRef(null);
 
-  if (!app.isAdmin()) {
-    return e(DeniedPage, { app });
-  }
-
-  const round = app.currentRound();
-  if (!round) return e('div', { className: 'card' }, e('p', { className: 'muted' }, 'No round selected.'));
-
-  const subs = Domain.submissionsByRound(app.state.submissions, round.id);
-  const currentWeek = Domain.calcCurrentWeek(round, app.state.users, subs);
-  const selectedWeek = app.state.weekCursor[round.id] || Math.min(currentWeek, round.weeksCount);
+  const round = app.isAdmin() ? app.currentRound() : null;
+  const subs = round ? Domain.submissionsByRound(app.state.submissions, round.id) : [];
+  const currentWeek = round ? Domain.calcCurrentWeek(round, app.state.users, subs) : 0;
+  const selectedWeek = round ? (app.state.weekCursor[round.id] || Math.min(currentWeek, round.weeksCount)) : 0;
 
   React.useEffect(() => {
+    if (!app.isAdmin() || !app.currentRound()) return;
     if (canvasRef.current) bindSotdImageEvents(app);
-  }, [round.id, selectedWeek]);
+  }, [round?.id, selectedWeek]);
+
+  if (!app.isAdmin()) return e(DeniedPage, { app });
+  if (!round) return e('div', { className: 'card' }, e('p', { className: 'muted' }, 'No round selected.'));
 
   return e('div', { className: 'card' },
     e('h2', { style: { marginTop: 0 } }, `SOTD Image — Week ${selectedWeek}`),

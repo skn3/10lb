@@ -103,16 +103,16 @@ export function InviteDetailPage({ app }) {
   const linkInputRef = React.useRef(null);
   const copyBtnRef = React.useRef(null);
 
-  if (!app.isAdmin()) return e(DeniedPage, { app });
-
   const inv = app.state.inviteDetail;
-  if (!inv) return e('div', { className: 'card' }, e('p', { className: 'muted' }, 'No invite selected.'));
-
-  const inviteLink = app.routeLink('join', { inviteCode: inv.code });
+  const inviteLink = (app.isAdmin() && inv) ? app.routeLink('join', { inviteCode: inv.code }) : '';
 
   React.useEffect(() => {
+    if (!app.isAdmin() || !inv) return;
     if (qrContainerRef.current) InviteQRCode.attach(inviteLink, qrContainerRef.current);
   }, [inviteLink]);
+
+  if (!app.isAdmin()) return e(DeniedPage, { app });
+  if (!inv) return e('div', { className: 'card' }, e('p', { className: 'muted' }, 'No invite selected.'));
 
   const handleCopyLink = async () => {
     const input = linkInputRef.current;

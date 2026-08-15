@@ -43,12 +43,8 @@ export function DeleteRoundPage({ app }) {
   const formRef = React.useRef(null);
   const confirmRef = React.useRef(null);
 
-  if (!app.isAdmin()) return e(DeniedPage, { app });
-
-  const round = app.currentRound();
-  if (!round) return e('div', { className: 'card' }, e('p', { className: 'muted' }, 'No round selected.'));
-
   React.useEffect(() => {
+    if (!app.isAdmin() || !app.currentRound()) return;
     const form = formRef.current;
     if (!form) return;
     app.bindAsyncFormSubmit(form, async () => {
@@ -62,6 +58,11 @@ export function DeleteRoundPage({ app }) {
       app.navigate('rounds', { keepFlash: true });
     });
   });
+
+  if (!app.isAdmin()) return e(DeniedPage, { app });
+
+  const round = app.currentRound();
+  if (!round) return e('div', { className: 'card' }, e('p', { className: 'muted' }, 'No round selected.'));
 
   return e('div', { className: 'card' },
     e('h2', null, 'Delete Challenge Round'),

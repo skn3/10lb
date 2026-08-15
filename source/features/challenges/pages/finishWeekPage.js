@@ -53,21 +53,8 @@ export function FinishWeekPage({ app }) {
   const formRef = React.useRef(null);
   const confirmRef = React.useRef(null);
 
-  if (!app.isAdmin()) return e(DeniedPage, { app });
-
-  const round = Domain.activeRound(app.state.rounds);
-  if (!round) {
-    return e('div', { className: 'card' },
-      e('p', { className: 'error' }, 'No active challenge round.'),
-      e('button', { type: 'button', className: 'btn secondary', onClick: () => app.navigate('overview') },
-        e('span', { className: 'material-symbols-rounded', 'aria-hidden': 'true' }, 'arrow_back'), ' Back')
-    );
-  }
-
-  const subs = Domain.submissionsByRound(app.state.submissions, round.id);
-  const week = Domain.calcCurrentWeek(round, app.state.users, subs);
-
   React.useEffect(() => {
+    if (!app.isAdmin() || !Domain.activeRound(app.state.rounds)) return;
     const form = formRef.current;
     if (!form) return;
     app.bindAsyncFormSubmit(form, async () => {
@@ -86,6 +73,20 @@ export function FinishWeekPage({ app }) {
       app.navigate('overview', { keepFlash: true });
     });
   });
+
+  if (!app.isAdmin()) return e(DeniedPage, { app });
+
+  const round = Domain.activeRound(app.state.rounds);
+  if (!round) {
+    return e('div', { className: 'card' },
+      e('p', { className: 'error' }, 'No active challenge round.'),
+      e('button', { type: 'button', className: 'btn secondary', onClick: () => app.navigate('overview') },
+        e('span', { className: 'material-symbols-rounded', 'aria-hidden': 'true' }, 'arrow_back'), ' Back')
+    );
+  }
+
+  const subs = Domain.submissionsByRound(app.state.submissions, round.id);
+  const week = Domain.calcCurrentWeek(round, app.state.users, subs);
 
   return e('div', { className: 'card' },
     e('h2', { style: { marginTop: 0 } }, `Finish Week ${week}`),
