@@ -12,6 +12,8 @@ import { Snackbar } from '../components/snackbar.js';
 import { SiteHeader } from '../components/siteHeader.js';
 import { renderSiteFooter } from '../components/siteFooter.js';
 import { WeightChart } from '../../../shared/components/weightChart.js';
+import { AppStore } from '../../../shared/classes/appStore.js';
+import { AppShell } from '../components/appShell.js';
 // App pages
 import { renderDeniedPage } from '../pages/deniedPage.js';
 import { renderInstallPage, bindInstallEvents } from '../pages/installPage.js';
@@ -63,11 +65,7 @@ export const App = {
   plugin: null,
   react: {
     enabled: false,
-    navRoot: null,
-    authRoot: null,
-    syncRoot: null,
-    appRoot: null,
-    snackbarRoot: null
+    root: null
   },
   messageTimer: null,
   stickyOffsetTimer: null,
@@ -303,6 +301,7 @@ export const App = {
     if (this.state.currentUser) {
       this.state.currentUser = this.state.users.find((u) => u.id === this.state.currentUser.id) || this.state.currentUser;
     }
+    if (this.react.enabled) AppStore.dispatch(this, {});
   },
 
   async loadSyncMeta() {
@@ -311,7 +310,8 @@ export const App = {
 
   async loadSettings() {
     this.state.appSettings = await Data.adapter.getAppSettings();
-    document.getElementById('server-title').textContent = this.state.appSettings.serverName || '10lb Challenge';
+    const titleEl = document.getElementById('server-title');
+    if (titleEl) titleEl.textContent = this.state.appSettings.serverName || '10lb Challenge';
   },
 
   async _loadVisibleInvites() {
@@ -429,20 +429,36 @@ export const App = {
   // ---------------------------------------------------------------------------
   setupReact() {
     if (!window.React || !window.ReactDOM?.createRoot || !window.ReactRouterDOM?.HashRouter) return;
-    const nav = document.getElementById('nav');
-    const authChip = document.getElementById('auth-chip');
-    const syncBar = document.getElementById('sync-bar');
-    const app = document.getElementById('app');
-    const snackbar = document.getElementById('snackbar-root');
-    if (!nav || !authChip || !syncBar || !app || !snackbar) return;
+    const React = window.React;
+    const Router = window.ReactRouterDOM;
+    const e = React.createElement;
+    const mountEl = document.getElementById('app-shell-root') || document.body;
+    const root = window.ReactDOM.createRoot(mountEl);
     this.react = {
       enabled: true,
-      navRoot: window.ReactDOM.createRoot(nav),
-      authRoot: window.ReactDOM.createRoot(authChip),
-      syncRoot: window.ReactDOM.createRoot(syncBar),
-      appRoot: window.ReactDOM.createRoot(app),
-      snackbarRoot: window.ReactDOM.createRoot(snackbar)
+      root
     };
+    root.render(e(Router.HashRouter, null, AppStore.createProvider(this, e(AppShell, { app: this }))));
+  },
+
+  setupShellFallback() {
+    // When React is not available, build the shell DOM from scratch so the
+    // non-React innerHTML render path has the required mount points.
+    if (this.react.enabled || document.getElementById('app')) return;
+    const root = document.getElementById('app-shell-root') || document.body;
+    root.insertAdjacentHTML('beforeend',
+      '<header>' +
+        '<div class="header-row">' +
+          '<h1 id="server-title">10lb Challenge</h1>' +
+          '<div class="row small" id="auth-chip"></div>' +
+        '</div>' +
+        '<div id="sync-bar" style="display:none;font-size:.75rem;padding:2px 0 4px;opacity:.85"></div>' +
+      '</header>' +
+      '<nav id="nav"></nav>' +
+      '<div id="snackbar-root" class="snackbar-host" aria-live="polite" aria-atomic="true"></div>' +
+      '<main id="app"></main>' +
+      '<div id="site-footer"></div>'
+    );
   },
 
   // ---------------------------------------------------------------------------
@@ -455,7 +471,7 @@ export const App = {
     await this.loadSyncMeta();
     this.setupPwa();
     this.setupReact();
-    Snackbar.setOnChange(() => Snackbar.render(document.getElementById('snackbar-root')));
+    this.setupShellFallback();
     this.plugin = RuntimeConfig.serverMode === 'firebase' ? new FirebasePlugin(this) : new OfflinePlugin(this);
     const urlParams = new URLSearchParams(window.location.search);
     const inviteCode = (urlParams.get('invite') || '').trim().toUpperCase();
@@ -475,8 +491,8 @@ export const App = {
       this.stickyOffsetTimer = setTimeout(() => this.updateStickyOffsets(), 80);
     });
     await this.plugin.onInit();
-    window.addEventListener('tenlb:remotechange', () => this.refresh().then(() => this.render()));
-    window.addEventListener('tenlb:syncstate', () => this.loadSyncMeta().then(() => this.render()));
+    window.addEventListener('tenlb:remotechange', this._debouncedRefresh.bind(this));
+    window.addEventListener('tenlb:syncstate', () => this.loadSyncMeta().then(() => AppStore.dispatch(this, {})));
   },
 
   // ---------------------------------------------------------------------------
@@ -488,6 +504,14 @@ export const App = {
     const configTheme = RuntimeConfig?.theme;
     const theme = userTheme || serverTheme || configTheme || 'teal';
     document.body.setAttribute('data-theme', ThemeAlias[theme] || theme);
+  },
+
+  _debouncedRefresh() {
+    if (this._refreshTimer) clearTimeout(this._refreshTimer);
+    this._refreshTimer = setTimeout(async () => {
+      await this.refresh();
+      AppStore.dispatch(this, {});
+    }, 150);
   },
 
   updateStickyOffsets() {
@@ -751,41 +775,23 @@ export const App = {
     return model;
   },
 
-  renderWithReact(navModel, screen) {
-    if (!this.react.enabled) return false;
-    const React = window.React;
-    const Router = window.ReactRouterDOM;
-    if (!Router?.HashRouter || !Router?.Link) return false;
-    const { HashRouter } = Router;
-    const e = React.createElement;
-    const syncBar = document.getElementById('sync-bar');
-    if (syncBar) syncBar.style.display = navModel.syncVisible ? 'block' : 'none';
-    this._syncNavVisibility(document.getElementById('nav'), navModel.items.length > 0);
-    this.react.navRoot.render(e(HashRouter, null,
-      MenuBar.renderReact(navModel.items, navModel.breadcrumbs, this.state.route, {
-        onNavigate: (key, options = {}) => this.navigate(key, options),
-        onBurgerClick: () => this._navBurger?.onBurgerClick?.(),
-        buildPath: (key, options = {}) => this._buildHashRoute(key, options)
-      })
-    ));
-    this.react.authRoot.render(SiteHeader.renderReact(navModel.authName, navModel.authRole, navModel.authUserType, navModel.authUserId, (userId) => this.navigate('user', { userId })));
-    this.react.syncRoot.render(navModel.syncVisible ? e('span', { dangerouslySetInnerHTML: { __html: navModel.syncText } }) : null);
-    this.react.appRoot.render(e('div', { dangerouslySetInnerHTML: { __html: screen } }));
-    return true;
-  },
-
   // ---------------------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------------------
   render() {
+    if (this.react.enabled) {
+      AppStore.dispatch(this, {});
+      return;
+    }
     const navModel = this.attachNav();
     this.applyTheme();
-    document.getElementById('server-title').textContent = this.state.appSettings?.serverName || '10lb Challenge';
+    const titleEl = document.getElementById('server-title');
+    if (titleEl) titleEl.textContent = this.state.appSettings?.serverName || '10lb Challenge';
     document.body.classList.toggle('is-syncing', this._isSyncing());
     const appEl = document.getElementById('app');
     const syncBanner = (this.isAuthenticated() && this.isInstalled()) ? this._syncWarnBanner() : '';
     const screen = syncBanner + this.resolveScreen();
-    if (!this.renderWithReact(navModel, screen)) appEl.innerHTML = screen;
+    appEl.innerHTML = screen;
     const footerEl = document.getElementById('site-footer');
     if (footerEl) footerEl.innerHTML = renderSiteFooter(this);
     this._setupNavBurger();
@@ -844,8 +850,13 @@ export const App = {
       this.navigate('overview');
     });
 
-    // Bind per-feature events
+    // Pages managed as React components handle their own events via JSX props.
+    // The bind* functions below are only needed for the non-React (innerHTML) render path.
     const route = this.state.route;
+    const reactManagedRoutes = new Set(['overview', 'submit', 'users', 'user', 'settings']);
+    if (this.react.enabled && reactManagedRoutes.has(route)) return;
+
+    // Bind per-feature events
     if (route === 'install') bindInstallEvents(this);
     else if (route === 'login') bindLoginEvents(this);
     else if (route === 'join') bindJoinEvents(this);

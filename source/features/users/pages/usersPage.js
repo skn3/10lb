@@ -3,8 +3,11 @@ import { Utils } from '../../../shared/utils/utils.js';
 import { SubmitButton } from '../../../shared/components/submitButton.js';
 import { DataTable } from '../../../shared/components/dataTable.js';
 import { ActionsPanel } from '../../../shared/components/actionsPanel.js';
+import { AppStore } from '../../../shared/classes/appStore.js';
 import { SubmissionService } from '../../submission/classes/submissionService.js';
 import { UsersService } from '../classes/usersService.js';
+
+const React = window.React;
 
 // =============================================================================
 // USERS PAGE — Admin user list with filtering, sorting, bulk actions
@@ -18,16 +21,15 @@ function isProtectedUser(app, user) {
   return !!user && (user.isMaster || user.id === app.state.currentUser?.id);
 }
 
-function selectedDeletableUserIds(app) {
-  return app.state.selectedUsers.filter((id) => {
+function selectedDeletableUserIds(app, selectedUsers = app.state.selectedUsers) {
+  return selectedUsers.filter((id) => {
     const user = app.state.users.find((entry) => entry.id === id);
     return user && !isProtectedUser(app, user);
   });
 }
 
-export function renderUsersPage(app) {
-  if (!app.isAdmin()) return app._renderDenied();
-  const f = app.state.userFilters || {};
+function buildUsersPageView(app, filters, selectedUsers) {
+  const f = filters || {};
   const users = app.state.users.map((u) => {
     const stats = SubmissionService.userStats(u, app.state.rounds, app.state.submissions, app.state.users);
     return {
@@ -63,9 +65,7 @@ export function renderUsersPage(app) {
     }))
     : [];
   const merged = [...users, ...pendingInviteRows];
-  const deletableSelectedIds = selectedDeletableUserIds(app);
-  const selectedCount = deletableSelectedIds.length;
-
+  const deletableSelectedIds = selectedDeletableUserIds(app, selectedUsers);
   const shown = merged.filter((row) => {
     const type = resolveRowType(row);
     if (f.type && f.type !== 'all' && type !== f.type) return false;
@@ -82,7 +82,6 @@ export function renderUsersPage(app) {
     if (!app.isFirebaseMode() && row.kind === 'invite') return false;
     return true;
   });
-
   const sortKey = f.sort || 'a-z';
   shown.sort((a, b) => {
     const dir = sortKey.endsWith('-desc') ? -1 : 1;
@@ -95,38 +94,45 @@ export function renderUsersPage(app) {
     if (sortKey.startsWith('money')) return (a.totalCashWon - b.totalCashWon) * dir;
     return 0;
   });
-
   const tableHeaders = ['', 'User', 'Type', 'Last logged in', ...(app.isFirebaseMode() ? ['Active sessions'] : []), 'Rounds participated', 'Total cash won', 'Total weight lost/gained', 'In current round'];
   const tableRows = shown.map((row) => {
     if (row.kind === 'invite') {
-    return `<tr class="is-clickable" tabindex="0" role="button" data-open-invite="${Utils.escAttr(row.inviteId)}">` +
-      `<td></td>` +
-      `<td><span class="user-linkish"><span class="material-symbols-rounded" aria-hidden="true">${Utils.esc(UserTypeIcon.invite)}</span><span>Invite</span></span><div class="small muted"><code>${Utils.esc(row.invite.code)}</code></div></td>` +
-      `<td>${row.role}</td>` +
-      `<td>—</td>` +
-      `${app.isFirebaseMode() ? '<td>—</td>' : ''}` +
-      `<td>0</td>` +
-      `<td>${Utils.money(0, app.state.appSettings.currency)}</td>` +
-      `<td>0${app.state.appSettings.weightFormat}</td>` +
-      `<td>No</td>` +
-    `</tr>`;
+      return `<tr class="is-clickable" tabindex="0" role="button" data-open-invite="${Utils.escAttr(row.inviteId)}">` +
+        `<td></td>` +
+        `<td><span class="user-linkish"><span class="material-symbols-rounded" aria-hidden="true">${Utils.esc(UserTypeIcon.invite)}</span><span>Invite</span></span><div class="small muted"><code>${Utils.esc(row.invite.code)}</code></div></td>` +
+        `<td>${row.role}</td>` +
+        `<td>—</td>` +
+        `${app.isFirebaseMode() ? '<td>—</td>' : ''}` +
+        `<td>0</td>` +
+        `<td>${Utils.money(0, app.state.appSettings.currency)}</td>` +
+        `<td>0${app.state.appSettings.weightFormat}</td>` +
+        `<td>No</td>` +
+      `</tr>`;
     }
     const u = row.user;
     const protectedUser = isProtectedUser(app, u);
     const activeSessions = app.isFirebaseMode() ? app.state.sessions.filter((s) => s?.userId === u.id).length : 0;
     const icon = UserTypeIcon[resolveRowType(row)] || UserTypeIcon[UserType.USER];
     return `<tr class="is-clickable" tabindex="0" role="button" data-open-user="${Utils.escAttr(u.id)}">` +
-    `<td><input type="checkbox" data-bulk-user="${Utils.escAttr(u.id)}" ${deletableSelectedIds.includes(u.id) ? 'checked' : ''} ${protectedUser ? 'disabled' : ''}/></td>` +
-    `<td><span class="user-linkish"><span class="material-symbols-rounded" aria-hidden="true">${Utils.esc(icon)}</span><span>${Utils.esc(Utils.fullName(u))}</span></span><div class="small muted">${Utils.esc(UsersService.userLoginLabel(u))}${row.invited ? ' • invited' : ''}</div></td>` +
-    `<td>${row.role}</td>` +
-    `<td>${Utils.timeAgo(u.lastLoginAt)}</td>` +
-    `${app.isFirebaseMode() ? `<td>${activeSessions}</td>` : ''}` +
-    `<td>${row.roundsParticipated}</td>` +
-    `<td>${Utils.money(row.totalCashWon, app.state.appSettings.currency)}</td>` +
-    `<td>${row.totalWeightDelta}${app.state.appSettings.weightFormat}</td>` +
-    `<td>${row.inCurrentRound ? 'Yes' : 'No'}</td>` +
+      `<td><input type="checkbox" data-bulk-user="${Utils.escAttr(u.id)}" ${deletableSelectedIds.includes(u.id) ? 'checked' : ''} ${protectedUser ? 'disabled' : ''}/></td>` +
+      `<td><span class="user-linkish"><span class="material-symbols-rounded" aria-hidden="true">${Utils.esc(icon)}</span><span>${Utils.esc(Utils.fullName(u))}</span></span><div class="small muted">${Utils.esc(UsersService.userLoginLabel(u))}${row.invited ? ' • invited' : ''}</div></td>` +
+      `<td>${row.role}</td>` +
+      `<td>${Utils.timeAgo(u.lastLoginAt)}</td>` +
+      `${app.isFirebaseMode() ? `<td>${activeSessions}</td>` : ''}` +
+      `<td>${row.roundsParticipated}</td>` +
+      `<td>${Utils.money(row.totalCashWon, app.state.appSettings.currency)}</td>` +
+      `<td>${row.totalWeightDelta}${app.state.appSettings.weightFormat}</td>` +
+      `<td>${row.inCurrentRound ? 'Yes' : 'No'}</td>` +
     `</tr>`;
   });
+  return { shown, deletableSelectedIds, tableHeaders, tableRows };
+}
+
+export function renderUsersPage(app) {
+  if (!app.isAdmin()) return app._renderDenied();
+  const f = app.state.userFilters || {};
+  const { shown, deletableSelectedIds, tableHeaders, tableRows } = buildUsersPageView(app, f, app.state.selectedUsers || []);
+  const selectedCount = deletableSelectedIds.length;
 
   return `<div class="card"><div class="row between"><h2 style="margin:0">Filters</h2><span class="small muted">${shown.length} shown</span></div>
     <div class="grid two" style="margin-top:8px">
@@ -150,6 +156,175 @@ export function renderUsersPage(app) {
     { icon: 'person_add', title: 'Create participant', route: 'create_participant' },
     ...(app.isFirebaseMode() ? [{ icon: 'add_link', title: 'Create invite', route: 'invites' }] : [])
   ])}`;
+}
+
+export function UsersPage({ app }) {
+  const e = React.createElement;
+  const [filters, setFilters] = React.useState({ ...(app.state.userFilters || {}) });
+  const [selectedUsers, setSelectedUsers] = React.useState([...(app.state.selectedUsers || [])]);
+
+  React.useEffect(() => {
+    app.state.userFilters = filters;
+  }, [app, filters]);
+
+  React.useEffect(() => {
+    app.state.selectedUsers = selectedUsers;
+  }, [app, selectedUsers]);
+
+  const view = React.useMemo(
+    () => buildUsersPageView(app, filters, selectedUsers),
+    [app, filters, selectedUsers, app.state.users, app.state.invites, app.state.sessions, app.state.rounds, app.state.submissions, app.state.appSettings]
+  );
+
+  if (!app.isAdmin()) {
+    return e('div', { dangerouslySetInnerHTML: { __html: app._renderDenied() } });
+  }
+
+  const openInvite = (inviteId) => {
+    const invite = app.state.invites.find((entry) => entry.id === inviteId);
+    if (!invite) return;
+    app.state.inviteDetail = invite;
+    app.navigate('invite-detail');
+  };
+  const toggleUser = (id, checked) => {
+    setSelectedUsers((current) => checked
+      ? [...new Set([...current, id])]
+      : current.filter((value) => value !== id)
+    );
+  };
+
+  return e(React.Fragment, null,
+    e('div', { className: 'card' },
+      e('div', { className: 'row between' },
+        e('h2', { style: { margin: 0 } }, 'Filters'),
+        e('span', { className: 'small muted' }, `${view.shown.length} shown`)
+      ),
+      e('div', { className: 'grid two', style: { marginTop: '8px' } },
+        e('div', null,
+          e('label', null, 'Type'),
+          e('select', {
+            value: filters.type || 'all',
+            onChange: (event) => setFilters((current) => ({ ...current, type: event.target.value }))
+          },
+          e('option', { value: 'all' }, 'All'),
+          e('option', { value: 'master' }, 'Master'),
+          e('option', { value: 'admin' }, 'Admin'),
+          e('option', { value: 'user' }, 'User'),
+          e('option', { value: 'participant' }, 'Participant'),
+          app.isFirebaseMode() ? e('option', { value: 'invite' }, 'Invite') : null
+          )
+        ),
+        e('div', null,
+          e('label', null, 'Status'),
+          e('select', {
+            value: filters.status || 'all',
+            onChange: (event) => setFilters((current) => ({ ...current, status: event.target.value }))
+          },
+          e('option', { value: 'all' }, 'All'),
+          e('option', { value: 'confirmed' }, 'Confirmed'),
+          e('option', { value: 'invited' }, 'Invited')
+          )
+        ),
+        e('div', null,
+          e('label', null, 'Sort'),
+          e('select', {
+            value: filters.sort || 'a-z',
+            onChange: (event) => setFilters((current) => ({ ...current, sort: event.target.value }))
+          },
+          e('option', { value: 'a-z' }, 'A-Z'),
+          e('option', { value: 'a-z-desc' }, 'Z-A'),
+          e('option', { value: 'type-a-z' }, 'Type, A-Z'),
+          e('option', { value: 'type-a-z-desc' }, 'Type, Z-A'),
+          e('option', { value: 'joined-a-z' }, 'Joined/Invited, Oldest-Newest'),
+          e('option', { value: 'joined-a-z-desc' }, 'Joined/Invited, Newest-Oldest'),
+          e('option', { value: 'last-a-z' }, 'Last accessed, Oldest-Newest'),
+          e('option', { value: 'last-a-z-desc' }, 'Last accessed, Newest-Oldest'),
+          e('option', { value: 'weight-a-z' }, 'Total weight lost, Low-High'),
+          e('option', { value: 'weight-a-z-desc' }, 'Total weight lost, High-Low'),
+          e('option', { value: 'money-a-z' }, 'Total money won, Low-High'),
+          e('option', { value: 'money-a-z-desc' }, 'Total money won, High-Low')
+          )
+        ),
+        e('div', null,
+          e('label', null, 'Search'),
+          e('input', {
+            value: filters.search || '',
+            placeholder: 'Search users…',
+            onChange: (event) => setFilters((current) => ({ ...current, search: event.target.value }))
+          })
+        ),
+        e('div', null,
+          e('label', { className: 'row' },
+            e('input', {
+              type: 'checkbox',
+              style: { width: 'auto' },
+              checked: !!filters.currentChallengeOnly,
+              onChange: (event) => setFilters((current) => ({ ...current, currentChallengeOnly: !!event.target.checked }))
+            }),
+            ' Only users in current challenge'
+          )
+        )
+      )
+    ),
+    e('div', { className: 'card' },
+      e('div', { className: 'row between' }, e('h2', { style: { margin: 0 } }, 'Users')),
+      e('div', { className: 'row between', style: { marginTop: '12px' } },
+        e('span', { className: 'selection-status' }, `${view.deletableSelectedIds.length} selected`),
+        e('button', {
+          type: 'button',
+          className: 'btn danger',
+          disabled: !view.deletableSelectedIds.length,
+          onClick: async () => {
+            const ids = selectedDeletableUserIds(app, selectedUsers);
+            if (!ids.length) return app.fail('Select users to delete.');
+            if (!confirm(`Delete ${ids.length} selected user(s)? This cannot be undone.`)) return;
+            for (const id of ids) await UsersService.deleteUser(id);
+            setSelectedUsers([]);
+            await app.refresh();
+            app.setMessage('Selected users deleted.');
+            AppStore.dispatch(app, {});
+          }
+        },
+        e('span', { className: 'material-symbols-rounded', 'aria-hidden': 'true' }, 'delete_sweep'),
+        'Delete selected')
+      ),
+      e('div', {
+        style: { overflow: 'auto', marginTop: '8px' },
+        onClick: (event) => {
+          const checkbox = event.target.closest('[data-bulk-user]');
+          if (checkbox) return;
+          const userRow = event.target.closest('[data-open-user]');
+          if (userRow) return app.navigate('user', { userId: userRow.dataset.openUser });
+          const inviteRow = event.target.closest('[data-open-invite]');
+          if (inviteRow) openInvite(inviteRow.dataset.openInvite);
+        },
+        onChange: (event) => {
+          const checkbox = event.target.closest('[data-bulk-user]');
+          if (!checkbox) return;
+          toggleUser(checkbox.dataset.bulkUser, checkbox.checked);
+        },
+        onKeyDown: (event) => {
+          if (event.key !== 'Enter' && event.key !== ' ') return;
+          if (event.target.closest('input,button,select,a,label')) return;
+          const userRow = event.target.closest('[data-open-user]');
+          if (userRow) {
+            event.preventDefault();
+            return app.navigate('user', { userId: userRow.dataset.openUser });
+          }
+          const inviteRow = event.target.closest('[data-open-invite]');
+          if (inviteRow) {
+            event.preventDefault();
+            openInvite(inviteRow.dataset.openInvite);
+          }
+        }
+      },
+      DataTable.renderReact({ headers: view.tableHeaders, rows: view.tableRows, emptyMessage: 'No users found.', colSpan: view.tableHeaders.length }))
+    ),
+    ActionsPanel.renderReact([
+      { icon: 'person_add', title: 'Create participant', route: 'create_participant' },
+      ...(app.isFirebaseMode() ? [{ icon: 'add_link', title: 'Create invite', route: 'invites' }] : [])
+    ], (route) => app.navigate(route))
+  );
 }
 
 export function bindUsersPageEvents(app) {

@@ -23,5 +23,28 @@ export const ActionsPanel = {
         `${Utils.esc(a.title)}</button>`;
     }).join('');
     return `<div class="card" style="margin-top:10px"><h3 style="margin-top:0">Actions</h3><div class="row" style="flex-wrap:wrap;gap:8px">${buttons}</div></div>`;
+  },
+
+  renderReact(actions = [], onNavigate) {
+    const React = window.React;
+    if (!React || !actions.length) return null;
+    const e = React.createElement;
+    return e('div', { className: 'card', style: { marginTop: '10px' } },
+      e('h3', { style: { marginTop: 0 } }, 'Actions'),
+      e('div', { className: 'row', style: { flexWrap: 'wrap', gap: '8px' } },
+        ...actions.map((action, index) => e('button', {
+          key: `${action.route || action.title}-${index}`,
+          type: 'button',
+          className: `btn${action.color ? ` ${action.color}` : ''}`,
+          disabled: !!action.disabled,
+          onClick: () => {
+            if (action.disabled || !action.route || typeof onNavigate !== 'function') return;
+            onNavigate(action.route);
+          }
+        },
+        e('span', { className: 'material-symbols-rounded', 'aria-hidden': 'true' }, action.icon),
+        action.title))
+      )
+    );
   }
 };

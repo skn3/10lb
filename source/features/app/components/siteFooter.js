@@ -1,15 +1,11 @@
 import { Utils } from '../../../shared/utils/utils.js';
 import { SubmissionService } from '../../submission/classes/submissionService.js';
 
-// =============================================================================
-// SITE FOOTER — shows app-wide totals and copyright when logged in.
-// =============================================================================
-export function renderSiteFooter(app) {
-  if (!app.isAuthenticated() || !app.isInstalled()) return '';
+const React = window.React;
 
+function footerModel(app) {
   const unit = app.state.appSettings?.weightFormat || 'lb';
   const currency = app.state.appSettings?.currency || '£';
-
   let totalWeight = 0;
   let totalCash = 0;
   (app.state.users || []).forEach((u) => {
@@ -17,13 +13,21 @@ export function renderSiteFooter(app) {
     totalWeight += stats.totalWeightDelta || 0;
     totalCash += stats.totalCashWon || 0;
   });
-
   const currentYear = new Date().getFullYear();
   const rawInstallDate = app.state.appSettings?.installedAt || app.state.appSettings?.installLockedAt || null;
   const installYear = rawInstallDate ? new Date(rawInstallDate).getFullYear() : null;
   const copyrightYears = (!installYear || installYear === currentYear)
     ? String(currentYear)
     : `${installYear} – ${currentYear}`;
+  return { unit, currency, totalWeight, totalCash, currentYear, installYear, copyrightYears };
+}
+
+// =============================================================================
+// SITE FOOTER — shows app-wide totals and copyright when logged in.
+// =============================================================================
+export function renderSiteFooter(app) {
+  if (!app.isAuthenticated() || !app.isInstalled()) return '';
+  const { unit, currency, totalWeight, totalCash, currentYear, installYear, copyrightYears } = footerModel(app);
 
   return `<footer class="site-footer">
     <div class="site-footer-inner">
@@ -33,4 +37,25 @@ export function renderSiteFooter(app) {
       <div class="muted">Website created by skn3. Copyright ${Utils.esc(copyrightYears)}</div>
     </div>
   </footer>`;
+}
+
+export function SiteFooterReact({ app }) {
+  if (!React || !app.isAuthenticated() || !app.isInstalled()) return null;
+  const e = React.createElement;
+  const { unit, currency, totalWeight, totalCash, currentYear, installYear, copyrightYears } = footerModel(app);
+  return e('footer', { className: 'site-footer' },
+    e('div', { className: 'site-footer-inner' },
+      e('div', null,
+        `Fighting the flab since ${String(installYear || currentYear)} `,
+        e('span', {
+          className: 'material-symbols-rounded',
+          'aria-hidden': 'true',
+          style: { verticalAlign: 'middle', fontSize: '1.1em' }
+        }, 'lunch_dining')
+      ),
+      e('div', null, 'Total weight loss: ', e('strong', null, `${String(Utils.round2(totalWeight))}${unit}`)),
+      e('div', null, 'Total prize money won: ', e('strong', null, Utils.money(Utils.round2(totalCash), currency))),
+      e('div', { className: 'muted' }, `Website created by skn3. Copyright ${copyrightYears}`)
+    )
+  );
 }
