@@ -140,19 +140,8 @@ export function JoinPage({ app }) {
   const formRef = React.useRef(null);
   const codeInputRef = React.useRef(null);
 
-  if (!app.isFirebaseMode()) {
-    return e('div', { className: 'card', style: { maxWidth: '560px', margin: '0 auto' } },
-      e('h2', { style: { marginTop: 0 } }, 'Registration unavailable'),
-      e('p', { className: 'muted' }, 'This server is running in offline mode. Ask the master admin to create participant accounts.'),
-      e('button', { type: 'button', className: 'btn secondary', onClick: () => app.navigate('login') },
-        e('span', { className: 'material-symbols-rounded', 'aria-hidden': 'true' }, 'login'), ' Go to login')
-    );
-  }
-
-  const code = app.state.pendingInviteCode || '';
-  const serverName = app.state.appSettings?.serverName || '10lb Challenge';
-
   React.useEffect(() => {
+    if (!app.isFirebaseMode()) return;
     const form = formRef.current;
     if (!form) return;
     app.enhanceFormValidation(form);
@@ -223,6 +212,18 @@ export function JoinPage({ app }) {
       app.navigate('overview', { keepFlash: true, replace: true });
     });
   });
+
+  if (!app.isFirebaseMode()) {
+    return e('div', { className: 'card', style: { maxWidth: '560px', margin: '0 auto' } },
+      e('h2', { style: { marginTop: 0 } }, 'Registration unavailable'),
+      e('p', { className: 'muted' }, 'This server is running in offline mode. Ask the master admin to create participant accounts.'),
+      e('button', { type: 'button', className: 'btn secondary', onClick: () => app.navigate('login') },
+        e('span', { className: 'material-symbols-rounded', 'aria-hidden': 'true' }, 'login'), ' Go to login')
+    );
+  }
+
+  const code = app.state.pendingInviteCode || '';
+  const serverName = app.state.appSettings?.serverName || '10lb Challenge';
 
   return e('div', { className: 'card', style: { maxWidth: '560px', margin: '0 auto' } },
     e('h2', { style: { marginTop: 0 } }, `Join ${serverName}`),
