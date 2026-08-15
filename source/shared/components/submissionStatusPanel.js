@@ -53,5 +53,51 @@ export const SubmissionStatusPanel = {
       <progress value="${submitted}" max="${total}" style="width:100%;height:8px;border-radius:4px"></progress>
       ${actionButton ? `<div class="row" style="margin-top:8px">${actionButton}</div>` : ''}
     </div>`;
+  },
+
+  /**
+   * Returns a React element for the submission progress panel.
+   * @param {object} round
+   * @param {object[]} users
+   * @param {object[]} subs - submissions for the round
+   * @param {number} week
+   * @param {{ hideSubmitButton?: boolean, hideFinishWeekButton?: boolean }} options
+   * @param {(route: string) => void} onNavigate
+   */
+  renderReact(round, users, subs, week, options = {}, onNavigate) {
+    const React = window.React;
+    if (!React) return null;
+    const e = React.createElement;
+
+    const participants = Domain.roundUsers(round, users);
+    const total = participants.length;
+
+    let submitted = 0;
+    participants.forEach((u) => {
+      if (Domain.isForfeit(subs, u.id, week)) { submitted += 1; return; }
+      if (Domain.submissionFor(subs, week, u.id)) submitted += 1;
+    });
+
+    const allDone = total > 0 && submitted >= total;
+
+    let actionButton = null;
+    if (allDone) {
+      if (!options.hideFinishWeekButton) {
+        actionButton = e('button', { type: 'button', className: 'btn', onClick: () => onNavigate?.('finish-week') }, 'Finish Week');
+      }
+    } else {
+      if (!options.hideSubmitButton) {
+        actionButton = e('button', { type: 'button', className: 'btn secondary', onClick: () => onNavigate?.('submit') }, 'Submit Weights');
+      }
+    }
+
+    return e('div', { className: 'card submission-status-panel', style: { marginBottom: '12px' } },
+      e('div', { className: 'row between', style: { marginBottom: '6px' } },
+        e('strong', null, `Week ${week} submissions`),
+        e('span', { className: `small ${allDone ? 'ok' : 'muted'}` }, `${submitted} / ${total} submitted`)
+      ),
+      e('progress', { value: submitted, max: total, style: { width: '100%', height: '8px', borderRadius: '4px' } }),
+      actionButton ? e('div', { className: 'row', style: { marginTop: '8px' } }, actionButton) : null
+    );
   }
 };

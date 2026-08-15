@@ -1,6 +1,9 @@
 import { Utils } from '../../../shared/utils/utils.js';
 import { SubmitButton } from '../../../shared/components/submitButton.js';
 import { ChallengeService } from '../classes/challengeService.js';
+import { DeniedPage } from '../../app/pages/deniedPage.js';
+
+const React = window.React;
 
 // =============================================================================
 // DELETE ROUND PAGE
@@ -34,3 +37,49 @@ export function bindDeleteRoundEvents(app) {
     app.navigate('rounds', { keepFlash: true });
   });
 }
+
+export function DeleteRoundPage({ app }) {
+  const e = React.createElement;
+  const formRef = React.useRef(null);
+  const confirmRef = React.useRef(null);
+
+  React.useEffect(() => {
+    if (!app.isAdmin() || !app.currentRound()) return;
+    const form = formRef.current;
+    if (!form) return;
+    app.bindAsyncFormSubmit(form, async () => {
+      if (!confirmRef.current?.checked) return app.fail('Confirm deletion to continue.');
+      const r = app.currentRound();
+      if (!r) return;
+      await ChallengeService.deleteRound(r.id);
+      app.state.selectedRoundId = null;
+      await app.refresh();
+      app.setMessage('Round deleted.');
+      app.navigate('rounds', { keepFlash: true });
+    });
+  });
+
+  if (!app.isAdmin()) return e(DeniedPage, { app });
+
+  const round = app.currentRound();
+  if (!round) return e('div', { className: 'card' }, e('p', { className: 'muted' }, 'No round selected.'));
+
+  return e('div', { className: 'card' },
+    e('h2', null, 'Delete Challenge Round'),
+    e('p', { className: 'error' }, 'This cannot be undone.'),
+    e('form', { ref: formRef, action: '#' },
+      e('div', null,
+        e('label', { htmlFor: 'confirm-delete-del' }, 'Confirm delete'),
+        e('label', { className: 'row' },
+          e('input', { ref: confirmRef, id: 'confirm-delete-del', type: 'checkbox', 'data-label': 'Confirm delete', required: true, style: { width: 'auto' } }),
+          ' I confirm delete ', e('strong', null, round.title)
+        )
+      ),
+      e('div', { className: 'row', style: { marginTop: '10px' } },
+        e('button', { type: 'submit', className: 'btn danger' }, e('span', { className: 'material-symbols-rounded', 'aria-hidden': 'true' }, 'delete'), ' Delete round'),
+        e('button', { type: 'button', className: 'btn secondary', onClick: () => app.navigate('overview') }, e('span', { className: 'material-symbols-rounded', 'aria-hidden': 'true' }, 'close'), ' Cancel')
+      )
+    )
+  );
+}
+

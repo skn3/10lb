@@ -6,7 +6,7 @@ import { AuthService } from '../../authentication/classes/authService.js';
 import { StorageService } from '../../storage/classes/storageService.js';
 import { SettingsService } from '../classes/settingsService.js';
 import { renderServerSettingsTab, renderResetServerTab } from '../components/serverSettingsTab.js';
-import { renderSyncSettingsTab } from '../components/syncSettingsTab.js';
+import { renderSyncSettingsTab, SyncSettingsTab } from '../components/syncSettingsTab.js';
 import { RuntimeConfig } from '../../../config.js';
 import { ThemePicker } from '../../../shared/components/themePicker.js';
 import { AppStore } from '../../../shared/classes/appStore.js';
@@ -145,7 +145,6 @@ export function SettingsPage({ app }) {
   const [serverTheme, setServerTheme] = React.useState(app.state.appSettings?.theme || null);
   const serverFormRef = React.useRef(null);
   const resetFormRef = React.useRef(null);
-  const syncHostRef = React.useRef(null);
 
   React.useEffect(() => {
     app.state.settingsTab = activeTab;
@@ -205,43 +204,6 @@ export function SettingsPage({ app }) {
       AppStore.dispatch(app, {});
     });
   }, [app]);
-
-  React.useEffect(() => {
-    if (activeTab !== 'sync' || !syncHostRef.current) return;
-    const syncRetry = document.getElementById(SyncButton.BUTTON_ID);
-    if (syncRetry) {
-      SyncButton.bind(syncRetry, () => app._isSyncing(), async () => {
-        await StorageService.retrySyncNow();
-        await app.loadSyncMeta();
-        AppStore.dispatch(app, {});
-      });
-    }
-    const firebaseTestBtn = document.getElementById('btn-firebase-test');
-    if (firebaseTestBtn) {
-      firebaseTestBtn.onclick = async () => {
-        const cfg = RuntimeConfig.firebase;
-        const resultEl = document.getElementById('firebase-test-result');
-        if (!cfg?.apiKey || !cfg?.authDomain || !cfg?.projectId) {
-          if (resultEl) resultEl.innerHTML = '<span class="error">Incomplete firebase config in config.js.</span>';
-          return;
-        }
-        firebaseTestBtn.disabled = true;
-        app.setButtonLabel(firebaseTestBtn, 'Testing…');
-        if (resultEl) resultEl.innerHTML = '';
-        const result = await AuthService.testFirebaseConnection(cfg);
-        firebaseTestBtn.disabled = false;
-        app.setButtonLabel(firebaseTestBtn, 'Test Connection');
-        if (resultEl) {
-          resultEl.innerHTML = result.ok
-            ? '<span class="ok">✓ Connection successful</span>'
-            : `<span class="error">✗ ${Utils.esc(result.error)}</span>`;
-        }
-      };
-    }
-    return () => {
-      if (syncRetry) SyncButton.unbind(syncRetry);
-    };
-  }, [activeTab, app]);
 
   const s = app.state.appSettings;
   const firebase = RuntimeConfig.firebase || {};
@@ -316,7 +278,7 @@ export function SettingsPage({ app }) {
               : e('p', { className: 'error' }, 'Only the master admin can reset this server.')
           )
         )
-        : e('div', { ref: syncHostRef, dangerouslySetInnerHTML: { __html: renderSyncSettingsTab(app) } })
+        : e(SyncSettingsTab, { app })
     ) : null
   );
 }

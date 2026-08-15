@@ -165,7 +165,7 @@ export function OverviewPage({ app }) {
       ),
       e('div', { className: 'small muted', style: { marginTop: '4px' } }, `Current progress week: ${currentWeek} / ${round.weeksCount}`)
     ),
-    statusPanel ? e('div', { className: 'card', style: { marginTop: '10px' }, dangerouslySetInnerHTML: { __html: statusPanel } }) : null,
+    statusPanel ? SubmissionStatusPanel.renderReact(round, app.state.users, subs, selectedWeek, {}, (route) => app.navigate(route)) : null,
     selectedWeek === 1
       ? e('div', { className: 'card', style: { marginTop: '10px' } },
         e('strong', null, 'Start weights'),

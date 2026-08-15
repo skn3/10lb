@@ -3,6 +3,7 @@ import { SubmitButton } from '../../../shared/components/submitButton.js';
 import { InviteQRCode } from '../components/qrCode.js';
 import { InvitesService } from '../classes/invitesService.js';
 import { generateInviteCode } from '../utils/inviteCodeUtils.js';
+import { DeniedPage } from '../../app/pages/deniedPage.js';
 
 // =============================================================================
 // INVITE DETAIL PAGE — View/share/delete a specific invite
@@ -92,4 +93,78 @@ export function bindInviteDetailEvents(app) {
     app.setMessage('Invite deleted.');
     app.render();
   });
+}
+
+const React = window.React;
+
+export function InviteDetailPage({ app }) {
+  const e = React.createElement;
+  const qrContainerRef = React.useRef(null);
+  const linkInputRef = React.useRef(null);
+  const copyBtnRef = React.useRef(null);
+
+  const inv = app.state.inviteDetail;
+  const inviteLink = (app.isAdmin() && inv) ? app.routeLink('join', { inviteCode: inv.code }) : '';
+
+  React.useEffect(() => {
+    if (!app.isAdmin() || !inv) return;
+    if (qrContainerRef.current) InviteQRCode.attach(inviteLink, qrContainerRef.current);
+  }, [inviteLink]);
+
+  if (!app.isAdmin()) return e(DeniedPage, { app });
+  if (!inv) return e('div', { className: 'card' }, e('p', { className: 'muted' }, 'No invite selected.'));
+
+  const handleCopyLink = async () => {
+    const input = linkInputRef.current;
+    const btn = copyBtnRef.current;
+    if (!input) return;
+    try { await navigator.clipboard.writeText(input.value); } catch { input.select(); document.execCommand('copy'); }
+    if (btn) { const span = btn.querySelector('span + *') || btn.lastChild; if (span && span.nodeType === 3) btn.replaceChild(document.createTextNode(' Copied!'), span); btn.title = 'Copied!'; setTimeout(() => { if (span && span.nodeType === 3) btn.replaceChild(document.createTextNode(' Copy link'), span); }, 2000); }
+  };
+
+  const handleCreateNew = async () => {
+    const code = generateInviteCode();
+    const invite = { id: code, code, inviteType: 'user', createdAt: new Date().toISOString(), usedAt: null, usedBy: null };
+    await InvitesService.createInvite(invite);
+    await app.refresh();
+    app.state.inviteDetail = invite;
+    app.navigate('invite-detail');
+  };
+
+  const handleDelete = async () => {
+    if (!confirm('Delete this invite?')) return;
+    await InvitesService.deleteInvite(inv.id);
+    await app.refresh();
+    app.state.inviteDetail = null;
+    app.navigate('users', { keepFlash: true, replace: true });
+    app.setMessage('Invite deleted.');
+  };
+
+  return e('div', { className: 'card', style: { maxWidth: '640px', margin: '0 auto' } },
+    e('div', { className: 'row between', style: { marginBottom: '12px' } },
+      e('h2', { style: { margin: 0 } }, 'Invite link'),
+      e('button', { type: 'button', className: 'btn secondary', onClick: () => app.navigate('users') }, e('span', { className: 'material-symbols-rounded', 'aria-hidden': 'true' }, 'arrow_back'), ' Back to users')
+    ),
+    e('p', { className: 'muted' }, 'Share this invite with the person you want to join. The code can only be used once.'),
+    e('div', { ref: qrContainerRef, style: { textAlign: 'center', margin: '16px 0' } }),
+    e('div', { style: { margin: '16px 0' } },
+      e('label', null, 'Invite code'),
+      e('div', { className: 'row' },
+        e('code', { style: { fontSize: '1.6rem', letterSpacing: '.2em', fontWeight: '700', background: 'var(--bg)', padding: '10px 16px', borderRadius: '10px', flex: '1', textAlign: 'center' } }, inv.code)
+      )
+    ),
+    e('div', { style: { margin: '16px 0' } },
+      e('label', null, 'Invite link'),
+      e('div', { className: 'row' },
+        e('input', { ref: linkInputRef, readOnly: true, defaultValue: inviteLink, style: { fontSize: '.85rem' } }),
+        e('button', { ref: copyBtnRef, type: 'button', className: 'btn', style: { whiteSpace: 'nowrap' }, onClick: handleCopyLink },
+          e('span', { className: 'material-symbols-rounded', 'aria-hidden': 'true' }, 'content_copy'), ' Copy link')
+      )
+    ),
+    e('div', { className: 'row', style: { marginTop: '16px' } },
+      e('button', { type: 'button', className: 'btn secondary', onClick: handleCreateNew }, e('span', { className: 'material-symbols-rounded', 'aria-hidden': 'true' }, 'add_link'), ' Create another invite'),
+      e('button', { type: 'button', className: 'btn danger', onClick: handleDelete }, e('span', { className: 'material-symbols-rounded', 'aria-hidden': 'true' }, 'delete'), ' Delete this invite')
+    ),
+    e('p', { className: 'small muted', style: { marginTop: '8px' } }, `Issued: ${Utils.dateTime(inv.createdAt)}`)
+  );
 }

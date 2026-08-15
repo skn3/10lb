@@ -2,6 +2,9 @@ import { Domain } from '../../../domain.js';
 import { Utils } from '../../../shared/utils/utils.js';
 import { SubmitButton } from '../../../shared/components/submitButton.js';
 import { ChallengeService } from '../classes/challengeService.js';
+import { DeniedPage } from '../../app/pages/deniedPage.js';
+
+const React = window.React;
 
 // =============================================================================
 // EDIT ROUND PAGE
@@ -69,3 +72,92 @@ export function bindEditRoundEvents(app) {
     });
   }
 }
+
+export function EditRoundPage({ app }) {
+  const e = React.createElement;
+  const editFormRef = React.useRef(null);
+  const deleteFormRef = React.useRef(null);
+  const confirmDeleteRef = React.useRef(null);
+
+  React.useEffect(() => {
+    if (!app.isAdmin() || !app.currentRound()) return;
+    const form = editFormRef.current;
+    if (!form) return;
+    app.bindAsyncFormSubmit(form, async () => {
+      const r = app.currentRound();
+      if (!r) return;
+      const title = form.title.value.trim();
+      const prizeSplits = (r.prizeSplits || []).map((_, i) => Utils.round2(Utils.safeNum(form[`split-${i}`]?.value)));
+      const tp = Utils.round2(r.entryFee * r.participantIds.length);
+      const sum = Utils.round2(prizeSplits.reduce((a, b) => a + b, 0));
+      if (sum > tp) return app.fail('Prize splits cannot exceed total prize pool.');
+      const ok = await app._saveWithConflictResolver('Round', { ...r, title, prizeSplits }, (payload) => ChallengeService.updateRound(payload));
+      if (!ok) return;
+      await app.refresh();
+      app.setMessage('Round updated.');
+      app.navigate('overview', { keepFlash: true });
+    });
+  });
+
+  React.useEffect(() => {
+    if (!app.isAdmin() || !app.currentRound()) return;
+    const form = deleteFormRef.current;
+    if (!form) return;
+    app.bindAsyncFormSubmit(form, async () => {
+      if (!confirmDeleteRef.current?.checked) return app.fail('Confirm deletion to continue.');
+      const r = app.currentRound();
+      if (!r) return;
+      await ChallengeService.deleteRound(r.id);
+      app.state.selectedRoundId = null;
+      await app.refresh();
+      app.setMessage('Round deleted.');
+      app.navigate('rounds', { keepFlash: true });
+    });
+  });
+
+  if (!app.isAdmin()) return e(DeniedPage, { app });
+
+  const round = app.currentRound();
+  if (!round) return e('div', { className: 'card' }, e('p', { className: 'muted' }, 'No round selected.'));
+
+  const totalPrize = Utils.round2(round.entryFee * round.participantIds.length);
+
+  return e(React.Fragment, null,
+    e('div', { className: 'card' },
+      e('h2', { style: { marginTop: 0 } }, 'Edit Challenge Round'),
+      e('form', { ref: editFormRef, action: '#', className: 'grid two' },
+        e('div', null, e('label', null, 'Title'), e('input', { name: 'title', type: 'text', required: true, defaultValue: round.title })),
+        e('div', null, e('label', null, 'Prize total'), e('input', { disabled: true, value: Utils.money(totalPrize, app.state.appSettings.currency), readOnly: true })),
+        e('div', { className: 'card', style: { gridColumn: '1/-1' } },
+          e('strong', null, 'Prize splits'),
+          e('div', { className: 'grid three', style: { marginTop: '8px' } },
+            ...(round.prizeSplits || []).map((v, i) =>
+              e('div', { key: i }, e('label', null, `Rank ${i + 1}`), e('input', { type: 'number', step: '0.01', min: '0', name: `split-${i}`, defaultValue: Utils.safeNum(v) }))
+            )
+          )
+        ),
+        e('div', { className: 'row', style: { gridColumn: '1/-1' } },
+          e('button', { type: 'submit', className: 'btn' }, e('span', { className: 'material-symbols-rounded', 'aria-hidden': 'true' }, 'save'), ' Save'),
+          e('button', { type: 'button', className: 'btn secondary', onClick: () => app.navigate('overview') }, e('span', { className: 'material-symbols-rounded', 'aria-hidden': 'true' }, 'close'), ' Cancel')
+        )
+      )
+    ),
+    e('div', { className: 'card', style: { marginTop: '10px' } },
+      e('h3', { style: { marginTop: 0, color: 'var(--color-error)' } }, 'Delete Round'),
+      e('p', { className: 'error' }, 'This cannot be undone. All submissions for this round will be permanently deleted.'),
+      e('form', { ref: deleteFormRef, action: '#' },
+        e('div', null,
+          e('label', { htmlFor: 'confirm-delete-edit' }, 'Confirm delete'),
+          e('label', { className: 'row' },
+            e('input', { ref: confirmDeleteRef, id: 'confirm-delete-edit', type: 'checkbox', 'data-label': 'Confirm delete', required: true, style: { width: 'auto' } }),
+            ' I confirm delete ', e('strong', null, round.title)
+          )
+        ),
+        e('div', { className: 'row', style: { marginTop: '10px' } },
+          e('button', { type: 'submit', className: 'btn danger' }, e('span', { className: 'material-symbols-rounded', 'aria-hidden': 'true' }, 'delete'), ' Delete round')
+        )
+      )
+    )
+  );
+}
+

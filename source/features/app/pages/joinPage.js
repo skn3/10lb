@@ -132,3 +132,114 @@ export function bindJoinEvents(app) {
     });
   }
 }
+
+const React = window.React;
+
+export function JoinPage({ app }) {
+  const e = React.createElement;
+  const formRef = React.useRef(null);
+  const codeInputRef = React.useRef(null);
+
+  React.useEffect(() => {
+    if (!app.isFirebaseMode()) return;
+    const form = formRef.current;
+    if (!form) return;
+    app.enhanceFormValidation(form);
+    const codeInput = codeInputRef.current;
+    if (codeInput) codeInput.oninput = () => { codeInput.value = codeInput.value.toUpperCase(); };
+
+    app.bindAsyncFormSubmit(form, async () => {
+      if (!app.isFirebaseMode()) return app.fail('Invites are unavailable in offline mode.');
+      const inviteCode = form.inviteCode.value.trim().toUpperCase();
+      const email = form.username.value.trim();
+      const password = form.password.value;
+      const confirmPassword = form.confirmPassword.value;
+      const firstName = form.firstName.value.trim();
+      const lastName = form.lastName.value.trim();
+
+      if (!inviteCode) return app.fail('Enter your invite code.');
+      if (!email || !firstName || !lastName) return app.fail('Complete all required fields.');
+      if (!Utils.validEmail(email)) return app.fail('Enter a valid email address.');
+      if (!Utils.validPassword(password)) return app.fail('Password must include 8+ chars, a letter, a number and a symbol.');
+      if (password !== confirmPassword) return app.fail('Passwords do not match.');
+
+      const invite = await InvitesService.getFirebaseInvite(inviteCode);
+      if (!invite) return app.fail('Invite code not found or invalid.');
+      if (invite.usedAt) return app.fail('This invite code has already been used.');
+
+      let existsByEmail;
+      try {
+        const remoteMatches = await AuthService.queryUsersByEmail(email);
+        existsByEmail = remoteMatches.find((u) => !u.deletedAt) || null;
+      } catch (err) {
+        console.warn('Could not check email uniqueness via Firestore:', err.message);
+        return app.fail('Could not verify email availability. Please check your connection and try again.');
+      }
+      if (existsByEmail) return app.fail('An account with this email already exists.');
+
+      await AuthService.initializeFirebase();
+      let fbUser;
+      try { fbUser = await AuthService.createUserWithEmail(email, password); } catch (err) { return app.fail(`Account creation failed: ${err.message || err}`); }
+
+      const invitedUserId = invite.userId || Utils.id();
+      const invitedUser = await Data.adapter.getUserById(invitedUserId);
+      const acceptedAt = new Date().toISOString();
+      const userPayload = {
+        ...(invitedUser || {}),
+        id: invitedUserId, username: email, firstName, lastName, password: null,
+        firebaseUid: fbUser.uid, userType: invite.inviteType || 'user',
+        isAdmin: invite.inviteType === 'admin', isMaster: false,
+        inviteCode, invitedAt: invite.createdAt || new Date().toISOString(),
+        inviteAcceptedAt: acceptedAt, lastLoginAt: null, canLogin: true
+      };
+      if (invitedUser) {
+        const saved = await app._saveWithConflictResolver('User', userPayload, (payload) => Data.adapter.updateUser(payload));
+        if (!saved) return app.fail('Could not finish account activation.');
+      } else {
+        await Data.adapter.createUser(userPayload);
+      }
+      const user = await Data.adapter.getUserById(invitedUserId);
+      if (!user) return app.fail('Could not finish account activation.');
+
+      const localInvite = await Data.adapter.getInviteByCode(inviteCode);
+      if (!localInvite) await Data.adapter.createInvite(invite);
+      await Data.adapter.consumeInvite(inviteCode, user.id);
+      await InvitesService.saveFirebaseInvite({ ...invite, usedAt: acceptedAt, usedBy: user.id, usedByFirebaseUid: fbUser.uid, inviteAcceptedAt: acceptedAt });
+      await app.loginAs(user);
+      await app.refresh();
+      app.state.pendingInviteCode = '';
+      app.setMessage(`Welcome, ${Utils.fullName(user)}! Your account has been created.`);
+      app.navigate('overview', { keepFlash: true, replace: true });
+    });
+  });
+
+  if (!app.isFirebaseMode()) {
+    return e('div', { className: 'card', style: { maxWidth: '560px', margin: '0 auto' } },
+      e('h2', { style: { marginTop: 0 } }, 'Registration unavailable'),
+      e('p', { className: 'muted' }, 'This server is running in offline mode. Ask the master admin to create participant accounts.'),
+      e('button', { type: 'button', className: 'btn secondary', onClick: () => app.navigate('login') },
+        e('span', { className: 'material-symbols-rounded', 'aria-hidden': 'true' }, 'login'), ' Go to login')
+    );
+  }
+
+  const code = app.state.pendingInviteCode || '';
+  const serverName = app.state.appSettings?.serverName || '10lb Challenge';
+
+  return e('div', { className: 'card', style: { maxWidth: '560px', margin: '0 auto' } },
+    e('h2', { style: { marginTop: 0 } }, `Join ${serverName}`),
+    e('p', { className: 'muted' }, 'Enter your invite code and create your account.'),
+    e('form', { ref: formRef, action: '#', className: 'grid' },
+      e('div', null, e('label', null, 'Invite code'), e('input', { ref: codeInputRef, name: 'inviteCode', type: 'text', required: true, autoComplete: 'off', autoCapitalize: 'characters', spellCheck: false, minLength: 8, maxLength: 8, pattern: '[A-HJ-NP-Z2-9]{8}', title: 'Enter the 8-character invite code.', defaultValue: code, placeholder: 'e.g. ABCD1234', style: { textTransform: 'uppercase', letterSpacing: '.1em' } })),
+      e('div', null, e('label', null, 'Email'), e('input', { name: 'username', type: 'email', required: true, autoComplete: 'email', inputMode: 'email', autoCapitalize: 'none', spellCheck: false })),
+      e('div', null, e('label', null, 'Password'), e('input', { name: 'password', type: 'password', required: true, autoComplete: 'new-password' })),
+      e('div', null, e('label', null, 'Confirm password'), e('input', { name: 'confirmPassword', type: 'password', required: true, autoComplete: 'new-password' })),
+      e('div', null, e('label', null, 'First name'), e('input', { name: 'firstName', type: 'text', required: true, autoComplete: 'given-name' })),
+      e('div', null, e('label', null, 'Last name'), e('input', { name: 'lastName', type: 'text', required: true, autoComplete: 'family-name' })),
+      e('div', { style: { gridColumn: '1/-1' }, className: 'small muted' }, 'Password must contain at least 8 characters, including a number, letter, and symbol.'),
+      e('div', { style: { gridColumn: '1/-1' }, className: 'row' },
+        e('button', { type: 'submit', className: 'btn' }, e('span', { className: 'material-symbols-rounded', 'aria-hidden': 'true' }, 'person_add'), ' Create account'),
+        e('button', { type: 'button', className: 'btn secondary', onClick: () => app.navigate('login') }, e('span', { className: 'material-symbols-rounded', 'aria-hidden': 'true' }, 'login'), ' Already have an account')
+      )
+    )
+  );
+}

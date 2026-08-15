@@ -279,9 +279,9 @@ export function SubmitPage({ app }) {
   }
 
   const unit = app.state.appSettings.weightFormat || 'lb';
-  const statusPanel = app.isAdmin()
-    ? SubmissionStatusPanel.render(round, app.state.users, subs, week, { hideSubmitButton: true })
-    : '';
+  const statusPanelReact = app.isAdmin()
+    ? SubmissionStatusPanel.renderReact(round, app.state.users, subs, week, { hideSubmitButton: true }, (route) => app.navigate(route))
+    : null;
 
   if (!app.isAdmin()) {
     const userId = app.state.currentUser.id;
@@ -318,7 +318,7 @@ export function SubmitPage({ app }) {
     return e('div', { className: 'card' },
       e('h2', { style: { marginTop: 0 } }, 'User Weekly Submission'),
       e('p', { className: 'small muted' }, `Active round: ${round.title} • Week ${week}`),
-      e('div', { dangerouslySetInnerHTML: { __html: statusPanel } }),
+      statusPanelReact,
       e('p', { className: 'muted' }, `All submissions for week ${week} have been completed.`),
       e('button', {
         type: 'button',
@@ -337,7 +337,7 @@ export function SubmitPage({ app }) {
   return e('div', { className: 'card' },
     e('h2', { style: { marginTop: 0 } }, 'User Weekly Submission'),
     e('p', { className: 'small muted' }, `Active round: ${round.title} • Week ${week}`),
-    statusPanel ? e('div', { dangerouslySetInnerHTML: { __html: statusPanel } }) : null,
+    statusPanelReact,
     e('form', { id: 'submit-form', ref: formRef, action: '#', className: 'grid two' },
       e('div', null,
         e('label', null, 'User'),

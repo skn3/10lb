@@ -145,3 +145,140 @@ export function bindInstallEvents(app) {
     app.navigate('overview', { keepFlash: true, replace: true });
   });
 }
+
+const React = window.React;
+
+export function InstallPage({ app }) {
+  const e = React.createElement;
+  const formRef = React.useRef(null);
+  const logRef = React.useRef(null);
+
+  React.useEffect(() => {
+    const form = formRef.current;
+    if (!form) return;
+    app.bindAsyncFormSubmit(form, async () => {
+      const installAllowed = await app.plugin.canInstall();
+      if (!installAllowed) return app.fail('Installation is locked. This server has already been configured.');
+      const serverName = form.serverName.value.trim() || '10lb Challenge';
+      const username = form.username.value.trim();
+      const password = form.password.value;
+      const confirmPassword = form.confirmPassword.value;
+      const firstName = form.firstName.value.trim();
+      const lastName = form.lastName.value.trim();
+      const weightFormat = form.weightFormat.value;
+      const currency = form.currency.value;
+      const theme = form.theme.value;
+      const sessionDurationDays = Math.max(1, Utils.safeNum(form.sessionDurationDays.value, 7));
+
+      const logEl = logRef.current;
+      if (logEl) { logEl.innerHTML = ''; logEl.style.display = 'block'; }
+      app.installLog('Install started.');
+      app.installLog(`Server mode: ${app.isFirebaseMode() ? 'firebase' : 'local'}`);
+
+      if (!username || !firstName || !lastName) return app.fail('Complete all required fields.');
+      if (!Utils.validEmail(username)) return app.fail('Enter a valid email address.');
+      if (!Utils.validPassword(password)) return app.fail('Password must include 8+ chars, a letter, a number and a symbol.');
+      if (password !== confirmPassword) return app.fail('Passwords do not match.');
+
+      app.installLog('Checking for existing user…');
+      const exists = await Data.adapter.getUserByUsername(username);
+      if (exists) return app.fail('Email already exists.');
+      app.installLog('No existing user found.');
+
+      const { Security } = await import('../../../shared/classes/security.js');
+      const hash = app.isFirebaseMode() ? null : await Security.createPasswordRecord(password);
+      const masterUserId = Utils.id();
+      let firebaseProvision = null;
+      if (app.isFirebaseMode()) {
+        app.installLog('Firebase mode: provisioning master account…');
+        try {
+          firebaseProvision = await AuthService.provisionFirebaseMaster(username, password, masterUserId, (msg, type) => app.installLog(msg, type));
+          app.installLog(`Firebase master account created. UID: ${firebaseProvision?.uid || '(none)'}`, 'ok');
+        } catch (err) {
+          app.installLog(`Firebase provision error (${err.code || 'unknown'}): ${err.message || err}`, 'error');
+          return app.fail(`Firebase install failed: ${err.message || err}`);
+        }
+        app.installLog('Initialising FirestoreAdapter for sign-in…');
+        try {
+          await AuthService.initializeFirebase();
+          app.installLog('FirestoreAdapter initialised.', 'ok');
+        } catch (err) {
+          app.installLog(`FirestoreAdapter init error: ${err.message || err}`, 'error');
+        }
+        app.installLog(`Signing in as ${firebaseProvision?.email || username}…`);
+        try {
+          const email = firebaseProvision?.email || username;
+          await AuthService.signInWithEmail(email, password);
+          app.installLog('Firebase sign-in successful.', 'ok');
+        } catch (err) {
+          app.installLog(`Firebase sign-in error (${err.code || 'unknown'}): ${err.message || err}`, 'error');
+          return app.fail(`Firebase sign-in after install failed: ${err.message || err}`);
+        }
+      }
+      app.installLog('Creating local master user record…');
+      await Data.adapter.createUser({ id: masterUserId, username, firstName, lastName, password: hash, userType: 'master', isAdmin: true, isMaster: true, canLogin: true, firebaseUid: firebaseProvision?.uid || null, lastLoginAt: null });
+      app.installLog('Master user record created.', 'ok');
+      app.installLog('Saving app settings…');
+      app.state.appSettings = { ...app.state.appSettings, installed: true, serverName, weightFormat, currency, theme, sessionDurationDays, installedAt: new Date().toISOString(), installLockedAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+      await Data.adapter.saveAppSettings(app.state.appSettings);
+      app.installLog('App settings saved.', 'ok');
+      app.installLog('Loading settings and refreshing…');
+      await app.loadSettings();
+      await app.refresh();
+      app.installLog('Logging in as master user…');
+      const user = await Data.adapter.getUserByUsername(username);
+      await app.loginAs(user);
+      app.installLog('Login successful. Redirecting…', 'ok');
+      app.setMessage('Server installed successfully.');
+      app.navigate('overview', { keepFlash: true, replace: true });
+    });
+  });
+
+  const s = app.state.appSettings || {};
+  const firebase = (typeof RuntimeConfig !== 'undefined' && RuntimeConfig.firebase) || {};
+
+  return e('div', { className: 'card' },
+    e('h2', { style: { marginTop: 0 } }, 'Install server'),
+    e('p', { className: 'muted' }, 'Configure the server before first use.'),
+    e('form', { ref: formRef, action: '#', className: 'grid two' },
+      e('div', null, e('label', null, 'Server mode (config.js)'), e('input', { disabled: true, value: (typeof RuntimeConfig !== 'undefined' && RuntimeConfig.serverMode) || '', readOnly: true })),
+      e('div', null, e('label', null, 'Firebase API Key (config.js)'), e('input', { disabled: true, value: firebase.apiKey || '', readOnly: true })),
+      e('div', null, e('label', null, 'Firebase Auth Domain (config.js)'), e('input', { disabled: true, value: firebase.authDomain || '', readOnly: true })),
+      e('div', null, e('label', null, 'Firebase Project ID (config.js)'), e('input', { disabled: true, value: firebase.projectId || '', readOnly: true })),
+      e('div', null, e('label', null, 'Firebase Storage Bucket (config.js)'), e('input', { disabled: true, value: firebase.storageBucket || '', readOnly: true })),
+      e('div', null, e('label', null, 'Firebase Messaging Sender ID (config.js)'), e('input', { disabled: true, value: firebase.messagingSenderId || '', readOnly: true })),
+      e('div', null, e('label', null, 'Firebase App ID (config.js)'), e('input', { disabled: true, value: firebase.appId || '', readOnly: true })),
+      e('div', { style: { gridColumn: '1/-1' }, className: 'small muted' }, 'These values are read-only previews from config.js and are not saved by this form.'),
+      e('div', null, e('label', null, 'Server name'), e('input', { name: 'serverName', type: 'text', required: true, autoComplete: 'organization', defaultValue: s.serverName || '10lb Challenge' })),
+      e('div', null, e('label', null, 'Email'), e('input', { name: 'username', type: 'email', inputMode: 'email', required: true, autoComplete: 'email', autoCapitalize: 'none', spellCheck: false })),
+      e('div', null, e('label', null, 'Password'), e('input', { name: 'password', type: 'password', required: true, autoComplete: 'new-password' })),
+      e('div', null, e('label', null, 'Confirm password'), e('input', { name: 'confirmPassword', type: 'password', required: true, autoComplete: 'new-password' })),
+      e('div', null, e('label', null, 'First name'), e('input', { name: 'firstName', type: 'text', required: true, autoComplete: 'given-name' })),
+      e('div', null, e('label', null, 'Last name'), e('input', { name: 'lastName', type: 'text', required: true, autoComplete: 'family-name' })),
+      e('div', null, e('label', null, 'Weight format'),
+        e('select', { name: 'weightFormat' },
+          e('option', { value: 'lb' }, 'lb'),
+          e('option', { value: 'kg' }, 'kg')
+        )
+      ),
+      e('div', null, e('label', null, 'Currency'),
+        e('select', { name: 'currency' },
+          e('option', { value: '£' }, '£'),
+          e('option', { value: '$' }, '$'),
+          e('option', { value: '€' }, '€')
+        )
+      ),
+      e('div', null, e('label', null, 'Theme'),
+        e('select', { name: 'theme' },
+          ...(ThemeOptions || []).map((t) => e('option', { key: t.key, value: t.key, selected: t.key === (s.theme || 'teal') || undefined }, t.label))
+        )
+      ),
+      e('div', null, e('label', null, 'User session duration (days)'), e('input', { name: 'sessionDurationDays', type: 'number', min: '1', max: '365', defaultValue: Utils.safeNum(s.sessionDurationDays, 7), required: true })),
+      e('div', { style: { gridColumn: '1/-1' }, className: 'small muted' }, 'Password must contain at least 8 characters, including a number, letter, and symbol.'),
+      e('div', { style: { gridColumn: '1/-1' }, className: 'row' },
+        e('button', { type: 'submit', className: 'btn' }, e('span', { className: 'material-symbols-rounded', 'aria-hidden': 'true' }, 'install_desktop'), ' Install server')
+      )
+    ),
+    e('div', { ref: logRef, id: 'install-log', style: { display: 'none', marginTop: '16px', padding: '12px', background: 'var(--surface2,#1a1a2e)', border: '1px solid var(--border,#333)', borderRadius: '6px', fontFamily: 'monospace', fontSize: '12px', lineHeight: '1.6', color: 'var(--text,#ccc)', maxHeight: '300px', overflowY: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-all' } })
+  );
+}
