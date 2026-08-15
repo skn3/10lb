@@ -19,12 +19,13 @@ export const Breadcrumb = {
     if (!React || !items?.length) return null;
     const e = React.createElement;
     const { onNavigate, buildPath } = opts;
+    const fallbackPath = (route) => `#/${route}`;
     const crumbs = [];
     items.forEach((item, index) => {
       if (index) crumbs.push(e('span', { key: `sep-${index}`, className: 'breadcrumb-separator', 'aria-hidden': 'true' }, '/'));
       crumbs.push(e('a', {
         key: `${item.route}-${index}`,
-        href: buildPath ? buildPath(item.route, item.options || {}) : '#',
+        href: buildPath ? buildPath(item.route, item.options || {}) : fallbackPath(item.route),
         className: 'breadcrumb-link',
         onClick: (event) => {
           if (!onNavigate) return;
