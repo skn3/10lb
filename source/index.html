@@ -8,15 +8,15 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="10lb" />
-  <style>
-    @font-face {
-      font-family: 'Material Symbols Rounded';
-      font-style: normal;
-      font-display: block;
-      font-weight: 100 700;
-      src: url('./fonts/MaterialSymbolsRounded.woff2') format('woff2');
-    }
-  </style>
+  <script>
+    (function () {
+      var v = parseInt(localStorage.getItem('tenlb_cache_version') || '0', 10);
+      window.__CACHE_VERSION = v;
+      var s = document.createElement('style');
+      s.textContent = '@font-face{font-family:"Material Symbols Rounded";font-style:normal;font-display:block;font-weight:100 700;src:url("./fonts/MaterialSymbolsRounded.woff2?v=' + v + '")format("woff2")}';
+      document.head.appendChild(s);
+    })();
+  </script>
   <style>
     :root {
       color-scheme: light;
@@ -270,6 +270,12 @@
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
 <script src="https://unpkg.com/react-router-dom@6/umd/react-router-dom.production.min.js" crossorigin></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js" crossorigin></script>
-<script src="./bundle.js" defer></script>
+<script>
+  (function () {
+    var s = document.createElement('script');
+    s.src = './bundle.js?v=' + (window.__CACHE_VERSION || 0);
+    document.body.appendChild(s);
+  })();
+</script>
 </body>
 </html>

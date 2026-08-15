@@ -27,7 +27,20 @@ function _buildSettingsTabs(app) {
   if (app.isMaster() && app.isFirebaseMode()) {
     tabs.push({ key: 'sync', label: 'Storage & Sync', content: renderSyncSettingsTab(app) });
   }
+  if (app.isMaster()) {
+    tabs.push({ key: 'devtools', label: 'Dev Tools', content: _renderDevToolsTab() });
+  }
   return tabs;
+}
+
+function _renderDevToolsTab() {
+  return `<div class="card">
+    <h3 style="margin-top:0"><span class="material-symbols-rounded" aria-hidden="true" style="vertical-align:middle;margin-right:6px">bomb</span>Flush Browser Cache</h3>
+    <p class="muted">Forcing a cache flush will cause all website resources (scripts, fonts, styles) to be reloaded from the server on the next page load. The page will refresh automatically.</p>
+    <button type="button" id="btn-flush-cache" class="btn danger">
+      <span class="material-symbols-rounded" aria-hidden="true">bomb</span>Flush
+    </button>
+  </div>`;
 }
 
 export function renderSettingsPage(app) {
@@ -134,14 +147,39 @@ export function bindSettingsEvents(app) {
       }
     };
   }
+
+  const flushBtn = document.getElementById('btn-flush-cache');
+  if (flushBtn) {
+    flushBtn.onclick = () => app.flushBrowserCache();
+  }
+}
+
+function DevToolsTab({ app }) {
+  const e = React.createElement;
+  return e('div', { className: 'card' },
+    e('h3', { style: { marginTop: 0 } },
+      e('span', { className: 'material-symbols-rounded', 'aria-hidden': 'true', style: { verticalAlign: 'middle', marginRight: '6px' } }, 'bomb'),
+      'Flush Browser Cache'
+    ),
+    e('p', { className: 'muted' }, 'Forcing a cache flush will cause all website resources (scripts, fonts, styles) to be reloaded from the server on the next page load. The page will refresh automatically.'),
+    e('button', {
+      type: 'button',
+      className: 'btn danger',
+      onClick: () => app.flushBrowserCache()
+    },
+    e('span', { className: 'material-symbols-rounded', 'aria-hidden': 'true' }, 'bomb'),
+    'Flush')
+  );
 }
 
 export function SettingsPage({ app }) {
   const e = React.createElement;
   const isAdminMode = app.isAdmin();
-  const hasSyncTab = app.isMaster() && app.isFirebaseMode();
-  const showAdminTabs = isAdminMode || hasSyncTab;
-  const [activeTab, setActiveTab] = React.useState(app.state.settingsTab || 'server');
+  const isMaster = app.isMaster();
+  const hasSyncTab = isMaster && app.isFirebaseMode();
+  const showAdminTabs = isAdminMode || hasSyncTab || isMaster;
+  const defaultTab = isAdminMode ? 'server' : (hasSyncTab ? 'sync' : 'devtools');
+  const [activeTab, setActiveTab] = React.useState(app.state.settingsTab || defaultTab);
   const [serverTheme, setServerTheme] = React.useState(app.state.appSettings?.theme || null);
   const serverFormRef = React.useRef(null);
   const resetFormRef = React.useRef(null);
@@ -221,7 +259,8 @@ export function SettingsPage({ app }) {
     showAdminTabs ? e(React.Fragment, null,
       e('div', { className: 'tabs' },
         isAdminMode ? e('button', { type: 'button', className: activeTab === 'server' ? 'active' : '', onClick: () => setActiveTab('server') }, 'Server settings') : null,
-        hasSyncTab ? e('button', { type: 'button', className: activeTab === 'sync' ? 'active' : '', onClick: () => setActiveTab('sync') }, 'Storage & Sync') : null
+        hasSyncTab ? e('button', { type: 'button', className: activeTab === 'sync' ? 'active' : '', onClick: () => setActiveTab('sync') }, 'Storage & Sync') : null,
+        isMaster ? e('button', { type: 'button', className: activeTab === 'devtools' ? 'active' : '', onClick: () => setActiveTab('devtools') }, 'Dev Tools') : null
       ),
       activeTab === 'server'
         ? e(React.Fragment, null,
@@ -278,7 +317,12 @@ export function SettingsPage({ app }) {
               : e('p', { className: 'error' }, 'Only the master admin can reset this server.')
           )
         )
-        : e(SyncSettingsTab, { app })
+        : activeTab === 'sync'
+          ? e(SyncSettingsTab, { app })
+          : activeTab === 'devtools'
+            ? e(DevToolsTab, { app })
+            : null
     ) : null
   );
 }
+
