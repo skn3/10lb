@@ -34,7 +34,6 @@ export const FirestoreAdapter = (() => {
         _app = window.firebase.initializeApp(firebaseConfig, 'tenlb-app');
       }
       _db = _app.firestore();
-      _auth = _app.auth();
       if (!_settingsApplied) {
         _db.settings({
           experimentalAutoDetectLongPolling: true,
@@ -42,6 +41,7 @@ export const FirestoreAdapter = (() => {
         });
         _settingsApplied = true;
       }
+      _auth = _app.auth();
 
       return true;
     },
