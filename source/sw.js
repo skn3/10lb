@@ -1,4 +1,4 @@
-const CACHE = 'tenlb-cache-v3';
+const CACHE = 'tenlb-cache-v4';
 const ASSETS = ['./', './index.html'];
 self.addEventListener('install', (event) => {
   event.waitUntil(Promise.all([
