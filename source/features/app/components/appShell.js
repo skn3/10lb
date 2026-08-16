@@ -68,7 +68,7 @@ export function AppShell({ app: initialApp }) {
     ),
     e('nav', { id: 'nav', className: navModel.items.length ? 'has-items' : '' },
       navModel.items.length
-        ? MenuBar.renderReact(navModel.items, app.state.route, {
+        ? MenuBar.renderReact(navModel.items, navModel.breadcrumbs, app.state.route, {
           onNavigate: (key, options = {}) => app.navigate(key, options),
           onBurgerClick: () => app._navBurger?.onBurgerClick?.(),
           buildPath: (key, options = {}) => app._buildHashRoute(key, options)
