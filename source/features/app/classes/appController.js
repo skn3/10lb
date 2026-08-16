@@ -799,7 +799,7 @@ export const App = {
     model.authUserType = this.state.currentUser?.userType || (this.state.currentUser?.isMaster ? 'master' : (this.state.currentUser?.isAdmin ? 'admin' : 'user'));
     model.authUserId = this.state.currentUser?.id || '';
     if (!this.react.enabled) {
-      nav.innerHTML = MenuBar.render(model.items, this.state.route, (key, options = {}) => this._buildHashRoute(key, options));
+      nav.innerHTML = MenuBar.render(model.items, model.breadcrumbs, this.state.route, (key, options = {}) => this._buildHashRoute(key, options));
       MenuBar.attachClickHandler(nav, (route) => this.navigate(route));
       authChip.innerHTML = SiteHeader.renderHTML(model.authName, model.authRole, model.authUserType, model.authUserId);
       const userChipBtn = document.getElementById('btn-auth-chip');
