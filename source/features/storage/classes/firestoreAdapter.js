@@ -9,7 +9,7 @@ export const FirestoreAdapter = (() => {
   let _db = null;   // firebase.firestore() compat instance
   let _auth = null; // firebase.auth() compat instance
   let _challengeId = 'default';
-  let _settingsApplied = false;
+  let _configuredDb = null;
 
   // Strip sensitive fields before uploading to Firestore
   const sanitiseUser = (u) => {
@@ -34,12 +34,12 @@ export const FirestoreAdapter = (() => {
         _app = window.firebase.initializeApp(firebaseConfig, 'tenlb-app');
       }
       _db = _app.firestore();
-      if (!_settingsApplied) {
+      if (_configuredDb !== _db) {
         _db.settings({
           experimentalAutoDetectLongPolling: true,
           useFetchStreams: false
         });
-        _settingsApplied = true;
+        _configuredDb = _db;
       }
       _auth = _app.auth();
 
