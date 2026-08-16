@@ -9,6 +9,7 @@ export const FirestoreAdapter = (() => {
   let _db = null;   // firebase.firestore() compat instance
   let _auth = null; // firebase.auth() compat instance
   let _challengeId = 'default';
+  let _settingsApplied = false;
 
   // Strip sensitive fields before uploading to Firestore
   const sanitiseUser = (u) => {
@@ -34,6 +35,13 @@ export const FirestoreAdapter = (() => {
       }
       _db = _app.firestore();
       _auth = _app.auth();
+      if (!_settingsApplied) {
+        _db.settings({
+          experimentalAutoDetectLongPolling: true,
+          useFetchStreams: false
+        });
+        _settingsApplied = true;
+      }
 
       return true;
     },
