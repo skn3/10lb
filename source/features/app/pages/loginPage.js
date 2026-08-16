@@ -70,7 +70,7 @@ export function bindLoginEvents(app) {
       const route = app.redirectToPostLogin(redirect);
       app.setMessage(`Welcome back, ${Utils.fullName(app.state.currentUser)}.`);
       app.navigate(route, { keepFlash: true, replace: true });
-    });
+    }, { waitForSync: false });
   }
 
   const btnGoLogin = document.getElementById('btn-go-login');
@@ -123,7 +123,7 @@ export function LoginPage({ app }) {
       const route = app.redirectToPostLogin(redirect);
       app.setMessage(`Welcome back, ${Utils.fullName(app.state.currentUser)}.`);
       app.navigate(route, { keepFlash: true, replace: true });
-    });
+    }, { waitForSync: false });
   });
 
   return e('div', { className: 'card', style: { maxWidth: '560px', margin: '0 auto' } },
@@ -142,4 +142,3 @@ export function LoginPage({ app }) {
       : null
   );
 }
-
