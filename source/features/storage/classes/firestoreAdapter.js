@@ -9,6 +9,8 @@ export const FirestoreAdapter = (() => {
   let _db = null;   // firebase.firestore() compat instance
   let _auth = null; // firebase.auth() compat instance
   let _challengeId = 'default';
+  let _configuredDb = null;
+  let _initPromise = null;
 
   // Strip sensitive fields before uploading to Firestore
   const sanitiseUser = (u) => {
@@ -25,17 +27,33 @@ export const FirestoreAdapter = (() => {
     async init(firebaseConfig, challengeId) {
       if (!window.firebase) throw new Error('Firebase SDK not loaded');
       _challengeId = challengeId || 'default';
+      if (_db && _auth) return true;
+      if (_initPromise) return _initPromise;
 
-      // Re-use existing named app if already initialised
+      _initPromise = (async () => {
+        // Re-use existing named app if already initialised
+        try {
+          _app = window.firebase.app('tenlb-app');
+        } catch {
+          _app = window.firebase.initializeApp(firebaseConfig, 'tenlb-app');
+        }
+        _db = _app.firestore();
+        if (_configuredDb !== _db) {
+          _db.settings({
+            experimentalAutoDetectLongPolling: true,
+            useFetchStreams: false
+          });
+          _configuredDb = _db;
+        }
+        _auth = _app.auth();
+        return true;
+      })();
+
       try {
-        _app = window.firebase.app('tenlb-app');
-      } catch {
-        _app = window.firebase.initializeApp(firebaseConfig, 'tenlb-app');
+        return await _initPromise;
+      } finally {
+        _initPromise = null;
       }
-      _db = _app.firestore();
-      _auth = _app.auth();
-
-      return true;
     },
 
     getUid() { return _auth?.currentUser?.uid || null; },
@@ -162,11 +180,16 @@ export const FirestoreAdapter = (() => {
 
     subscribe(entityType, onData) {
       if (!_db) return () => {};
-      return colRef(entityType).onSnapshot((snap) => {
-        snap.docChanges().forEach((change) => {
-          if (['added', 'modified'].includes(change.type)) onData(change.doc.data());
-        });
-      });
+      return colRef(entityType).onSnapshot(
+        (snap) => {
+          snap.docChanges().forEach((change) => {
+            if (['added', 'modified'].includes(change.type)) onData(change.doc.data());
+          });
+        },
+        (error) => {
+          console.warn(`Firestore listener error for ${entityType}:`, error?.message || error);
+        }
+      );
     }
   };
 })();
