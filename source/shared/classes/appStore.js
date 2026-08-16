@@ -54,9 +54,9 @@ function AppStoreProvider({ app, children }) {
   const React = window.React;
   const e = React.createElement;
   const [, setTick] = React.useState(0);
-  React.useEffect(() => {
-    AppStore._setForceUpdate(setTick);
-    return () => AppStore._setForceUpdate(null);
-  }, []);
+  AppStore._setForceUpdate(setTick);
+  React.useEffect(() => () => {
+    if (AppStore._forceUpdate === setTick) AppStore._setForceUpdate(null);
+  }, [setTick]);
   return e(AppStore._getCtx().Provider, { value: app }, children);
 }

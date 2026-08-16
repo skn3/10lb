@@ -47,6 +47,14 @@ export const FirestoreAdapter = (() => {
           _configuredDb = _db;
         }
         _auth = _app.auth();
+        const localPersistence = window.firebase?.auth?.Auth?.Persistence?.LOCAL;
+        if (localPersistence) {
+          try {
+            await _auth.setPersistence(localPersistence);
+          } catch (err) {
+            console.warn('Could not enable Firebase local auth persistence:', err?.message || err);
+          }
+        }
         return true;
       })();
 
@@ -83,10 +91,20 @@ export const FirestoreAdapter = (() => {
     getCurrentFirebaseUser() {
       return new Promise((resolve) => {
         if (!_auth) return resolve(null);
-        const unsubscribe = _auth.onAuthStateChanged((user) => {
-          unsubscribe();
-          resolve(user || null);
-        });
+        if (_auth.currentUser) return resolve(_auth.currentUser);
+        let settled = false;
+        let unsubscribe = () => {};
+        const finish = (user) => {
+          if (settled) return;
+          settled = true;
+          try { unsubscribe(); } catch (_) {}
+          resolve(user || _auth.currentUser || null);
+        };
+        unsubscribe = _auth.onAuthStateChanged(
+          (user) => finish(user),
+          () => finish(_auth.currentUser || null)
+        );
+        window.setTimeout(() => finish(_auth.currentUser || null), 2000);
       });
     },
 
