@@ -55,7 +55,7 @@ export const MenuBar = {
     return e('div', { className: 'nav-inner' },
       e('div', { className: 'menu-header' },
         Breadcrumb.renderReact(breadcrumbs || [], {
-          onNavigate: (route, options = {}) => { if (onNavigate) onNavigate(route, options); },
+          onNavigate: onNavigate ? (route, options = {}) => onNavigate(route, options) : undefined,
           buildPath: (route, options = {}) => buildPath ? buildPath(route, options) : `#/${route}`
         }),
         e('button', {
