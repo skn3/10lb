@@ -44,9 +44,7 @@ export const MenuBar = {
    */
   renderReact(items, activeRoute, opts = {}) {
     const React = window.React;
-    const Router = window.ReactRouterDOM;
-    if (!React || !Router?.Link) return null;
-    const { Link } = Router;
+    if (!React) return null;
     const e = React.createElement;
     const { onNavigate, onBurgerClick, buildPath } = opts;
     const activeKey = activeMenuKey(activeRoute);
@@ -66,9 +64,9 @@ export const MenuBar = {
       ),
       e('div', { className: 'menu-track', role: 'menubar' },
         ...items.map((item) =>
-          e(Link, {
+          e('a', {
             key: item.key,
-            to: `/${item.key}`,
+            href: `#/${item.key}`,
             className: `menu-item${activeKey === item.key ? ' active' : ''}`,
             role: 'menuitem',
             'aria-current': activeKey === item.key ? 'page' : 'false',
