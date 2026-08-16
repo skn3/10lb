@@ -55,7 +55,7 @@ export class FirebasePlugin extends ServerPlugin {
     if (!fbUser || fbUser.isAnonymous) return;
     let user;
     try {
-      user = await AuthService.resolveFirebaseUser(fbUser.uid);
+      user = await AuthService.resolveFirebaseUser(fbUser);
     } catch (e) {
       console.warn('Could not resolve user account during session restore:', e.message);
       return;
