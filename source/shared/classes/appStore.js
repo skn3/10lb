@@ -54,7 +54,11 @@ function AppStoreProvider({ app, children }) {
   const React = window.React;
   const e = React.createElement;
   const [, setTick] = React.useState(0);
-  AppStore._setForceUpdate(setTick);
+  const registeredRef = React.useRef(false);
+  if (!registeredRef.current || AppStore._forceUpdate !== setTick) {
+    AppStore._setForceUpdate(setTick);
+    registeredRef.current = true;
+  }
   React.useEffect(() => () => {
     if (AppStore._forceUpdate === setTick) AppStore._setForceUpdate(null);
   }, [setTick]);

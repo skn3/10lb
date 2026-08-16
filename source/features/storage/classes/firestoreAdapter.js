@@ -5,6 +5,7 @@
 // IMPORTANT: password hashes are NEVER written to Firestore.
 // =============================================================================
 export const FirestoreAdapter = (() => {
+  const AUTH_STATE_TIMEOUT_MS = 2000;
   let _app = null;
   let _db = null;   // firebase.firestore() compat instance
   let _auth = null; // firebase.auth() compat instance
@@ -104,7 +105,7 @@ export const FirestoreAdapter = (() => {
           (user) => finish(user),
           () => finish(_auth.currentUser || null)
         );
-        window.setTimeout(() => finish(_auth.currentUser || null), 2000);
+        window.setTimeout(() => finish(_auth.currentUser || null), AUTH_STATE_TIMEOUT_MS);
       });
     },
 
