@@ -41,7 +41,8 @@ export const FirestoreAdapter = (() => {
         if (_configuredDb !== _db) {
           _db.settings({
             experimentalAutoDetectLongPolling: true,
-            useFetchStreams: false
+            useFetchStreams: false,
+            merge: true
           });
           _configuredDb = _db;
         }
