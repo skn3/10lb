@@ -170,11 +170,16 @@ export const FirestoreAdapter = (() => {
 
     subscribe(entityType, onData) {
       if (!_db) return () => {};
-      return colRef(entityType).onSnapshot((snap) => {
-        snap.docChanges().forEach((change) => {
-          if (['added', 'modified'].includes(change.type)) onData(change.doc.data());
-        });
-      });
+      return colRef(entityType).onSnapshot(
+        (snap) => {
+          snap.docChanges().forEach((change) => {
+            if (['added', 'modified'].includes(change.type)) onData(change.doc.data());
+          });
+        },
+        (error) => {
+          console.warn(`Firestore listener error for ${entityType}:`, error?.message || error);
+        }
+      );
     }
   };
 })();
