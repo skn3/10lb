@@ -5,6 +5,7 @@
 // IMPORTANT: password hashes are NEVER written to Firestore.
 // =============================================================================
 export const FirestoreAdapter = (() => {
+  const AUTH_STATE_TIMEOUT_MS = 2000;
   let _app = null;
   let _db = null;   // firebase.firestore() compat instance
   let _auth = null; // firebase.auth() compat instance
@@ -47,6 +48,14 @@ export const FirestoreAdapter = (() => {
           _configuredDb = _db;
         }
         _auth = _app.auth();
+        const localPersistence = window.firebase?.auth?.Auth?.Persistence?.LOCAL;
+        if (localPersistence) {
+          try {
+            await _auth.setPersistence(localPersistence);
+          } catch (err) {
+            console.warn('Could not enable Firebase local auth persistence:', err?.message || err);
+          }
+        }
         return true;
       })();
 
@@ -83,10 +92,20 @@ export const FirestoreAdapter = (() => {
     getCurrentFirebaseUser() {
       return new Promise((resolve) => {
         if (!_auth) return resolve(null);
-        const unsubscribe = _auth.onAuthStateChanged((user) => {
-          unsubscribe();
-          resolve(user || null);
-        });
+        let settled = false;
+        let unsubscribe = () => {};
+        const finish = (user, useCurrentFallback = true) => {
+          if (settled) return;
+          settled = true;
+          try { unsubscribe(); } catch (_) {}
+          resolve(useCurrentFallback ? (user || _auth.currentUser || null) : (user || null));
+        };
+        unsubscribe = _auth.onAuthStateChanged(
+          (user) => finish(user, false),
+          () => finish(_auth.currentUser || null)
+        );
+        if (_auth.currentUser) queueMicrotask(() => finish(_auth.currentUser));
+        window.setTimeout(() => finish(_auth.currentUser || null), AUTH_STATE_TIMEOUT_MS);
       });
     },
 

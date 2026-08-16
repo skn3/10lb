@@ -14,6 +14,7 @@
 export const AppStore = {
   _ctx: null,
   _forceUpdate: null,
+  _pendingUpdate: false,
 
   _getCtx() {
     if (!this._ctx) {
@@ -42,6 +43,8 @@ export const AppStore = {
     Object.assign(app.state, patch || {});
     if (typeof this._forceUpdate === 'function') {
       this._forceUpdate((tick) => tick + 1);
+    } else {
+      this._pendingUpdate = true;
     }
   },
 
@@ -54,9 +57,15 @@ function AppStoreProvider({ app, children }) {
   const React = window.React;
   const e = React.createElement;
   const [, setTick] = React.useState(0);
-  React.useEffect(() => {
+  React.useLayoutEffect(() => {
     AppStore._setForceUpdate(setTick);
-    return () => AppStore._setForceUpdate(null);
-  }, []);
+    if (AppStore._pendingUpdate) {
+      AppStore._pendingUpdate = false;
+      setTick((tick) => tick + 1);
+    }
+    return () => {
+      if (AppStore._forceUpdate === setTick) AppStore._setForceUpdate(null);
+    };
+  }, [setTick]);
   return e(AppStore._getCtx().Provider, { value: app }, children);
 }
