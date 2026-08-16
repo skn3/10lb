@@ -26,7 +26,14 @@ self.addEventListener('fetch', (event) => {
   if (!isNavigation && !isStaticAsset) return;
 
   if (isNavigation) {
-    event.respondWith(fetch(req).catch(() => caches.match('./index.html')));
+    event.respondWith(fetch(req).catch(async () => {
+      const fallback = await caches.match('./index.html');
+      return fallback || new Response('Offline', {
+        status: 503,
+        statusText: 'Offline',
+        headers: { 'Content-Type': 'text/plain; charset=utf-8' }
+      });
+    }));
     return;
   }
 
