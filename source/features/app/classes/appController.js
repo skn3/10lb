@@ -448,7 +448,7 @@ export const App = {
     const manifest = {
       name: '10lb Challenge',
       short_name: '10lb',
-      start_url: './',
+      start_url: '/',
       display: 'standalone',
       background_color: '#f6f8fb',
       theme_color: '#0f766e',
@@ -962,14 +962,15 @@ export const App = {
   prepareFormFields(form) { appPrepareFormFields(form, appFieldErrorSlot); },
   validateForm(form) { return appValidateForm(form, (msg) => this.fail(msg)); },
 
-  bindAsyncFormSubmit(form, handler) {
+  bindAsyncFormSubmit(form, handler, options = {}) {
     if (!form) return;
+    const waitForSync = options.waitForSync !== false;
     this.enhanceFormValidation(form);
     form.onsubmit = async (e) => {
       e.preventDefault();
       if (!this.validateForm(form)) return;
       const submitBtn = e.submitter || form.querySelector('button[type="submit"]');
-      if (this._isSyncing()) {
+      if (waitForSync && this._isSyncing()) {
         if (submitBtn) {
           const origLabel = this.buttonLabelText(submitBtn);
           const origIcon = submitBtn.dataset.iconDefault || this.iconForButton(submitBtn) || '';
