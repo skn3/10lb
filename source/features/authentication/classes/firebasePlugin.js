@@ -55,7 +55,7 @@ export class FirebasePlugin extends ServerPlugin {
     if (!fbUser || fbUser.isAnonymous) return;
     let user;
     try {
-      user = await AuthService.resolveFirebaseUser(fbUser.uid);
+      user = await AuthService.resolveFirebaseUser(fbUser);
     } catch (e) {
       console.warn('Could not resolve user account during session restore:', e.message);
       return;
@@ -98,9 +98,11 @@ export class FirebasePlugin extends ServerPlugin {
   async onInit() {
     // Start Firestore sync if firebase config is complete.
     if (RuntimeConfig.firebase?.apiKey && RuntimeConfig.firebase?.authDomain && RuntimeConfig.firebase?.projectId) {
-      this._app._initOnlineMode(RuntimeConfig.firebase).catch((err) => {
+      try {
+        await this._app._initOnlineMode(RuntimeConfig.firebase);
+      } catch (err) {
         console.warn('Online Mode could not resume:', err.message);
-      });
+      }
     } else {
       this._app.setMessage('', 'config.js is set to firebase mode but firebase config is incomplete. Falling back to local mode.');
     }

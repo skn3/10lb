@@ -1,6 +1,7 @@
 import { ThemeOptions } from '../../../constants.js';
 import { Utils } from '../../../shared/utils/utils.js';
 import { Security } from '../../../shared/classes/security.js';
+import { SubmitButton } from '../../../shared/components/submitButton.js';
 import { SyncButton } from '../components/syncButton.js';
 import { AuthService } from '../../authentication/classes/authService.js';
 import { StorageService } from '../../storage/classes/storageService.js';
@@ -37,9 +38,7 @@ function _renderDevToolsTab() {
   return `<div class="card">
     <h3 style="margin-top:0"><span class="material-symbols-rounded" aria-hidden="true" style="vertical-align:middle;margin-right:6px">bomb</span>Flush Browser Cache</h3>
     <p class="muted">Forcing a cache flush will cause all website resources (scripts, fonts, styles) to be reloaded from the server on the next page load. The page will refresh automatically.</p>
-    <button type="button" id="btn-flush-cache" class="btn danger">
-      <span class="material-symbols-rounded" aria-hidden="true">bomb</span>Flush
-    </button>
+    ${SubmitButton.render({ id: 'btn-flush-cache', text: 'Flush', icon: 'bomb', theme: 'danger' })}
   </div>`;
 }
 
@@ -165,10 +164,13 @@ function DevToolsTab({ app }) {
     e('button', {
       type: 'button',
       className: 'btn danger',
+      'data-icon-skip': '1',
+      'data-icon-default': 'bomb',
+      'data-orig-label': 'Flush',
       onClick: () => app.flushBrowserCache()
     },
-    e('span', { className: 'material-symbols-rounded', 'aria-hidden': 'true' }, 'bomb'),
-    'Flush')
+    e('span', { className: 'btn-icon material-symbols-rounded', 'aria-hidden': 'true' }, 'bomb'),
+    e('span', { className: 'btn-label' }, 'Flush'))
   );
 }
 
@@ -325,4 +327,3 @@ export function SettingsPage({ app }) {
     ) : null
   );
 }
-

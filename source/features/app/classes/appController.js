@@ -448,7 +448,7 @@ export const App = {
     const manifest = {
       name: '10lb Challenge',
       short_name: '10lb',
-      start_url: './',
+      start_url: window.location.origin + window.location.pathname,
       display: 'standalone',
       background_color: '#f6f8fb',
       theme_color: '#0f766e',
@@ -466,9 +466,8 @@ export const App = {
   // React setup
   // ---------------------------------------------------------------------------
   setupReact() {
-    if (!window.React || !window.ReactDOM?.createRoot || !window.ReactRouterDOM?.HashRouter) return;
+    if (!window.React || !window.ReactDOM?.createRoot) return;
     const React = window.React;
-    const Router = window.ReactRouterDOM;
     const e = React.createElement;
     const mountEl = document.getElementById('app-shell-root') || document.body;
     const root = window.ReactDOM.createRoot(mountEl);
@@ -476,7 +475,7 @@ export const App = {
       enabled: true,
       root
     };
-    root.render(e(Router.HashRouter, null, AppStore.createProvider(this, e(AppShell, { app: this }))));
+    root.render(AppStore.createProvider(this, e(AppShell, { app: this })));
   },
 
   setupShellFallback() {
@@ -800,7 +799,7 @@ export const App = {
     model.authUserType = this.state.currentUser?.userType || (this.state.currentUser?.isMaster ? 'master' : (this.state.currentUser?.isAdmin ? 'admin' : 'user'));
     model.authUserId = this.state.currentUser?.id || '';
     if (!this.react.enabled) {
-      nav.innerHTML = MenuBar.render(model.items, this.state.route, (key, options = {}) => this._buildHashRoute(key, options));
+      nav.innerHTML = MenuBar.render(model.items, model.breadcrumbs, this.state.route, (key, options = {}) => this._buildHashRoute(key, options));
       MenuBar.attachClickHandler(nav, (route) => this.navigate(route));
       authChip.innerHTML = SiteHeader.renderHTML(model.authName, model.authRole, model.authUserType, model.authUserId);
       const userChipBtn = document.getElementById('btn-auth-chip');
@@ -962,14 +961,15 @@ export const App = {
   prepareFormFields(form) { appPrepareFormFields(form, appFieldErrorSlot); },
   validateForm(form) { return appValidateForm(form, (msg) => this.fail(msg)); },
 
-  bindAsyncFormSubmit(form, handler) {
+  bindAsyncFormSubmit(form, handler, options = {}) {
     if (!form) return;
+    const waitForSync = options.waitForSync !== false;
     this.enhanceFormValidation(form);
     form.onsubmit = async (e) => {
       e.preventDefault();
       if (!this.validateForm(form)) return;
       const submitBtn = e.submitter || form.querySelector('button[type="submit"]');
-      if (this._isSyncing()) {
+      if (waitForSync && this._isSyncing()) {
         if (submitBtn) {
           const origLabel = this.buttonLabelText(submitBtn);
           const origIcon = submitBtn.dataset.iconDefault || this.iconForButton(submitBtn) || '';
