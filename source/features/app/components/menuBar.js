@@ -69,7 +69,7 @@ export const MenuBar = {
             href: `#/${item.key}`,
             className: `menu-item${activeKey === item.key ? ' active' : ''}`,
             role: 'menuitem',
-            'aria-current': activeKey === item.key ? 'page' : 'false',
+            'aria-current': activeKey === item.key ? 'page' : undefined,
             onClick: (event) => { event.preventDefault(); if (onNavigate) onNavigate(item.key); }
           },
           e('span', { className: 'material-symbols-rounded', 'aria-hidden': 'true' }, item.icon),
