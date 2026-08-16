@@ -83,10 +83,19 @@ export const FirestoreAdapter = (() => {
     getCurrentFirebaseUser() {
       return new Promise((resolve) => {
         if (!_auth) return resolve(null);
+        let settled = false;
         const unsubscribe = _auth.onAuthStateChanged((user) => {
+          if (settled) return;
+          settled = true;
           unsubscribe();
           resolve(user || null);
         });
+        window.setTimeout(() => {
+          if (settled) return;
+          settled = true;
+          try { unsubscribe(); } catch (_) {}
+          resolve(_auth.currentUser || null);
+        }, 5000);
       });
     },
 
