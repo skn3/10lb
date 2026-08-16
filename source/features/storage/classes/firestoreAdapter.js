@@ -92,19 +92,19 @@ export const FirestoreAdapter = (() => {
     getCurrentFirebaseUser() {
       return new Promise((resolve) => {
         if (!_auth) return resolve(null);
-        if (_auth.currentUser) return resolve(_auth.currentUser);
         let settled = false;
         let unsubscribe = () => {};
-        const finish = (user) => {
+        const finish = (user, useCurrentFallback = true) => {
           if (settled) return;
           settled = true;
           try { unsubscribe(); } catch (_) {}
-          resolve(user || _auth.currentUser || null);
+          resolve(useCurrentFallback ? (user || _auth.currentUser || null) : (user || null));
         };
         unsubscribe = _auth.onAuthStateChanged(
-          (user) => finish(user),
+          (user) => finish(user, false),
           () => finish(_auth.currentUser || null)
         );
+        if (_auth.currentUser) queueMicrotask(() => finish(_auth.currentUser));
         window.setTimeout(() => finish(_auth.currentUser || null), AUTH_STATE_TIMEOUT_MS);
       });
     },
