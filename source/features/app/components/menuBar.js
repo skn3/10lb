@@ -1,5 +1,6 @@
 import { Utils } from '../../../shared/utils/utils.js';
 import { PageMenuMap } from '../../../constants.js';
+import { Breadcrumb } from './breadcrumb.js';
 
 // =============================================================================
 // MENU BAR — navigation bar component.
@@ -13,11 +14,12 @@ export const MenuBar = {
   /**
    * Returns the innerHTML for the <nav> element.
    * @param {{ key: string, icon: string, label: string }[]} items
+   * @param {{ label: string, route: string, options?: object }[]} breadcrumbs
    * @param {string} activeRoute
    * @param {function(string, object=): string} buildHref  e.g. (key) => `#/${key}`
    * @returns {string}
    */
-  render(items, activeRoute, buildHref) {
+  render(items, breadcrumbs, activeRoute, buildHref) {
     const activeKey = activeMenuKey(activeRoute);
     const links = items.map((item) => {
       const href = buildHref(item.key);
@@ -28,6 +30,7 @@ export const MenuBar = {
     }).join('');
     return `<div class="nav-inner">` +
       `<div class="menu-header">` +
+      `${Breadcrumb.render(breadcrumbs || [], (key, options = {}) => buildHref(key, options))}` +
       `<button class="menu-burger" type="button" aria-label="Expand menu" aria-expanded="false" title="Expand menu" data-icon-skip="1">` +
       `<span class="material-symbols-rounded menu-burger-glyph" aria-hidden="true">menu</span><span class="menu-burger-label">Menu</span></button>` +
       `</div>` +
@@ -38,11 +41,12 @@ export const MenuBar = {
   /**
    * Returns a React element tree for the nav inner content.
    * @param {{ key: string, icon: string, label: string }[]} items
+   * @param {{ label: string, route: string, options?: object }[]} breadcrumbs
    * @param {string} activeRoute
    * @param {{ onNavigate: function, onBurgerClick?: function, buildPath?: function }} opts
    * @returns {*} React element
    */
-  renderReact(items, activeRoute, opts = {}) {
+  renderReact(items, breadcrumbs, activeRoute, opts = {}) {
     const React = window.React;
     if (!React) return null;
     const e = React.createElement;
@@ -50,6 +54,10 @@ export const MenuBar = {
     const activeKey = activeMenuKey(activeRoute);
     return e('div', { className: 'nav-inner' },
       e('div', { className: 'menu-header' },
+        Breadcrumb.renderReact(breadcrumbs || [], {
+          onNavigate: (route, options = {}) => { if (onNavigate) onNavigate(route, options); },
+          buildPath: (route, options = {}) => buildPath ? buildPath(route, options) : `#/${route}`
+        }),
         e('button', {
           className: 'menu-burger',
           type: 'button',
