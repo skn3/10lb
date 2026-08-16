@@ -448,7 +448,7 @@ export const App = {
     const manifest = {
       name: '10lb Challenge',
       short_name: '10lb',
-      start_url: '/',
+      start_url: window.location.origin + window.location.pathname,
       display: 'standalone',
       background_color: '#f6f8fb',
       theme_color: '#0f766e',
@@ -466,9 +466,8 @@ export const App = {
   // React setup
   // ---------------------------------------------------------------------------
   setupReact() {
-    if (!window.React || !window.ReactDOM?.createRoot || !window.ReactRouterDOM?.HashRouter) return;
+    if (!window.React || !window.ReactDOM?.createRoot) return;
     const React = window.React;
-    const Router = window.ReactRouterDOM;
     const e = React.createElement;
     const mountEl = document.getElementById('app-shell-root') || document.body;
     const root = window.ReactDOM.createRoot(mountEl);
@@ -476,7 +475,7 @@ export const App = {
       enabled: true,
       root
     };
-    root.render(e(Router.HashRouter, null, AppStore.createProvider(this, e(AppShell, { app: this }))));
+    root.render(AppStore.createProvider(this, e(AppShell, { app: this })));
   },
 
   setupShellFallback() {
